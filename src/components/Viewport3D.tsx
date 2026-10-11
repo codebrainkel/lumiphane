@@ -15,7 +15,8 @@ const WARM_LIGHT_COLOR = 0xffdfa8; // Warm 2700K incandescent glow
 const MATERIAL_BASE_COLOR = 0xf7f4ec; // Warm Ivory PLA base color
 const EXTINCTION_COEFFICIENT = 1.15; // Material light extinction mu in mm^-1
 const SCATTER_STRENGTH = 0.8;
-const BACKLIGHT_INTENSITY = 1.56;
+const BACKLIGHT_INTENSITY = 1.56 * 1.25;
+const VIEW_EDGE_PAD = 10;
 const ROOM_LIGHT_INTENSITY = 0.18;
 
 export const Viewport3D: React.FC<Viewport3DProps> = ({
@@ -110,7 +111,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       animId = requestAnimationFrame(animate);
       if (controlsRef.current) {
         if (autoRotateRef.current && meshRef.current) {
-          meshRef.current.rotation.y += 0.005;
+          meshRef.current.rotation.z += 0.005;
         }
         controlsRef.current.update();
       }
@@ -388,20 +389,120 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
   }, [showBed]);
 
   const placeView = (geom: MeshGeometryData, view: 'front' | 'iso') => {
-    if (!cameraRef.current || !controlsRef.current) return;
-    const maxDim = Math.max(geom.boundingBox.size[0], geom.boundingBox.size[2], 80);
-    const dist = maxDim * 1.75;
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    const mount = mountRef.current;
+    if (!camera || !controls || !mount) return;
+
+    const canvasW = mount.clientWidth;
+    const canvasH = mount.clientHeight;
+    if (canvasW < 2 || canvasH < 2) return;
+
+    const centerX = (geom.boundingBox.max[0] + geom.boundingBox.min[0]) / 2;
     const centerY = (geom.boundingBox.max[1] + geom.boundingBox.min[1]) / 2;
     const centerZ = (geom.boundingBox.max[2] + geom.boundingBox.min[2]) / 2;
+    const half = new THREE.Vector3(
+      geom.boundingBox.size[0] / 2,
+      geom.boundingBox.size[1] / 2,
+      geom.boundingBox.size[2] / 2
+    );
 
-    controlsRef.current.target.set(0, centerY, centerZ);
-    if (view === 'iso') {
-      cameraRef.current.position.set(dist * 0.9, centerY + dist * 1.15, centerZ + dist * 0.7);
-    } else {
-      cameraRef.current.position.set(0, centerY + dist * 1.5, centerZ);
+    const towardCamera =
+      view === 'iso' ? new THREE.Vector3(0.9, 1.15, 0.7) : new THREE.Vector3(0, 1, 0);
+    towardCamera.normalize();
+
+    const worldUp = new THREE.Vector3(0, 0, 1);
+    const xAxis = new THREE.Vector3().crossVectors(worldUp, towardCamera);
+    if (xAxis.lengthSq() < 1e-8) xAxis.set(1, 0, 0);
+    xAxis.normalize();
+    const yAxis = new THREE.Vector3().crossVectors(towardCamera, xAxis).normalize();
+
+    const span = (axis: THREE.Vector3) =>
+      2 *
+      (Math.abs(half.x * axis.x) + Math.abs(half.y * axis.y) + Math.abs(half.z * axis.z));
+    const objW = Math.max(span(xAxis), 1);
+    const objH = Math.max(span(yAxis), 1);
+
+    const canvasRect = mount.getBoundingClientRect();
+    const root = mount.parentElement?.parentElement;
+    const tools = root?.querySelector('.viewport-tools');
+    const badge = root?.querySelector('.dim-badge');
+    let topPad = VIEW_EDGE_PAD;
+    let bottomPad = VIEW_EDGE_PAD;
+    if (tools) {
+      const toolsRect = tools.getBoundingClientRect();
+      topPad = Math.max(topPad, toolsRect.bottom - canvasRect.top + VIEW_EDGE_PAD);
     }
-    cameraRef.current.lookAt(0, centerY, centerZ);
-    controlsRef.current.update();
+    if (badge) {
+      const badgeRect = badge.getBoundingClientRect();
+      bottomPad = Math.max(bottomPad, canvasRect.bottom - badgeRect.top + VIEW_EDGE_PAD);
+    }
+    const availW = Math.max(32, canvasW - VIEW_EDGE_PAD * 2);
+    const availH = Math.max(32, canvasH - topPad - bottomPad);
+
+    const tan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    const aspect = canvasW / canvasH;
+    const distH = (objH * canvasH) / (2 * tan * availH);
+    const distW = (objW * canvasW) / (2 * tan * aspect * availW);
+    let distance = Math.max(distH, distW);
+
+    const desiredLeft = VIEW_EDGE_PAD;
+    const desiredTop = topPad;
+    const desiredCx = desiredLeft + availW / 2;
+    const desiredCy = desiredTop + availH / 2;
+
+    const { min, max } = geom.boundingBox;
+    const corners = [0, 1].flatMap((ix) =>
+      [0, 1].flatMap((iy) =>
+        [0, 1].map(
+          (iz) =>
+            new THREE.Vector3(
+              ix ? max[0] : min[0],
+              iy ? max[1] : min[1],
+              iz ? max[2] : min[2]
+            )
+        )
+      )
+    );
+    const ndc = new THREE.Vector3();
+    const look = new THREE.Vector3(centerX, centerY, centerZ);
+
+    for (let i = 0; i < 6; i++) {
+      camera.position.copy(look).addScaledVector(towardCamera, distance);
+      camera.lookAt(look);
+      camera.updateMatrixWorld();
+      camera.updateProjectionMatrix();
+
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const corner of corners) {
+        ndc.copy(corner).project(camera);
+        const sx = (ndc.x * 0.5 + 0.5) * canvasW;
+        const sy = (ndc.y * -0.5 + 0.5) * canvasH;
+        minX = Math.min(minX, sx);
+        maxX = Math.max(maxX, sx);
+        minY = Math.min(minY, sy);
+        maxY = Math.max(maxY, sy);
+      }
+
+      const boxW = Math.max(1, maxX - minX);
+      const boxH = Math.max(1, maxY - minY);
+      distance *= Math.max(boxW / availW, boxH / availH);
+
+      const worldPerPxY = (2 * distance * tan) / canvasH;
+      const worldPerPxX = worldPerPxY * aspect;
+      look.addScaledVector(xAxis, -(desiredCx - (minX + maxX) / 2) * worldPerPxX);
+      look.addScaledVector(yAxis, (desiredCy - (minY + maxY) / 2) * worldPerPxY);
+    }
+
+    controls.maxDistance = Math.max(controls.maxDistance, distance * 2);
+    controls.minDistance = Math.min(controls.minDistance, distance * 0.35);
+    camera.position.copy(look).addScaledVector(towardCamera, distance);
+    controls.target.copy(look);
+    camera.lookAt(look);
+    controls.update();
 
     if (shaderMaterialRef.current) {
       const lightY = geom.boundingBox.min[1] - 34;
@@ -496,7 +597,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
 
         {isGenerating && (
           <div className="mesh-overlay bg-black/35 backdrop-blur-[2px] flex items-center justify-center pointer-events-none">
-            <div className="bg-[#1C1C1E]/90 px-4 py-2.5 rounded-2xl shadow-2xl flex items-center gap-3">
+            <div className="toast">
               <div className="w-4 h-4 border-2 border-[#0A84FF] border-t-transparent rounded-full animate-spin" />
               <span className="text-[13px] font-medium tracking-[-0.01em] text-white/90">
                 Building mesh

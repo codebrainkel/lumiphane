@@ -28,6 +28,7 @@ export default function App() {
   const [settings, setSettings] = useState<LithophaneSettings>(DEFAULT_SETTINGS);
   const [imageSrc, setImageSrc] = useState<string>(SAMPLE_IMAGES[0].url);
   const [imageName, setImageName] = useState<string>('golden_retriever');
+  const [hasOwnPhoto, setHasOwnPhoto] = useState(false);
   const [loadedImage, setLoadedImage] = useState<HTMLImageElement | null>(null);
   const [cropData, setCropData] = useState<ImageCropData | null>(null);
 
@@ -152,6 +153,7 @@ export default function App() {
         setImageSrc(result);
         const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '');
         setImageName(nameWithoutExt);
+        setHasOwnPhoto(true);
         setCropData(null); // Reset crop for new image
       }
     };
@@ -191,6 +193,7 @@ export default function App() {
   const handleSelectSample = (sample: SamplePresetImage) => {
     setImageSrc(sample.url);
     setImageName(sample.id);
+    setHasOwnPhoto(false);
     setCropData(null);
   };
 
@@ -263,6 +266,7 @@ export default function App() {
 
       {/* Top Bar Header */}
       <Header
+        hasOwnPhoto={hasOwnPhoto}
         onExportClick={() => setShowValidationModal(true)}
         onUploadClick={() => fileInputRef.current?.click()}
       />
@@ -270,7 +274,7 @@ export default function App() {
       {/* Drag & Drop Visual Scrim */}
       {isDraggingFile && (
         <div className="absolute inset-0 z-40 bg-[#0A84FF]/20 backdrop-blur-sm border-2 border-dashed border-[#0A84FF] flex items-center justify-center pointer-events-none px-6">
-          <div className="bg-[#1C1C1E]/95 px-5 py-4 rounded-2xl shadow-2xl flex items-center gap-3 max-w-sm">
+          <div className="toast">
             <Upload className="w-6 h-6 text-[#409CFF] shrink-0" />
             <div className="text-[15px] font-semibold tracking-[-0.02em] text-white">
               Drop a photo to build a lithophane
@@ -311,6 +315,7 @@ export default function App() {
           onResetSettings={handleResetSettings}
           onSelectSample={handleSelectSample}
           onOpenCrop={() => setShowCropModal(true)}
+          hasOwnPhoto={hasOwnPhoto}
           onUploadClick={() => fileInputRef.current?.click()}
           onOpenExport={() => setShowValidationModal(true)}
           onOpenSlicingGuide={() => setShowSlicingModal(true)}

@@ -5,7 +5,7 @@ import {
   SupportType,
 } from '../types/lithophane';
 import { SAMPLE_IMAGES } from '../constants/presets';
-import { ChevronDown, Crop as CropIcon, Download, HelpCircle } from 'lucide-react';
+import { ChevronDown, Crop as CropIcon, Download, HelpCircle, Upload } from 'lucide-react';
 
 interface ControlPanelProps {
   settings: LithophaneSettings;
@@ -14,6 +14,7 @@ interface ControlPanelProps {
   onResetSettings: () => void;
   onSelectSample: (sample: SamplePresetImage) => void;
   onOpenCrop: () => void;
+  hasOwnPhoto: boolean;
   onUploadClick: () => void;
   onOpenExport: () => void;
   onOpenSlicingGuide: () => void;
@@ -77,6 +78,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onResetSettings,
   onSelectSample,
   onOpenCrop,
+  hasOwnPhoto,
   onUploadClick,
   onOpenExport,
   onOpenSlicingGuide,
@@ -85,7 +87,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   activeSampleId,
 }) => {
   const [tab, setTab] = useState<PanelTab>('photo');
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const [isDesktop, setIsDesktop] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches
   );
@@ -168,28 +170,46 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                     <img
                       src={previewDataUrl}
                       alt=""
-                      className="w-14 h-14 rounded-[12px] object-cover bg-black shrink-0"
+                      className="w-14 h-14 rounded-[18px] object-cover bg-black shrink-0 shadow-[0_0_0_1px_rgba(255,255,255,0.12)]"
                     />
                   ) : (
-                    <div className="w-14 h-14 rounded-[12px] bg-black/50 shrink-0" />
+                    <div className="w-14 h-14 rounded-[18px] bg-black/40 shrink-0 shadow-[0_0_0_1px_rgba(255,255,255,0.1)]" />
                   )}
                   <div className="min-w-0">
                     <div className="text-[17px] font-medium tracking-[-0.02em] leading-tight">
-                      Current photo
+                      {hasOwnPhoto ? 'Your photo' : 'Sample preview'}
                     </div>
-                    <div className="text-[13px] text-[#8E8E93] mt-0.5 capitalize">{aspectLabel}</div>
+                    <div className={`text-[13px] text-[#8E8E93] mt-0.5 ${hasOwnPhoto ? 'capitalize' : ''}`}>
+                      {hasOwnPhoto ? aspectLabel : 'Upload a photo to export'}
+                    </div>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2 px-3 pb-3">
-                  <button type="button" onClick={onUploadClick} className="btn-quiet">
-                    Replace
+                  <button
+                    type="button"
+                    onClick={onUploadClick}
+                    className={hasOwnPhoto ? 'btn-quiet' : 'btn-tint'}
+                  >
+                    {hasOwnPhoto ? (
+                      'Replace'
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4" />
+                        Upload
+                      </>
+                    )}
                   </button>
-                  <button type="button" onClick={onOpenCrop} className="btn-tint inline-flex items-center justify-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={onOpenCrop}
+                    className={`${hasOwnPhoto ? 'btn-tint' : 'btn-quiet'} inline-flex items-center justify-center gap-1.5`}
+                  >
                     <CropIcon className="w-4 h-4" />
                     Crop
                   </button>
                 </div>
-                <div className="sample-row hairline">
+                <div className="px-3.5 pt-3 text-[13px] text-[#8E8E93] hairline">Samples</div>
+                <div className="sample-row">
                   {SAMPLE_IMAGES.map((sample) => (
                     <button
                       key={sample.id}
@@ -210,25 +230,23 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           {tab === 'size' && (
             <>
               <div className="kicker">Shape</div>
-              <div className="inset-group p-3">
-                <div className="seg grid-cols-2">
-                  <button
-                    type="button"
-                    data-on={settings.shape === 'flat'}
-                    onClick={() => onUpdateSettings({ shape: 'flat' })}
-                    className="seg-btn"
-                  >
-                    Flat
-                  </button>
-                  <button
-                    type="button"
-                    data-on={settings.shape === 'curved'}
-                    onClick={() => onUpdateSettings({ shape: 'curved', curveAngle: 75 })}
-                    className="seg-btn"
-                  >
-                    Curved
-                  </button>
-                </div>
+              <div className="seg grid-cols-2">
+                <button
+                  type="button"
+                  data-on={settings.shape === 'flat'}
+                  onClick={() => onUpdateSettings({ shape: 'flat' })}
+                  className="seg-btn"
+                >
+                  Flat
+                </button>
+                <button
+                  type="button"
+                  data-on={settings.shape === 'curved'}
+                  onClick={() => onUpdateSettings({ shape: 'curved', curveAngle: 75 })}
+                  className="seg-btn"
+                >
+                  Curved
+                </button>
               </div>
 
               <div className="kicker">Width</div>
@@ -347,10 +365,17 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         </div>
 
         <div className="sheet-footer">
-          <button type="button" onClick={onOpenExport} className="btn-fill w-full">
-            <Download className="w-[18px] h-[18px]" />
-            Export
-          </button>
+          {hasOwnPhoto ? (
+            <button type="button" onClick={onOpenExport} className="btn-fill w-full">
+              <Download className="w-[18px] h-[18px]" />
+              Export
+            </button>
+          ) : (
+            <button type="button" onClick={onUploadClick} className="btn-fill w-full">
+              <Upload className="w-[18px] h-[18px]" />
+              Upload photo
+            </button>
+          )}
           <div className="dock-links">
             <button type="button" onClick={onResetSettings} className="text-btn">
               Reset

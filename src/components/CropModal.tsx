@@ -418,7 +418,7 @@ export const CropModal: React.FC<CropModalProps> = ({
         <div className="modal-grabber" />
         <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-white/10">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#0A84FF]/10 border border-[#0A84FF]/30 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-[12px] bg-[#0A84FF]/10 border border-[#0A84FF]/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] flex items-center justify-center">
               <CropIcon className="w-4 h-4 text-[#0A84FF]" />
             </div>
             <div>
@@ -443,18 +443,15 @@ export const CropModal: React.FC<CropModalProps> = ({
         {/* Modal Body */}
         <div className="modal-body p-4 sm:p-5 flex flex-col gap-4">
           {/* Preset Buttons Bar */}
-          <div className="flex items-center gap-1.5 p-1.5 bg-black/40 rounded-xl overflow-x-auto">
+          <div className="seg seg-scroll">
             {PRESETS.map((p) => {
               const isActive = aspectMode === p.id;
               return (
                 <button
                   key={p.id}
                   onClick={() => setPresetRatio(p.id)}
-                  className={`min-h-9 px-3 text-[13px] font-medium rounded-lg transition-all shrink-0 ${
-                    isActive
-                      ? 'bg-[#0A84FF] text-white font-semibold shadow-sm'
-                      : 'text-slate-300 hover:text-white hover:bg-white/[0.06]'
-                  }`}
+                  data-on={isActive}
+                  className="seg-btn"
                 >
                   {p.label}
                 </button>
@@ -465,7 +462,7 @@ export const CropModal: React.FC<CropModalProps> = ({
           {/* Interactive Visual Canvas / Crop Viewport */}
           <div
             ref={containerRef}
-            className="relative bg-black border border-white/10 rounded-xl h-[42dvh] min-h-56 sm:h-96 flex items-center justify-center overflow-hidden touch-none"
+            className="relative bg-black border border-white/10 rounded-[20px] h-[42dvh] min-h-56 sm:h-96 flex items-center justify-center overflow-hidden touch-none"
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
           >
@@ -607,7 +604,7 @@ export const CropModal: React.FC<CropModalProps> = ({
                 )}
 
                 {/* Floating Dimension Label */}
-                <div className="absolute bottom-1.5 right-2 bg-black/80 backdrop-blur-sm px-2 py-0.5 rounded text-[10px] font-mono text-[#64B5FF] border border-[#0A84FF]/30 pointer-events-none">
+                <div className="absolute bottom-2 right-2 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded-full text-[10px] font-mono text-[#64B5FF] border border-[#0A84FF]/30 pointer-events-none">
                   {cropRect.width} × {cropRect.height} px
                 </div>
               </div>
@@ -617,7 +614,7 @@ export const CropModal: React.FC<CropModalProps> = ({
           {/* Quick Tools & Live Metric Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {/* Metric 1: Source & Crop Resolution */}
-            <div className="bg-[#090b10] border border-white/5 p-3 rounded-xl flex items-center justify-between">
+            <div className="stat-card flex items-center justify-between">
               <div>
                 <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                   Crop Dimensions
@@ -632,7 +629,7 @@ export const CropModal: React.FC<CropModalProps> = ({
             </div>
 
             {/* Metric 2: Ratio */}
-            <div className="bg-[#090b10] border border-white/5 p-3 rounded-xl flex items-center justify-between">
+            <div className="stat-card flex items-center justify-between">
               <div>
                 <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                   Aspect Ratio
@@ -647,7 +644,7 @@ export const CropModal: React.FC<CropModalProps> = ({
             </div>
 
             {/* Metric 3: Projected Lithophane Dimensions */}
-            <div className="bg-[#090b10] border border-[#0A84FF]/20 p-3 rounded-xl flex items-center justify-between">
+            <div className="stat-card accent flex items-center justify-between">
               <div>
                 <span className="text-[10px] uppercase font-semibold text-[#0A84FF]/80 block">
                   3D Lithograph Size
@@ -667,21 +664,21 @@ export const CropModal: React.FC<CropModalProps> = ({
             <div className="flex flex-wrap items-center gap-1">
               <button
                 onClick={handleCenterCrop}
-                className="inline-flex items-center gap-1.5 min-h-11 px-2.5 rounded-lg text-[#409CFF]"
+                className="inline-flex items-center gap-1.5 min-h-11 px-3 rounded-full text-[#409CFF]"
               >
                 <Move className="w-4 h-4" />
                 <span>Center</span>
               </button>
               <button
                 onClick={handleMaximizeCrop}
-                className="inline-flex items-center gap-1.5 min-h-11 px-2.5 rounded-lg text-[#409CFF]"
+                className="inline-flex items-center gap-1.5 min-h-11 px-3 rounded-full text-[#409CFF]"
               >
                 <Maximize className="w-4 h-4" />
                 <span>Fill</span>
               </button>
               <button
                 onClick={handleReset}
-                className="inline-flex items-center gap-1.5 min-h-11 px-2.5 rounded-lg text-[#409CFF]"
+                className="inline-flex items-center gap-1.5 min-h-11 px-3 rounded-full text-[#409CFF]"
               >
                 <RotateCw className="w-4 h-4" />
                 <span>Reset</span>
@@ -697,7 +694,7 @@ export const CropModal: React.FC<CropModalProps> = ({
         <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 px-4 sm:px-6 py-3 border-t border-white/10">
           <button
             onClick={onClose}
-            className="min-h-11 px-4 text-[17px] sm:text-[15px] font-medium text-[#409CFF] rounded-xl"
+            className="min-h-11 px-4 text-[17px] sm:text-[15px] font-medium text-[#409CFF] rounded-full"
           >
             Cancel
           </button>

@@ -29,7 +29,7 @@ export const SlicingModal: React.FC<SlicingModalProps> = ({ onClose }) => {
 
         {/* Content */}
         <div className="modal-body p-4 sm:p-6 space-y-4 text-[13px] text-slate-300">
-          <div className="p-3.5 bg-[#0A84FF]/10 border border-[#0A84FF]/20 rounded-xl space-y-2">
+          <div className="note note-accent space-y-2">
             <h4 className="font-semibold text-[#64B5FF]">Why Vertical Orientation Matters</h4>
             <p className="text-[#D6EBFF]/90 leading-relaxed text-[11px]">
               When printing lithophanes horizontally, detail is constrained by your nozzle width (typically 0.4mm). Printing vertically allows the printer’s Z-axis resolution (0.08mm - 0.12mm layer height) to render photographic micro-gradients with exceptional fidelity.
@@ -40,26 +40,26 @@ export const SlicingModal: React.FC<SlicingModalProps> = ({ onClose }) => {
             <h4 className="font-semibold text-white text-xs uppercase tracking-wider">
               Recommended Slicer Parameters
             </h4>
-            <div className="grid grid-cols-2 gap-2.5">
-              <div className="bg-[#0e1118] border border-white/5 p-3 rounded-lg">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="stat-card">
                 <span className="text-slate-400 text-[11px]">Infill Density</span>
                 <div className="text-sm font-semibold text-white font-mono mt-0.5">100% Solid</div>
                 <p className="text-[10px] text-slate-500 mt-0.5">Avoids internal infill grid shadows</p>
               </div>
 
-              <div className="bg-[#0e1118] border border-white/5 p-3 rounded-lg">
+              <div className="stat-card">
                 <span className="text-slate-400 text-[11px]">Layer Height</span>
                 <div className="text-sm font-semibold text-white font-mono mt-0.5">0.10 – 0.12 mm</div>
                 <p className="text-[10px] text-slate-500 mt-0.5">For fine tonal gradations</p>
               </div>
 
-              <div className="bg-[#0e1118] border border-white/5 p-3 rounded-lg">
+              <div className="stat-card">
                 <span className="text-slate-400 text-[11px]">Outer Wall Speed</span>
                 <div className="text-sm font-semibold text-white font-mono mt-0.5">30 – 45 mm/s</div>
                 <p className="text-[10px] text-slate-500 mt-0.5">Low speed reduces ghosting artifacts</p>
               </div>
 
-              <div className="bg-[#0e1118] border border-white/5 p-3 rounded-lg">
+              <div className="stat-card">
                 <span className="text-slate-400 text-[11px]">Bed Adhesion</span>
                 <div className="text-sm font-semibold text-white font-mono mt-0.5">5 – 8 mm Brim</div>
                 <p className="text-[10px] text-slate-500 mt-0.5">Stabilizes tall vertical plates</p>
@@ -73,7 +73,7 @@ export const SlicingModal: React.FC<SlicingModalProps> = ({ onClose }) => {
             </h4>
             <div className="space-y-2">
               {SLICER_PRESETS.map((p) => (
-                <div key={p.name} className="p-3 bg-[#0e1118] border border-white/5 rounded-lg space-y-1">
+                <div key={p.name} className="stat-card space-y-1">
                   <div className="font-medium text-slate-200">{p.name}</div>
                   <div className="text-[11px] text-slate-400 leading-relaxed">{p.notes}</div>
                 </div>
