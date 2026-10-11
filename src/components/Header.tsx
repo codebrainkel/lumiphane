@@ -11,33 +11,37 @@ export const Header: React.FC<HeaderProps> = ({
   onUploadClick,
 }) => {
   return (
-    <header className="flex items-center justify-between px-6 py-3 border-b border-white/[0.08] bg-[#090b10] z-30 select-none">
-      {/* Brand */}
-      <div className="flex items-center gap-2.5">
-        <div className="w-6 h-6 rounded-md bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-sm">
-          <div className="w-2.5 h-2.5 bg-[#090b10] rounded-sm transform rotate-45" />
+    <header className="z-30 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-white/8 bg-[#07080c]/90 px-3 backdrop-blur-xl sm:px-4">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-[#f6d48a] to-[#d3923a] shadow-[0_0_24px_rgba(240,195,106,0.25)]">
+          <div className="h-2.5 w-2.5 rotate-45 rounded-[3px] bg-[#07080c]" />
         </div>
-        <span className="text-sm font-semibold tracking-tight text-white">
-          Lumiphane
-        </span>
+        <div className="min-w-0">
+          <div className="truncate text-[15px] font-semibold tracking-tight text-white">
+            Lumiphane
+          </div>
+          <div className="hidden text-[11px] text-zinc-500 sm:block">
+            Lithophane studio
+          </div>
+        </div>
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-2.5 shrink-0">
+      <div className="flex shrink-0 items-center gap-2">
         <button
+          type="button"
           onClick={onUploadClick}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white hover:bg-white/[0.06] rounded-lg transition-colors whitespace-nowrap"
+          className="inline-flex h-10 items-center gap-1.5 rounded-full bg-white/8 px-3 text-sm font-medium text-zinc-100 transition active:scale-[0.98] hover:bg-white/12"
         >
-          <Upload className="w-3.5 h-3.5" />
-          <span>Upload Image</span>
+          <Upload className="h-4 w-4" />
+          <span className="hidden min-[380px]:inline">Photo</span>
         </button>
-
         <button
+          type="button"
           onClick={onExportClick}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-lg shadow-sm transition-all whitespace-nowrap"
+          className="inline-flex h-10 items-center gap-1.5 rounded-full bg-[#f0c36a] px-3.5 text-sm font-semibold text-zinc-950 transition active:scale-[0.98] hover:bg-[#f6d48a]"
         >
-          <Download className="w-3.5 h-3.5" />
-          <span>Export .3MF</span>
+          <Download className="h-4 w-4" />
+          <span>Export</span>
         </button>
       </div>
     </header>

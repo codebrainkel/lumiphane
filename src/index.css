@@ -1,1 +1,89 @@
 @import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --color-ink: #07080c;
+  --color-gold: #f0c36a;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  background: #07080c;
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 180ms ease-out;
+}
+
+.editor-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 28px;
+  width: 100%;
+  background: transparent;
+  cursor: pointer;
+}
+
+.editor-range:focus {
+  outline: none;
+}
+
+.editor-range:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px rgba(240, 195, 106, 0.28);
+}
+
+.editor-range::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.editor-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  margin-top: -8px;
+  border: 0;
+  border-radius: 999px;
+  background: #f6f1e6;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+}
+
+.editor-range::-moz-range-track {
+  height: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.editor-range::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 999px;
+  background: #f6f1e6;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+}
+
+.sheet-scroll {
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
