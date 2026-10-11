@@ -38,6 +38,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
   const [isLampOn, setIsLampOn] = useState<boolean>(true);
   const [showBed, setShowBed] = useState<boolean>(true);
   const [autoRotate, setAutoRotate] = useState<boolean>(false);
+  const autoRotateRef = useRef(false);
 
   // 1. Initialize Three.js Scene
   useEffect(() => {
@@ -102,7 +103,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     const animate = () => {
       animId = requestAnimationFrame(animate);
       if (controlsRef.current) {
-        if (autoRotate && meshRef.current) {
+        if (autoRotateRef.current && meshRef.current) {
           meshRef.current.rotation.y += 0.005;
         }
         controlsRef.current.update();
@@ -148,6 +149,10 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       }
     };
   }, []);
+
+  useEffect(() => {
+    autoRotateRef.current = autoRotate;
+  }, [autoRotate]);
 
   // 2. Custom Physical Lithophane Shader
   const createLithophaneShaderMaterial = useCallback((): THREE.ShaderMaterial => {
@@ -430,103 +435,105 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
   };
 
   return (
-    <div className="relative w-full h-full min-h-[460px] bg-[#080a10] overflow-hidden select-none">
-      {/* 3D WebGL Canvas Mount */}
+    <div className="relative h-full w-full select-none overflow-hidden bg-[#080a10]">
       <div
         ref={mountRef}
-        className="w-full h-full cursor-grab active:cursor-grabbing"
+        className="h-full w-full cursor-grab active:cursor-grabbing"
       />
 
-      {/* Loading Overlay */}
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_40%,rgba(0,0,0,0.45)_100%)]" />
+
       {isGenerating && (
-        <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-30 pointer-events-none transition-opacity">
-          <div className="bg-[#12151e]/90 border border-white/10 px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-3">
-            <div className="w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
-            <span className="text-xs font-medium tracking-wide text-slate-200">
-              Generating watertight 3D mesh...
-            </span>
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/35 backdrop-blur-[2px]">
+          <div className="flex items-center gap-2.5 rounded-full border border-white/10 bg-[#12141c]/90 px-4 py-2 shadow-2xl">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#f0c36a] border-t-transparent" />
+            <span className="text-sm font-medium text-zinc-100">Building mesh</span>
           </div>
         </div>
       )}
 
-      {/* Top Floating Viewport Control Bar */}
-      <div className="absolute top-4 left-4 right-4 flex items-center justify-between pointer-events-none z-20 gap-3">
-        {/* Left: Lamp On / Lamp Off Toggle */}
-        <div className="pointer-events-auto">
-          <button
-            onClick={() => setIsLampOn(!isLampOn)}
-            className={`flex items-center gap-2 px-3.5 py-1.5 text-xs rounded-xl font-medium transition-all shadow-xl border ${
-              isLampOn
-                ? 'bg-amber-400 text-slate-950 border-amber-300 font-semibold shadow-amber-400/25 ring-2 ring-amber-400/20'
-                : 'bg-[#11141d]/90 text-slate-300 hover:text-white hover:bg-white/[0.08] border-white/[0.08]'
-            }`}
-            title="Turn backlight on or off"
-          >
-            <Lightbulb
-              className={`w-4 h-4 ${isLampOn ? 'text-slate-950 fill-current' : 'text-slate-400'}`}
-            />
-            <span>{isLampOn ? 'Lamp On' : 'Lamp Off'}</span>
-          </button>
-        </div>
+      <div className="pointer-events-none absolute inset-x-3 top-3 z-20 flex items-start justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => setIsLampOn(!isLampOn)}
+          className={`pointer-events-auto inline-flex h-10 items-center gap-2 rounded-full border px-3 text-sm font-semibold shadow-xl transition ${
+            isLampOn
+              ? 'border-[#f0c36a] bg-[#f0c36a] text-zinc-950'
+              : 'border-white/10 bg-[#11141c]/85 text-zinc-200 backdrop-blur-xl'
+          }`}
+          aria-pressed={isLampOn}
+          title="Turn the backlight on or off"
+        >
+          <Lightbulb className={`h-4 w-4 ${isLampOn ? 'fill-current' : ''}`} />
+          <span>{isLampOn ? 'Lamp on' : 'Lamp off'}</span>
+        </button>
 
-        {/* Right: Camera & Orientation Tools (Front, ISO, Back) */}
-        <div className="flex items-center gap-1 p-1 bg-[#11141d]/90 backdrop-blur-md border border-white/[0.08] rounded-xl pointer-events-auto shadow-2xl">
+        {geometryData && (
+          <div className="rounded-full border border-white/10 bg-[#11141c]/75 px-2.5 py-1.5 font-mono text-[11px] tabular-nums text-zinc-300 backdrop-blur-xl">
+            {Math.round(geometryData.boundingBox.size[0])} × {Math.round(geometryData.boundingBox.size[2])} mm
+          </div>
+        )}
+      </div>
+
+      <div className="pointer-events-none absolute inset-x-3 bottom-3 z-20 flex justify-center">
+        <div className="pointer-events-auto flex max-w-full items-center gap-0.5 overflow-x-auto rounded-full border border-white/10 bg-[#0c0e14]/80 p-1 shadow-2xl backdrop-blur-xl">
           <button
+            type="button"
             onClick={() => setViewAngle('front')}
-            className="px-2.5 py-1.5 text-xs text-slate-400 hover:text-white rounded-lg hover:bg-white/[0.06] transition-colors whitespace-nowrap shrink-0"
-            title="Front Direct View"
+            className="h-9 shrink-0 rounded-full px-3 text-xs font-medium text-zinc-200 hover:bg-white/10"
           >
             Front
           </button>
           <button
+            type="button"
             onClick={() => setViewAngle('iso')}
-            className="px-2.5 py-1.5 text-xs text-slate-400 hover:text-white rounded-lg hover:bg-white/[0.06] transition-colors whitespace-nowrap shrink-0"
-            title="Perspective ISO View"
+            className="h-9 shrink-0 rounded-full px-3 text-xs font-medium text-zinc-200 hover:bg-white/10"
           >
-            ISO
+            Angle
           </button>
           <button
+            type="button"
             onClick={() => setViewAngle('back')}
-            className="px-2.5 py-1.5 text-xs text-slate-400 hover:text-white rounded-lg hover:bg-white/[0.06] transition-colors whitespace-nowrap shrink-0"
-            title="Back View"
+            className="h-9 shrink-0 rounded-full px-3 text-xs font-medium text-zinc-200 hover:bg-white/10"
           >
             Back
           </button>
-          <div className="w-px h-3.5 bg-white/10 mx-0.5" />
+          <span className="mx-0.5 h-4 w-px shrink-0 bg-white/15" />
           <button
+            type="button"
             onClick={resetCamera}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/[0.06] transition-colors"
-            title="Reset Camera / Center Model"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-zinc-300 hover:bg-white/10"
+            aria-label="Fit model"
+            title="Fit model"
           >
-            <Maximize2 className="w-3.5 h-3.5" />
+            <Maximize2 className="h-4 w-4" />
           </button>
           <button
+            type="button"
             onClick={() => setShowBed(!showBed)}
-            className={`p-1.5 rounded-lg transition-colors ${
-              showBed ? 'text-amber-400 bg-amber-400/10' : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
+            className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${
+              showBed ? 'bg-white/15 text-white' : 'text-zinc-400 hover:bg-white/10'
             }`}
-            title="Toggle Print Bed Grid"
+            aria-label="Toggle print bed"
+            aria-pressed={showBed}
+            title="Toggle print bed"
           >
-            <Layers className="w-3.5 h-3.5" />
+            <Layers className="h-4 w-4" />
           </button>
           <button
+            type="button"
             onClick={() => setAutoRotate(!autoRotate)}
-            className={`p-1.5 rounded-lg transition-colors ${
-              autoRotate ? 'text-amber-400 bg-amber-400/10' : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
+            className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${
+              autoRotate ? 'bg-white/15 text-white' : 'text-zinc-400 hover:bg-white/10'
             }`}
-            title="Auto-Rotate Showcase"
+            aria-label="Spin model"
+            aria-pressed={autoRotate}
+            title="Spin model"
           >
-            <RotateCcw className={`w-3.5 h-3.5 ${autoRotate ? 'animate-spin' : ''}`} />
+            <RotateCcw className={`h-4 w-4 ${autoRotate ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
-
-      {/* Minimal Bottom Info Badge */}
-      {geometryData && (
-        <div className="absolute bottom-3 right-4 pointer-events-none z-10 text-[11px] font-mono text-slate-500/80">
-          {Math.round(geometryData.boundingBox.size[0])} × {Math.round(geometryData.boundingBox.size[1])} × {Math.round(geometryData.boundingBox.size[2])} mm
-        </div>
-      )}
     </div>
   );
 };

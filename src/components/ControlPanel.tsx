@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   LithophaneSettings,
   SamplePresetImage,
@@ -6,15 +6,19 @@ import {
 } from '../types/lithophane';
 import { SAMPLE_IMAGES } from '../constants/presets';
 import {
-  Image as ImageIcon,
+  ChevronDown,
   Crop as CropIcon,
-  RotateCcw,
   Download,
   HelpCircle,
+  Image as ImageIcon,
+  RotateCcw,
+  SlidersHorizontal,
+  SunMedium,
 } from 'lucide-react';
 
 interface ControlPanelProps {
   settings: LithophaneSettings;
+  activeImageId: string;
   onUpdateSettings: (newSettings: Partial<LithophaneSettings>) => void;
   onUpdateWidth: (width: number) => void;
   onResetSettings: () => void;
@@ -27,8 +31,75 @@ interface ControlPanelProps {
   previewDataUrl: string | null;
 }
 
+type EditorTab = 'photo' | 'shape' | 'tone';
+
+const TABS: { id: EditorTab; label: string; icon: React.ReactNode }[] = [
+  { id: 'photo', label: 'Photo', icon: <ImageIcon className="h-4 w-4" /> },
+  { id: 'shape', label: 'Shape', icon: <SlidersHorizontal className="h-4 w-4" /> },
+  { id: 'tone', label: 'Tone', icon: <SunMedium className="h-4 w-4" /> },
+];
+
+const BASES: { id: SupportType; label: string; hint: string }[] = [
+  { id: 'flange', label: 'Flange', hint: 'Wide foot' },
+  { id: 'buttress', label: 'Fins', hint: 'Side braces' },
+  { id: 'full', label: 'Full', hint: 'Solid plinth' },
+  { id: 'none', label: 'None', hint: 'Plate only' },
+];
+
+function aspectLabel(aspectRatio: number) {
+  if (aspectRatio >= 1.05) return `${aspectRatio.toFixed(2)}:1 landscape`;
+  if (aspectRatio <= 0.95) return `${aspectRatio.toFixed(2)}:1 portrait`;
+  return 'Square';
+}
+
+function prettyName(id: string) {
+  const known = SAMPLE_IMAGES.find((sample) => sample.id === id);
+  if (known) return known.name;
+  const cleaned = id.replace(/[_-]+/g, ' ').trim();
+  if (!cleaned) return 'Your photo';
+  return cleaned.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function Slider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  display,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  display: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="block">
+      <div className="mb-1 flex items-baseline justify-between gap-3">
+        <span className="text-sm text-zinc-300">{label}</span>
+        <span className="font-mono text-sm tabular-nums text-white">{display}</span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="editor-range"
+        aria-label={label}
+      />
+    </label>
+  );
+}
+
 export const ControlPanel: React.FC<ControlPanelProps> = ({
   settings,
+  activeImageId,
   onUpdateSettings,
   onUpdateWidth,
   onResetSettings,
@@ -40,319 +111,338 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   aspectRatio,
   previewDataUrl,
 }) => {
+  const [tab, setTab] = useState<EditorTab>('photo');
+  const [open, setOpen] = useState(true);
+
+  const selectTab = (next: EditorTab) => {
+    setTab(next);
+    setOpen(true);
+  };
+
   return (
-    <aside className="w-full lg:w-88 xl:w-96 bg-[#0d0f16] border-l border-white/[0.08] flex flex-col h-full overflow-hidden select-none">
-      {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/[0.08] bg-[#090b10]">
-        <span className="text-xs font-semibold tracking-wider uppercase text-slate-300">
-          Settings
-        </span>
-        <button
-          onClick={onResetSettings}
-          className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-white transition-colors py-1 px-1.5 rounded hover:bg-white/5"
-          title="Reset to defaults"
-        >
-          <RotateCcw className="w-3 h-3" />
-          <span>Reset</span>
-        </button>
+    <aside
+      className={`relative z-20 flex w-full min-h-0 shrink-0 flex-col overflow-hidden rounded-t-[28px] border-t border-white/10 bg-[#101218] shadow-[0_-24px_80px_rgba(0,0,0,0.45)] md:h-full md:max-h-full md:w-[340px] md:rounded-none md:border-t-0 md:border-l md:shadow-none lg:w-[380px] ${
+        open ? 'h-[min(52dvh,480px)]' : 'h-[76px]'
+      }`}
+    >
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-white/[0.04] to-transparent" />
+
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="relative flex h-7 w-full items-center justify-center md:hidden"
+        aria-expanded={open}
+        aria-label={open ? 'Collapse editor' : 'Expand editor'}
+      >
+        <ChevronDown
+          className={`h-4 w-4 text-zinc-500 transition ${open ? '' : 'rotate-180'}`}
+        />
+      </button>
+
+      <div className="relative px-3 pb-2 md:pt-3">
+        <div className="grid grid-cols-3 gap-1 rounded-2xl bg-black/30 p-1">
+          {TABS.map((item) => {
+            const active = tab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => selectTab(item.id)}
+                className={`inline-flex h-10 items-center justify-center gap-1.5 rounded-xl text-sm font-medium transition ${
+                  active
+                    ? 'bg-white text-zinc-950 shadow-sm'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                {item.icon}
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Scrollable Content */}
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-        {/* 1. IMAGE */}
-        <section className="space-y-2.5">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-medium text-slate-300">Image Framing</span>
-            <span className="text-amber-300/90 font-mono text-[11px] font-medium">
-              {aspectRatio >= 1.05
-                ? `${aspectRatio.toFixed(2)}:1 Landscape`
-                : aspectRatio <= 0.95
-                ? `${aspectRatio.toFixed(2)}:1 Portrait`
-                : '1:1 Square'}
-            </span>
-          </div>
-
-          <div className="p-2.5 bg-[#131620] border border-white/[0.08] rounded-xl flex items-center gap-3">
-            {previewDataUrl ? (
-              <img
-                src={previewDataUrl}
-                alt="Source preview"
-                className="w-12 h-12 object-cover rounded-lg border border-white/10 shrink-0 bg-black"
-              />
-            ) : (
-              <div className="w-12 h-12 rounded-lg bg-black/40 border border-white/10 flex items-center justify-center shrink-0">
-                <ImageIcon className="w-5 h-5 text-slate-500" />
+      <div
+        className={`sheet-scroll relative min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-2 ${
+          open ? 'flex' : 'hidden md:flex'
+        }`}
+      >
+        {tab === 'photo' && (
+          <div className="space-y-4 pb-2">
+            <div className="flex items-center gap-3 rounded-2xl bg-white/[0.04] p-3">
+              {previewDataUrl ? (
+                <img
+                  src={previewDataUrl}
+                  alt=""
+                  className="h-16 w-16 shrink-0 rounded-2xl object-cover"
+                />
+              ) : (
+                <div className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl bg-black/40">
+                  <ImageIcon className="h-5 w-5 text-zinc-500" />
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-semibold text-white">
+                  {prettyName(activeImageId)}
+                </div>
+                <div className="mt-0.5 text-xs text-zinc-400">{aspectLabel(aspectRatio)}</div>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={onUploadClick}
+                    className="h-9 flex-1 rounded-xl bg-white/10 text-xs font-semibold text-white transition hover:bg-white/15"
+                  >
+                    Replace
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onOpenCrop}
+                    className="inline-flex h-9 flex-1 items-center justify-center gap-1 rounded-xl bg-[#f0c36a]/15 text-xs font-semibold text-[#f6d48a] transition hover:bg-[#f0c36a]/25"
+                  >
+                    <CropIcon className="h-3.5 w-3.5" />
+                    Crop
+                  </button>
+                </div>
               </div>
-            )}
+            </div>
 
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={onUploadClick}
-                  className="px-2.5 py-1 text-[11px] font-medium text-slate-200 bg-white/[0.08] hover:bg-white/[0.15] rounded-md transition-colors"
-                >
-                  Replace
-                </button>
-                <button
-                  onClick={onOpenCrop}
-                  className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-amber-300 bg-amber-400/10 hover:bg-amber-400/20 rounded-md transition-colors"
-                >
-                  <CropIcon className="w-3 h-3" />
-                  <span>Crop</span>
-                </button>
+            <div>
+              <div className="mb-2 text-sm font-medium text-zinc-200">Sample photos</div>
+              <div className="-mx-4 flex gap-2.5 overflow-x-auto px-4 pb-1">
+                {SAMPLE_IMAGES.map((sample) => {
+                  const selected = activeImageId === sample.id;
+                  return (
+                    <button
+                      key={sample.id}
+                      type="button"
+                      onClick={() => onSelectSample(sample)}
+                      className="w-[76px] shrink-0 text-left"
+                    >
+                      <img
+                        src={sample.url}
+                        alt={sample.name}
+                        className={`aspect-square w-full rounded-2xl object-cover ${
+                          selected ? 'ring-2 ring-white' : 'ring-1 ring-white/10'
+                        }`}
+                      />
+                      <span
+                        className={`mt-1.5 block truncate text-center text-xs ${
+                          selected ? 'font-semibold text-white' : 'text-zinc-400'
+                        }`}
+                      >
+                        {sample.name}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
+        )}
 
-          {/* Sample Thumbnails */}
-          <div className="grid grid-cols-3 gap-2 pt-0.5">
-            {SAMPLE_IMAGES.map((sample) => (
-              <button
-                key={sample.id}
-                onClick={() => onSelectSample(sample)}
-                className="group flex flex-col items-center p-1.5 rounded-lg bg-[#131620] border border-white/[0.06] hover:border-amber-400/50 transition-all text-left"
-              >
-                <div className="w-full aspect-square rounded-md overflow-hidden bg-black mb-1 border border-white/10">
-                  <img
-                    src={sample.url}
-                    alt={sample.name}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+        {tab === 'shape' && (
+          <div className="space-y-5 pb-3">
+            <div>
+              <div className="mb-2 text-sm font-medium text-zinc-200">Form</div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => onUpdateSettings({ shape: 'flat' })}
+                  className={`rounded-2xl border px-3 py-3 text-left transition ${
+                    settings.shape === 'flat'
+                      ? 'border-white bg-white text-zinc-950'
+                      : 'border-white/10 bg-white/[0.03] text-white'
+                  }`}
+                >
+                  <div className="text-sm font-semibold">Flat plate</div>
+                  <div className={`mt-0.5 text-xs ${settings.shape === 'flat' ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                    Standing panel
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onUpdateSettings({ shape: 'curved', curveAngle: 75 })}
+                  className={`rounded-2xl border px-3 py-3 text-left transition ${
+                    settings.shape === 'curved'
+                      ? 'border-white bg-white text-zinc-950'
+                      : 'border-white/10 bg-white/[0.03] text-white'
+                  }`}
+                >
+                  <div className="text-sm font-semibold">Curved arc</div>
+                  <div className={`mt-0.5 text-xs ${settings.shape === 'curved' ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                    Lamp-style wrap
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-1 flex items-baseline justify-between">
+                <span className="text-sm font-medium text-zinc-200">Size</span>
+                <span className="font-mono text-sm tabular-nums text-white">
+                  {settings.width} × {settings.height} mm
+                </span>
+              </div>
+              <Slider
+                label="Width"
+                value={settings.width}
+                min={60}
+                max={220}
+                step={5}
+                display={`${settings.width} mm`}
+                onChange={onUpdateWidth}
+              />
+              <div className="mt-2 grid grid-cols-4 gap-1.5">
+                {[80, 120, 160, 200].map((width) => {
+                  const active = Math.abs(settings.width - width) < 4;
+                  return (
+                    <button
+                      key={width}
+                      type="button"
+                      onClick={() => onUpdateWidth(width)}
+                      className={`h-11 rounded-xl text-sm font-semibold tabular-nums transition ${
+                        active
+                          ? 'bg-white text-zinc-950'
+                          : 'bg-white/[0.05] text-zinc-300 hover:bg-white/10'
+                      }`}
+                    >
+                      {width}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-2 text-sm font-medium text-zinc-200">Base</div>
+              <div className="grid grid-cols-2 gap-2">
+                {BASES.map((base) => {
+                  const active = (settings.supportType || 'flange') === base.id;
+                  return (
+                    <button
+                      key={base.id}
+                      type="button"
+                      onClick={() => onUpdateSettings({ supportType: base.id })}
+                      className={`rounded-2xl px-3 py-2.5 text-left transition ${
+                        active ? 'bg-white text-zinc-950' : 'bg-white/[0.05] text-white'
+                      }`}
+                    >
+                      <div className="text-sm font-semibold">{base.label}</div>
+                      <div className={`text-xs ${active ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                        {base.hint}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {settings.supportType !== 'none' && (
+                <div className="mt-4 space-y-3">
+                  <Slider
+                    label="Footprint"
+                    value={settings.supportBaseDepth ?? 14}
+                    min={6}
+                    max={26}
+                    step={1}
+                    display={`${settings.supportBaseDepth ?? 14} mm`}
+                    onChange={(value) => onUpdateSettings({ supportBaseDepth: value })}
+                  />
+                  <Slider
+                    label="Taper"
+                    value={settings.supportHeight ?? 8}
+                    min={3}
+                    max={16}
+                    step={1}
+                    display={`${settings.supportHeight ?? 8} mm`}
+                    onChange={(value) => onUpdateSettings({ supportHeight: value })}
                   />
                 </div>
-                <span className="text-[10px] font-medium text-slate-300 truncate w-full text-center">
-                  {sample.name}
-                </span>
-              </button>
-            ))}
-          </div>
-        </section>
-
-        {/* 2. SHAPE & SIZE */}
-        <section className="space-y-3 pt-4 border-t border-white/[0.08]">
-          <span className="text-xs font-medium text-slate-300 block">Shape</span>
-
-          {/* Shape Toggle */}
-          <div className="grid grid-cols-2 gap-1.5 p-1 bg-[#131620] border border-white/[0.06] rounded-xl">
-            <button
-              onClick={() => onUpdateSettings({ shape: 'flat' })}
-              className={`py-1.5 px-3 text-xs font-medium rounded-lg transition-all text-center ${
-                settings.shape === 'flat'
-                  ? 'bg-amber-400 text-slate-950 font-semibold shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Flat Plate
-            </button>
-            <button
-              onClick={() => onUpdateSettings({ shape: 'curved', curveAngle: 75 })}
-              className={`py-1.5 px-3 text-xs font-medium rounded-lg transition-all text-center ${
-                settings.shape === 'curved'
-                  ? 'bg-amber-400 text-slate-950 font-semibold shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Curved Arc
-            </button>
-          </div>
-
-          {/* Dimensions */}
-          <div className="space-y-2 pt-1">
-            <div className="flex justify-between items-center text-xs">
-              <span className="font-medium text-slate-300">Size</span>
-              <span className="font-mono tabular-nums text-white font-medium">
-                {settings.width} × {settings.height} mm
-              </span>
+              )}
             </div>
+          </div>
+        )}
 
-            <input
-              type="range"
-              min="60"
-              max="220"
-              step="5"
-              value={settings.width}
-              onChange={(e) => onUpdateWidth(Number(e.target.value))}
-              className="w-full accent-amber-400 h-1.5 bg-[#202534] rounded cursor-pointer"
+        {tab === 'tone' && (
+          <div className="space-y-5 pb-3">
+            <p className="text-sm leading-relaxed text-zinc-400">
+              Dark areas print thicker. Bright areas stay thin so the lamp glows through.
+            </p>
+            <Slider
+              label="Contrast"
+              value={settings.contrast}
+              min={-30}
+              max={35}
+              step={1}
+              display={`${settings.contrast > 0 ? '+' : ''}${settings.contrast}%`}
+              onChange={(value) => onUpdateSettings({ contrast: value })}
             />
-
-            {/* Quick Presets */}
-            <div className="grid grid-cols-4 gap-1.5">
-              {[80, 120, 160, 200].map((w) => {
-                const isActive = Math.abs(settings.width - w) < 4;
-                return (
-                  <button
-                    key={w}
-                    onClick={() => onUpdateWidth(w)}
-                    className={`py-1 text-xs font-mono rounded-lg border text-center transition-all ${
-                      isActive
-                        ? 'bg-amber-400/10 border-amber-400/50 text-amber-300 font-semibold'
-                        : 'bg-[#131620] border-white/[0.06] text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {w}mm
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-
-        {/* 3. BASE SUPPORT */}
-        <section className="space-y-3 pt-4 border-t border-white/[0.08]">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-medium text-slate-300">Base Stand</span>
-            <span className="text-[11px] font-mono text-slate-400">
-              {settings.supportType === 'none' ? 'None' : `${settings.supportBaseDepth ?? 14}mm`}
-            </span>
-          </div>
-
-          {/* Base Type Segmented Controls */}
-          <div className="grid grid-cols-4 gap-1 p-1 bg-[#131620] border border-white/[0.06] rounded-xl text-center">
-            {(
-              [
-                { id: 'flange', label: 'Flange' },
-                { id: 'buttress', label: 'Fins' },
-                { id: 'full', label: 'Full' },
-                { id: 'none', label: 'None' },
-              ] as { id: SupportType; label: string }[]
-            ).map((b) => (
-              <button
-                key={b.id}
-                onClick={() => onUpdateSettings({ supportType: b.id })}
-                className={`py-1.5 text-xs font-medium rounded-lg transition-all ${
-                  (settings.supportType || 'flange') === b.id
-                    ? 'bg-amber-400 text-slate-950 font-semibold shadow-sm'
-                    : 'text-slate-400 hover:text-white'
+            <Slider
+              label="Brightness"
+              value={settings.brightness}
+              min={-30}
+              max={30}
+              step={1}
+              display={`${settings.brightness > 0 ? '+' : ''}${settings.brightness}%`}
+              onChange={(value) => onUpdateSettings({ brightness: value })}
+            />
+            <button
+              type="button"
+              role="switch"
+              aria-checked={settings.invert}
+              onClick={() => onUpdateSettings({ invert: !settings.invert })}
+              className="flex w-full items-center justify-between rounded-2xl bg-white/[0.04] px-3.5 py-3 text-left"
+            >
+              <span>
+                <span className="block text-sm font-medium text-white">Invert tones</span>
+                <span className="mt-0.5 block text-xs text-zinc-400">Swap highlights and shadows</span>
+              </span>
+              <span
+                className={`relative h-7 w-12 shrink-0 rounded-full transition ${
+                  settings.invert ? 'bg-[#f0c36a]' : 'bg-white/15'
                 }`}
               >
-                {b.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Base Depth & Height Sliders */}
-          {settings.supportType !== 'none' && (
-            <div className="space-y-2.5 pt-0.5">
-              <div className="space-y-1">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-slate-400">Footprint Depth</span>
-                  <span className="font-mono tabular-nums text-white">
-                    {settings.supportBaseDepth ?? 14} mm
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="6"
-                  max="26"
-                  step="1"
-                  value={settings.supportBaseDepth ?? 14}
-                  onChange={(e) =>
-                    onUpdateSettings({ supportBaseDepth: Number(e.target.value) })
-                  }
-                  className="w-full accent-amber-400 h-1.5 bg-[#202534] rounded cursor-pointer"
+                <span
+                  className={`absolute top-0.5 h-6 w-6 rounded-full bg-zinc-950 transition ${
+                    settings.invert ? 'left-5' : 'left-0.5'
+                  }`}
                 />
-              </div>
-
-              <div className="space-y-1">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-slate-400">Taper Height</span>
-                  <span className="font-mono tabular-nums text-white">
-                    {settings.supportHeight ?? 8} mm
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="3"
-                  max="16"
-                  step="1"
-                  value={settings.supportHeight ?? 8}
-                  onChange={(e) =>
-                    onUpdateSettings({ supportHeight: Number(e.target.value) })
-                  }
-                  className="w-full accent-amber-400 h-1.5 bg-[#202534] rounded cursor-pointer"
-                />
-              </div>
-            </div>
-          )}
-        </section>
-
-        {/* 4. TONAL ADJUSTMENTS */}
-        <section className="space-y-3 pt-4 border-t border-white/[0.08]">
-          <span className="text-xs font-medium text-slate-300 block">Tonal Balance</span>
-
-          {/* Contrast */}
-          <div className="space-y-1">
-            <div className="flex justify-between items-center text-xs">
-              <span className="text-slate-400">Contrast</span>
-              <span className="font-mono tabular-nums text-white">
-                {settings.contrast > 0 ? `+${settings.contrast}` : settings.contrast}%
               </span>
-            </div>
-            <input
-              type="range"
-              min="-30"
-              max="35"
-              step="1"
-              value={settings.contrast}
-              onChange={(e) => onUpdateSettings({ contrast: Number(e.target.value) })}
-              className="w-full accent-amber-400 h-1.5 bg-[#202534] rounded cursor-pointer"
-            />
-          </div>
-
-          {/* Brightness */}
-          <div className="space-y-1">
-            <div className="flex justify-between items-center text-xs">
-              <span className="text-slate-400">Brightness</span>
-              <span className="font-mono tabular-nums text-white">
-                {settings.brightness > 0 ? `+${settings.brightness}` : settings.brightness}%
-              </span>
-            </div>
-            <input
-              type="range"
-              min="-30"
-              max="30"
-              step="1"
-              value={settings.brightness}
-              onChange={(e) => onUpdateSettings({ brightness: Number(e.target.value) })}
-              className="w-full accent-amber-400 h-1.5 bg-[#202534] rounded cursor-pointer"
-            />
-          </div>
-
-          {/* Invert */}
-          <div className="flex items-center justify-between pt-1">
-            <span className="text-xs text-slate-300">Invert Black & White</span>
-            <button
-              onClick={() => onUpdateSettings({ invert: !settings.invert })}
-              className={`w-8 h-4.5 rounded-full transition-colors relative ${
-                settings.invert ? 'bg-amber-400' : 'bg-slate-700'
-              }`}
-            >
-              <div
-                className={`w-3.5 h-3.5 rounded-full bg-slate-950 absolute top-0.5 transition-transform ${
-                  settings.invert ? 'left-4' : 'left-0.5'
-                }`}
-              />
             </button>
           </div>
-        </section>
+        )}
+      </div>
 
-        {/* 5. ACTIONS */}
-        <section className="space-y-2 pt-4 border-t border-white/[0.08]">
+      <div
+        className={`relative border-t border-white/8 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] ${
+          open ? 'block' : 'hidden md:block'
+        }`}
+      >
+        <button
+          type="button"
+          onClick={onOpenExport}
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#f0c36a] text-sm font-semibold text-zinc-950 transition active:scale-[0.99] hover:bg-[#f6d48a]"
+        >
+          <Download className="h-4 w-4" />
+          Export lithophane
+        </button>
+        <div className="mt-2 flex items-center justify-between">
           <button
-            onClick={onOpenExport}
-            className="w-full py-2.5 px-4 text-xs font-semibold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-xl shadow-sm transition-all flex items-center justify-center gap-2"
+            type="button"
+            onClick={onResetSettings}
+            className="inline-flex h-9 items-center gap-1.5 px-1 text-xs font-medium text-zinc-400 hover:text-white"
           >
-            <Download className="w-4 h-4" />
-            <span>Export 3MF / STL</span>
+            <RotateCcw className="h-3.5 w-3.5" />
+            Reset
           </button>
-
           <button
+            type="button"
             onClick={onOpenSlicingGuide}
-            className="w-full py-1.5 px-3 text-xs text-slate-400 hover:text-white transition-colors flex items-center justify-center gap-1.5"
+            className="inline-flex h-9 items-center gap-1.5 px-1 text-xs font-medium text-zinc-400 hover:text-white"
           >
-            <HelpCircle className="w-3.5 h-3.5" />
-            <span>Slicer Settings Guide</span>
+            <HelpCircle className="h-3.5 w-3.5" />
+            Print guide
           </button>
-        </section>
+        </div>
       </div>
     </aside>
   );

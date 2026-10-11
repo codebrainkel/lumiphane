@@ -22,7 +22,7 @@ import { ControlPanel } from './components/ControlPanel';
 import { ValidationModal } from './components/ValidationModal';
 import { CropModal } from './components/CropModal';
 import { SlicingModal } from './components/SlicingModal';
-import { Upload, AlertCircle, FileImage, ShieldCheck } from 'lucide-react';
+import { Upload, AlertCircle } from 'lucide-react';
 
 export default function App() {
   const [settings, setSettings] = useState<LithophaneSettings>(DEFAULT_SETTINGS);
@@ -247,7 +247,7 @@ export default function App() {
 
   return (
     <div
-      className="flex flex-col h-screen w-screen overflow-hidden bg-[#090b10] text-slate-100 font-sans antialiased"
+      className="flex h-dvh w-full flex-col overflow-hidden bg-[#07080c] font-sans text-zinc-100 antialiased"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -269,36 +269,33 @@ export default function App() {
 
       {/* Drag & Drop Visual Scrim */}
       {isDraggingFile && (
-        <div className="absolute inset-0 z-40 bg-amber-500/20 backdrop-blur-sm border-2 border-dashed border-amber-400 flex items-center justify-center pointer-events-none">
-          <div className="bg-[#12151e] border border-white/10 px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3">
-            <Upload className="w-6 h-6 text-amber-400 animate-bounce" />
-            <div className="text-sm font-semibold text-white">
-              Drop your image anywhere to generate 3D Lithophane
-            </div>
+        <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-black/70 p-6 backdrop-blur-sm">
+          <div className="max-w-xs rounded-3xl border border-white/10 bg-[#14161e] px-6 py-5 text-center shadow-2xl">
+            <Upload className="mx-auto h-6 w-6 text-[#f0c36a]" />
+            <div className="mt-3 text-base font-semibold text-white">Drop a photo</div>
+            <p className="mt-1 text-sm text-zinc-400">It becomes a printable lithophane.</p>
           </div>
         </div>
       )}
 
-      {/* Error Alert Banner if any */}
       {errorMessage && (
-        <div className="bg-red-500/10 border-b border-red-500/20 px-6 py-2.5 flex items-center justify-between text-xs text-red-300 z-20">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+        <div className="z-20 flex items-start justify-between gap-3 border-b border-red-500/20 bg-red-500/10 px-4 py-2.5 text-sm text-red-200">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-300" />
             <span>{errorMessage}</span>
           </div>
           <button
+            type="button"
             onClick={() => setErrorMessage(null)}
-            className="text-red-400 hover:text-white text-xs underline"
+            className="shrink-0 text-xs font-medium text-red-200 underline"
           >
             Dismiss
           </button>
         </div>
       )}
 
-      {/* Main Workspace (Split Viewport + Sidebar) */}
-      <main className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
-        {/* Central 3D Viewport Area */}
-        <section className="flex-1 relative flex flex-col h-full overflow-hidden bg-[#090b10]">
+      <main className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
+        <section className="relative min-h-[180px] flex-1 overflow-hidden">
           <Viewport3D
             geometryData={geometryData}
             settings={settings}
@@ -306,9 +303,9 @@ export default function App() {
           />
         </section>
 
-        {/* Right-Hand Settings & Controls Sidebar */}
         <ControlPanel
           settings={settings}
+          activeImageId={imageName}
           onUpdateSettings={handleUpdateSettings}
           onUpdateWidth={handleUpdateWidth}
           onResetSettings={handleResetSettings}

@@ -110,35 +110,35 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-fade-in">
-      <div className="bg-[#141720] border border-white/10 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        {/* Modal Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-white/10">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-400/10 border border-amber-400/20 flex items-center justify-center text-amber-400">
-              <ShieldCheck className="w-5 h-5" />
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 p-0 backdrop-blur-sm animate-fade-in sm:items-center sm:p-4">
+      <div className="flex max-h-[94dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl border border-white/10 bg-[#141720] shadow-2xl sm:rounded-2xl">
+        <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-4 sm:px-6 sm:py-5">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-amber-400/20 bg-amber-400/10 text-amber-400">
+              <ShieldCheck className="h-5 w-5" />
             </div>
-            <div>
-              <h2 className="text-base font-semibold text-white tracking-tight">
-                Geometry Validation & Slicer Export
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold tracking-tight text-white sm:text-base">
+                Check and export
               </h2>
-              <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5">
-                <span>3MF Core Specification</span>
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-400">
+                <span>Print-ready mesh</span>
                 <span aria-hidden="true">·</span>
-                <span className="text-emerald-400 font-medium">Watertight 2-Manifold</span>
+                <span className="font-medium text-emerald-400">Watertight</span>
               </div>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors"
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-slate-400 hover:bg-white/5 hover:text-white"
+            aria-label="Close"
           >
-            <X className="w-4 h-4" />
+            <X className="h-4 w-4" />
           </button>
         </div>
 
-        {/* Modal Body */}
-        <div className="p-6 overflow-y-auto space-y-5">
+        <div className="sheet-scroll space-y-5 overflow-y-auto p-4 sm:p-6">
           {/* Integrity Metric Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="bg-[#0e1118] border border-white/5 p-3.5 rounded-xl">
@@ -296,7 +296,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
                   value={selectedBambuPrinter}
                   onChange={(e) => setSelectedBambuPrinter(e.target.value as BambuPrinterModel)}
                   aria-label="Target Bambu Lab Machine"
-                  className="bg-[#141720] border border-white/10 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-200 focus:outline-none focus:border-amber-400"
+                  className="h-11 w-full rounded-xl border border-white/10 bg-[#141720] px-3 text-sm font-medium text-slate-200 focus:border-amber-400 focus:outline-none sm:w-auto"
                 >
                   {Object.values(BAMBU_PRINTER_PROFILES).map((p) => (
                     <option key={p.id} value={p.id}>
@@ -432,32 +432,33 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
         </div>
 
         {/* Modal Footer with Actions */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-white/10 bg-[#10131a]">
+        <div className="flex flex-col-reverse gap-2 border-t border-white/10 bg-[#10131a] px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
           <button
+            type="button"
             onClick={onClose}
-            className="px-4 py-2 text-xs font-medium text-slate-400 hover:text-white transition-colors whitespace-nowrap shrink-0"
+            className="h-11 shrink-0 rounded-xl px-4 text-sm font-medium text-slate-400 hover:text-white"
           >
             Close
           </button>
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleExport}
-              disabled={isExporting}
-              className="flex items-center gap-2 px-5 py-2.5 text-xs font-semibold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-lg shadow-md transition-all whitespace-nowrap shrink-0"
-            >
-              <Download className="w-4 h-4" />
-              <span>
-                {isExporting
-                  ? 'Generating Export...'
-                  : exportFormat === 'bambu-project'
-                  ? `Download Bambu Studio Project (${selectedBambuPrinter})`
-                  : exportFormat === 'universal'
-                  ? 'Download Universal .3MF'
-                  : 'Download Binary .STL'}
-              </span>
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={isExporting}
+            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#f0c36a] px-5 text-sm font-semibold text-slate-950 hover:bg-[#f6d48a] disabled:opacity-70 sm:w-auto"
+          >
+            <Download className="h-4 w-4" />
+            <span className="sm:hidden">{isExporting ? 'Preparing…' : 'Download'}</span>
+            <span className="hidden sm:inline">
+              {isExporting
+                ? 'Preparing…'
+                : exportFormat === 'bambu-project'
+                ? `Download Bambu project (${selectedBambuPrinter})`
+                : exportFormat === 'universal'
+                ? 'Download universal .3MF'
+                : 'Download binary .STL'}
+            </span>
+          </button>
         </div>
       </div>
     </div>
