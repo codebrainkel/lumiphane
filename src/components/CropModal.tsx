@@ -413,47 +413,46 @@ export const CropModal: React.FC<CropModalProps> = ({
   const projectedHeightMm = Math.max(10, Math.round(physicalWidthMm / currentRatioVal));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md animate-fade-in select-none">
-      <div className="bg-[#12151f] border border-white/10 rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[92vh]">
-        {/* Top Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-[#0d0f16]">
+    <div className="modal-scrim select-none">
+      <div className="modal-sheet wide">
+        <div className="modal-grabber" />
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-white/10">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-amber-400/10 border border-amber-400/30 flex items-center justify-center">
-              <CropIcon className="w-4 h-4 text-amber-400" />
+            <div className="w-8 h-8 rounded-lg bg-[#0A84FF]/10 border border-[#0A84FF]/30 flex items-center justify-center">
+              <CropIcon className="w-4 h-4 text-[#0A84FF]" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-white tracking-wide">
-                Image Framing & Aspect Ratio
+              <h3 className="text-[17px] font-semibold tracking-[-0.02em] text-white leading-tight">
+                <span className="sm:hidden">Crop</span>
+                <span className="hidden sm:inline">Crop & aspect ratio</span>
               </h3>
-              <p className="text-[11px] text-slate-400">
-                The 3D lithograph dimensions are strictly shaped to match this aspect ratio.
+              <p className="text-[13px] text-[#8E8E93] hidden sm:block">
+                The print size follows this crop.
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors"
+            className="icon-btn text-[#8E8E93]"
+            aria-label="Close"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Modal Body */}
-        <div className="p-5 flex flex-col gap-4 overflow-y-auto">
+        <div className="modal-body p-4 sm:p-5 flex flex-col gap-4">
           {/* Preset Buttons Bar */}
-          <div className="flex flex-wrap items-center gap-1.5 p-1.5 bg-[#090b10] border border-white/5 rounded-xl">
-            <span className="text-[11px] font-medium text-slate-400 px-2 shrink-0">
-              Aspect Ratio:
-            </span>
+          <div className="flex items-center gap-1.5 p-1.5 bg-black/40 rounded-xl overflow-x-auto">
             {PRESETS.map((p) => {
               const isActive = aspectMode === p.id;
               return (
                 <button
                   key={p.id}
                   onClick={() => setPresetRatio(p.id)}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all shrink-0 ${
+                  className={`min-h-9 px-3 text-[13px] font-medium rounded-lg transition-all shrink-0 ${
                     isActive
-                      ? 'bg-amber-400 text-slate-950 font-semibold shadow-sm'
+                      ? 'bg-[#0A84FF] text-white font-semibold shadow-sm'
                       : 'text-slate-300 hover:text-white hover:bg-white/[0.06]'
                   }`}
                 >
@@ -466,7 +465,7 @@ export const CropModal: React.FC<CropModalProps> = ({
           {/* Interactive Visual Canvas / Crop Viewport */}
           <div
             ref={containerRef}
-            className="relative bg-[#07090e] border border-white/10 rounded-xl h-84 sm:h-96 flex items-center justify-center overflow-hidden touch-none"
+            className="relative bg-black border border-white/10 rounded-xl h-[42dvh] min-h-56 sm:h-96 flex items-center justify-center overflow-hidden touch-none"
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
           >
@@ -540,7 +539,7 @@ export const CropModal: React.FC<CropModalProps> = ({
             {/* Active Highlighted Crop Window */}
             {bounds.width > 0 && cropDisplayW > 0 && cropDisplayH > 0 && (
               <div
-                className="absolute border-2 border-amber-400 shadow-2xl cursor-move group"
+                className="absolute border-2 border-[#0A84FF] shadow-2xl cursor-move group"
                 style={{
                   left: `${cropDisplayX}px`,
                   top: `${cropDisplayY}px`,
@@ -551,37 +550,37 @@ export const CropModal: React.FC<CropModalProps> = ({
               >
                 {/* Rule-of-thirds grid */}
                 <div className="absolute inset-0 pointer-events-none grid grid-cols-3 grid-rows-3 opacity-40 group-hover:opacity-75 transition-opacity">
-                  <div className="border-r border-b border-amber-300/40" />
-                  <div className="border-r border-b border-amber-300/40" />
-                  <div className="border-b border-amber-300/40" />
-                  <div className="border-r border-b border-amber-300/40" />
-                  <div className="border-r border-b border-amber-300/40" />
-                  <div className="border-b border-amber-300/40" />
-                  <div className="border-r border-amber-300/40" />
-                  <div className="border-r border-amber-300/40" />
+                  <div className="border-r border-b border-[#64B5FF]/40" />
+                  <div className="border-r border-b border-[#64B5FF]/40" />
+                  <div className="border-b border-[#64B5FF]/40" />
+                  <div className="border-r border-b border-[#64B5FF]/40" />
+                  <div className="border-r border-b border-[#64B5FF]/40" />
+                  <div className="border-b border-[#64B5FF]/40" />
+                  <div className="border-r border-[#64B5FF]/40" />
+                  <div className="border-r border-[#64B5FF]/40" />
                   <div />
                 </div>
 
                 {/* Move Hint Center Icon */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-0 group-hover:opacity-60 transition-opacity">
-                  <Move className="w-5 h-5 text-amber-300 drop-shadow" />
+                  <Move className="w-5 h-5 text-[#64B5FF] drop-shadow" />
                 </div>
 
                 {/* Corner Resize Handles */}
                 <div
-                  className="absolute -top-1.5 -left-1.5 w-3.5 h-3.5 bg-amber-400 border border-slate-950 rounded-xs shadow cursor-nwse-resize"
+                  className="absolute -top-2 -left-2 w-6 h-6 bg-[#0A84FF] border-2 border-black rounded-md shadow cursor-nwse-resize"
                   onPointerDown={(e) => handlePointerDown('nw', e)}
                 />
                 <div
-                  className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-amber-400 border border-slate-950 rounded-xs shadow cursor-nesw-resize"
+                  className="absolute -top-2 -right-2 w-6 h-6 bg-[#0A84FF] border-2 border-black rounded-md shadow cursor-nesw-resize"
                   onPointerDown={(e) => handlePointerDown('ne', e)}
                 />
                 <div
-                  className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-amber-400 border border-slate-950 rounded-xs shadow cursor-nwse-resize"
+                  className="absolute -bottom-2 -right-2 w-6 h-6 bg-[#0A84FF] border-2 border-black rounded-md shadow cursor-nwse-resize"
                   onPointerDown={(e) => handlePointerDown('se', e)}
                 />
                 <div
-                  className="absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 bg-amber-400 border border-slate-950 rounded-xs shadow cursor-nesw-resize"
+                  className="absolute -bottom-2 -left-2 w-6 h-6 bg-[#0A84FF] border-2 border-black rounded-md shadow cursor-nesw-resize"
                   onPointerDown={(e) => handlePointerDown('sw', e)}
                 />
 
@@ -589,26 +588,26 @@ export const CropModal: React.FC<CropModalProps> = ({
                 {aspectMode === 'custom' && (
                   <>
                     <div
-                      className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-1.5 bg-amber-400 border border-slate-950 rounded-xs cursor-ns-resize"
+                      className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-1.5 bg-[#0A84FF] border border-slate-950 rounded-xs cursor-ns-resize"
                       onPointerDown={(e) => handlePointerDown('n', e)}
                     />
                     <div
-                      className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 w-4 h-1.5 bg-amber-400 border border-slate-950 rounded-xs cursor-ns-resize"
+                      className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 w-4 h-1.5 bg-[#0A84FF] border border-slate-950 rounded-xs cursor-ns-resize"
                       onPointerDown={(e) => handlePointerDown('s', e)}
                     />
                     <div
-                      className="absolute top-1/2 left-0 -translate-x-1/2 -translate-y-1/2 w-1.5 h-4 bg-amber-400 border border-slate-950 rounded-xs cursor-ew-resize"
+                      className="absolute top-1/2 left-0 -translate-x-1/2 -translate-y-1/2 w-1.5 h-4 bg-[#0A84FF] border border-slate-950 rounded-xs cursor-ew-resize"
                       onPointerDown={(e) => handlePointerDown('w', e)}
                     />
                     <div
-                      className="absolute top-1/2 right-0 translate-x-1/2 -translate-y-1/2 w-1.5 h-4 bg-amber-400 border border-slate-950 rounded-xs cursor-ew-resize"
+                      className="absolute top-1/2 right-0 translate-x-1/2 -translate-y-1/2 w-1.5 h-4 bg-[#0A84FF] border border-slate-950 rounded-xs cursor-ew-resize"
                       onPointerDown={(e) => handlePointerDown('e', e)}
                     />
                   </>
                 )}
 
                 {/* Floating Dimension Label */}
-                <div className="absolute bottom-1.5 right-2 bg-black/80 backdrop-blur-sm px-2 py-0.5 rounded text-[10px] font-mono text-amber-300 border border-amber-400/30 pointer-events-none">
+                <div className="absolute bottom-1.5 right-2 bg-black/80 backdrop-blur-sm px-2 py-0.5 rounded text-[10px] font-mono text-[#64B5FF] border border-[#0A84FF]/30 pointer-events-none">
                   {cropRect.width} × {cropRect.height} px
                 </div>
               </div>
@@ -638,7 +637,7 @@ export const CropModal: React.FC<CropModalProps> = ({
                 <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                   Aspect Ratio
                 </span>
-                <span className="text-xs font-mono font-medium text-amber-300">
+                <span className="text-xs font-mono font-medium text-[#64B5FF]">
                   {currentRatioVal.toFixed(2)}:1 ({aspectMode.toUpperCase()})
                 </span>
               </div>
@@ -648,12 +647,12 @@ export const CropModal: React.FC<CropModalProps> = ({
             </div>
 
             {/* Metric 3: Projected Lithophane Dimensions */}
-            <div className="bg-[#090b10] border border-amber-400/20 p-3 rounded-xl flex items-center justify-between">
+            <div className="bg-[#090b10] border border-[#0A84FF]/20 p-3 rounded-xl flex items-center justify-between">
               <div>
-                <span className="text-[10px] uppercase font-semibold text-amber-400/80 block">
+                <span className="text-[10px] uppercase font-semibold text-[#0A84FF]/80 block">
                   3D Lithograph Size
                 </span>
-                <span className="text-xs font-mono font-semibold text-amber-300">
+                <span className="text-xs font-mono font-semibold text-[#64B5FF]">
                   {physicalWidthMm} × {projectedHeightMm} mm
                 </span>
               </div>
@@ -664,28 +663,28 @@ export const CropModal: React.FC<CropModalProps> = ({
           </div>
 
           {/* Quick Action Buttons */}
-          <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
-            <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[13px] text-[#8E8E93] pt-1">
+            <div className="flex flex-wrap items-center gap-1">
               <button
                 onClick={handleCenterCrop}
-                className="flex items-center gap-1.5 hover:text-white transition-colors py-1 px-2 rounded hover:bg-white/5"
+                className="inline-flex items-center gap-1.5 min-h-11 px-2.5 rounded-lg text-[#409CFF]"
               >
-                <Move className="w-3.5 h-3.5 text-slate-400" />
+                <Move className="w-4 h-4" />
                 <span>Center</span>
               </button>
               <button
                 onClick={handleMaximizeCrop}
-                className="flex items-center gap-1.5 hover:text-white transition-colors py-1 px-2 rounded hover:bg-white/5"
+                className="inline-flex items-center gap-1.5 min-h-11 px-2.5 rounded-lg text-[#409CFF]"
               >
-                <Maximize className="w-3.5 h-3.5 text-slate-400" />
-                <span>Expand to Max</span>
+                <Maximize className="w-4 h-4" />
+                <span>Fill</span>
               </button>
               <button
                 onClick={handleReset}
-                className="flex items-center gap-1.5 hover:text-white transition-colors py-1 px-2 rounded hover:bg-white/5"
+                className="inline-flex items-center gap-1.5 min-h-11 px-2.5 rounded-lg text-[#409CFF]"
               >
-                <RotateCw className="w-3.5 h-3.5 text-slate-400" />
-                <span>Reset Full Image</span>
+                <RotateCw className="w-4 h-4" />
+                <span>Reset</span>
               </button>
             </div>
             <span className="text-[11px] text-slate-500 italic hidden sm:inline">
@@ -695,19 +694,19 @@ export const CropModal: React.FC<CropModalProps> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-white/10 bg-[#0d0f16]">
+        <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 px-4 sm:px-6 py-3 border-t border-white/10">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-xs font-medium text-slate-300 hover:text-white hover:bg-white/5 rounded-xl transition-colors whitespace-nowrap"
+            className="min-h-11 px-4 text-[17px] sm:text-[15px] font-medium text-[#409CFF] rounded-xl"
           >
             Cancel
           </button>
           <button
             onClick={handleApply}
-            className="flex items-center gap-2 px-5 py-2 text-xs font-semibold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-xl shadow-md transition-all whitespace-nowrap"
+            className="btn-fill w-full sm:w-auto sm:min-w-44"
           >
             <Check className="w-4 h-4" />
-            <span>Apply Framing</span>
+            <span>Apply</span>
           </button>
         </div>
       </div>

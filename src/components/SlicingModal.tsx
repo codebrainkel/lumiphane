@@ -8,29 +8,30 @@ interface SlicingModalProps {
 
 export const SlicingModal: React.FC<SlicingModalProps> = ({ onClose }) => {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-      <div className="bg-[#141720] border border-white/10 rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-white/10">
+    <div className="modal-scrim">
+      <div className="modal-sheet">
+        <div className="modal-grabber" />
+        <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-white/10">
           <div className="flex items-center gap-2.5">
-            <Printer className="w-5 h-5 text-amber-400" />
-            <h3 className="text-base font-semibold text-white">
-              FDM 3D Printing & Slicing Best Practices
+            <Printer className="w-5 h-5 text-[#0A84FF]" />
+            <h3 className="text-[17px] font-semibold tracking-[-0.02em] text-white">
+              Slicing guide
             </h3>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors"
+            className="icon-btn text-[#8E8E93]"
+            aria-label="Close"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-4 text-xs text-slate-300 overflow-y-auto max-h-[75vh]">
-          <div className="p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-2">
-            <h4 className="font-semibold text-amber-300">Why Vertical Orientation Matters</h4>
-            <p className="text-amber-100/80 leading-relaxed text-[11px]">
+        <div className="modal-body p-4 sm:p-6 space-y-4 text-[13px] text-slate-300">
+          <div className="p-3.5 bg-[#0A84FF]/10 border border-[#0A84FF]/20 rounded-xl space-y-2">
+            <h4 className="font-semibold text-[#64B5FF]">Why Vertical Orientation Matters</h4>
+            <p className="text-[#D6EBFF]/90 leading-relaxed text-[11px]">
               When printing lithophanes horizontally, detail is constrained by your nozzle width (typically 0.4mm). Printing vertically allows the printer’s Z-axis resolution (0.08mm - 0.12mm layer height) to render photographic micro-gradients with exceptional fidelity.
             </p>
           </div>
@@ -82,12 +83,9 @@ export const SlicingModal: React.FC<SlicingModalProps> = ({ onClose }) => {
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end px-6 py-4 border-t border-white/10 bg-[#10131a]">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-xs font-semibold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-lg transition-colors whitespace-nowrap shrink-0"
-          >
-            Got It
+        <div className="px-4 sm:px-6 py-3 border-t border-white/10">
+          <button type="button" onClick={onClose} className="btn-fill w-full">
+            Done
           </button>
         </div>
       </div>

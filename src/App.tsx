@@ -22,7 +22,7 @@ import { ControlPanel } from './components/ControlPanel';
 import { ValidationModal } from './components/ValidationModal';
 import { CropModal } from './components/CropModal';
 import { SlicingModal } from './components/SlicingModal';
-import { Upload, AlertCircle, FileImage, ShieldCheck } from 'lucide-react';
+import { Upload, AlertCircle } from 'lucide-react';
 
 export default function App() {
   const [settings, setSettings] = useState<LithophaneSettings>(DEFAULT_SETTINGS);
@@ -247,7 +247,7 @@ export default function App() {
 
   return (
     <div
-      className="flex flex-col h-screen w-screen overflow-hidden bg-[#090b10] text-slate-100 font-sans antialiased"
+      className="app-shell"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -269,36 +269,34 @@ export default function App() {
 
       {/* Drag & Drop Visual Scrim */}
       {isDraggingFile && (
-        <div className="absolute inset-0 z-40 bg-amber-500/20 backdrop-blur-sm border-2 border-dashed border-amber-400 flex items-center justify-center pointer-events-none">
-          <div className="bg-[#12151e] border border-white/10 px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3">
-            <Upload className="w-6 h-6 text-amber-400 animate-bounce" />
-            <div className="text-sm font-semibold text-white">
-              Drop your image anywhere to generate 3D Lithophane
+        <div className="absolute inset-0 z-40 bg-[#0A84FF]/20 backdrop-blur-sm border-2 border-dashed border-[#0A84FF] flex items-center justify-center pointer-events-none px-6">
+          <div className="bg-[#1C1C1E]/95 px-5 py-4 rounded-2xl shadow-2xl flex items-center gap-3 max-w-sm">
+            <Upload className="w-6 h-6 text-[#409CFF] shrink-0" />
+            <div className="text-[15px] font-semibold tracking-[-0.02em] text-white">
+              Drop a photo to build a lithophane
             </div>
           </div>
         </div>
       )}
 
-      {/* Error Alert Banner if any */}
       {errorMessage && (
-        <div className="bg-red-500/10 border-b border-red-500/20 px-6 py-2.5 flex items-center justify-between text-xs text-red-300 z-20">
-          <div className="flex items-center gap-2">
+        <div className="bg-red-500/15 border-b border-red-500/25 px-4 py-2.5 flex items-center justify-between gap-3 text-[13px] text-red-200 z-20">
+          <div className="flex items-center gap-2 min-w-0">
             <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-            <span>{errorMessage}</span>
+            <span className="leading-snug">{errorMessage}</span>
           </div>
           <button
+            type="button"
             onClick={() => setErrorMessage(null)}
-            className="text-red-400 hover:text-white text-xs underline"
+            className="shrink-0 min-h-11 px-2 text-[15px] font-medium text-[#409CFF]"
           >
             Dismiss
           </button>
         </div>
       )}
 
-      {/* Main Workspace (Split Viewport + Sidebar) */}
-      <main className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
-        {/* Central 3D Viewport Area */}
-        <section className="flex-1 relative flex flex-col h-full overflow-hidden bg-[#090b10]">
+      <main className="app-stage">
+        <section className="viewport-stage">
           <Viewport3D
             geometryData={geometryData}
             settings={settings}
@@ -306,7 +304,6 @@ export default function App() {
           />
         </section>
 
-        {/* Right-Hand Settings & Controls Sidebar */}
         <ControlPanel
           settings={settings}
           onUpdateSettings={handleUpdateSettings}
@@ -319,6 +316,7 @@ export default function App() {
           onOpenSlicingGuide={() => setShowSlicingModal(true)}
           aspectRatio={processedImage?.aspectRatio || 1.33}
           previewDataUrl={processedImage?.previewDataUrl || null}
+          activeSampleId={imageName}
         />
       </main>
 

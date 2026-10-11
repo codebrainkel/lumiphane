@@ -110,35 +110,34 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-fade-in">
-      <div className="bg-[#141720] border border-white/10 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        {/* Modal Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-white/10">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-400/10 border border-amber-400/20 flex items-center justify-center text-amber-400">
+    <div className="modal-scrim">
+      <div className="modal-sheet">
+        <div className="modal-grabber" />
+        <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-white/10">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-[#0A84FF]/15 flex items-center justify-center text-[#409CFF] shrink-0">
               <ShieldCheck className="w-5 h-5" />
             </div>
-            <div>
-              <h2 className="text-base font-semibold text-white tracking-tight">
-                Geometry Validation & Slicer Export
+            <div className="min-w-0">
+              <h2 className="text-[17px] font-semibold tracking-[-0.02em] text-white leading-tight">
+                Export
               </h2>
-              <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5">
-                <span>3MF Core Specification</span>
-                <span aria-hidden="true">·</span>
-                <span className="text-emerald-400 font-medium">Watertight 2-Manifold</span>
+              <div className="text-[13px] text-emerald-400 font-medium truncate">
+                Watertight mesh
               </div>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors"
+            className="icon-btn text-[#8E8E93]"
+            aria-label="Close"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Modal Body */}
-        <div className="p-6 overflow-y-auto space-y-5">
+        <div className="modal-body p-4 sm:p-6 space-y-5">
           {/* Integrity Metric Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="bg-[#0e1118] border border-white/5 p-3.5 rounded-xl">
@@ -156,10 +155,10 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
 
             <div className="bg-[#0e1118] border border-white/5 p-3.5 rounded-xl">
               <div className="flex items-center gap-1.5 text-slate-400 text-xs mb-1">
-                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                <Sparkles className="w-3.5 h-3.5 text-[#0A84FF]" />
                 <span>Auto Thickness</span>
               </div>
-              <div className="font-mono tabular-nums text-sm font-semibold text-amber-300">
+              <div className="font-mono tabular-nums text-sm font-semibold text-[#64B5FF]">
                 {settings.minThickness.toFixed(2)} – {settings.maxThickness.toFixed(2)} mm
               </div>
               <div className="text-[11px] text-slate-500 mt-0.5">
@@ -212,13 +211,13 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
                 onClick={() => setExportFormat('bambu-project')}
                 className={`p-3 rounded-xl border text-left transition-all ${
                   exportFormat === 'bambu-project'
-                    ? 'border-amber-400 bg-amber-400/10 text-white shadow-md'
+                    ? 'border-[#0A84FF] bg-[#0A84FF]/10 text-white shadow-md'
                     : 'border-white/5 bg-[#141720] hover:border-white/20 text-slate-300'
                 }`}
               >
                 <div className="flex items-center justify-between mb-1.5">
                   <div className="flex items-center gap-1.5 text-xs font-semibold">
-                    <Printer className={`w-3.5 h-3.5 ${exportFormat === 'bambu-project' ? 'text-amber-400' : 'text-slate-400'}`} />
+                    <Printer className={`w-3.5 h-3.5 ${exportFormat === 'bambu-project' ? 'text-[#0A84FF]' : 'text-slate-400'}`} />
                     <span>Bambu Studio Project</span>
                   </div>
                   <span className="text-[10px] font-mono text-emerald-400">
@@ -236,13 +235,13 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
                 onClick={() => setExportFormat('universal')}
                 className={`p-3 rounded-xl border text-left transition-all ${
                   exportFormat === 'universal'
-                    ? 'border-amber-400 bg-amber-400/10 text-white shadow-md'
+                    ? 'border-[#0A84FF] bg-[#0A84FF]/10 text-white shadow-md'
                     : 'border-white/5 bg-[#141720] hover:border-white/20 text-slate-300'
                 }`}
               >
                 <div className="flex items-center justify-between mb-1.5">
                   <div className="flex items-center gap-1.5 text-xs font-semibold">
-                    <FileCheck className={`w-3.5 h-3.5 ${exportFormat === 'universal' ? 'text-amber-400' : 'text-slate-400'}`} />
+                    <FileCheck className={`w-3.5 h-3.5 ${exportFormat === 'universal' ? 'text-[#0A84FF]' : 'text-slate-400'}`} />
                     <span>Universal 3MF</span>
                   </div>
                   <span className="text-[10px] font-mono text-blue-400">
@@ -260,13 +259,13 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
                 onClick={() => setExportFormat('stl')}
                 className={`p-3 rounded-xl border text-left transition-all ${
                   exportFormat === 'stl'
-                    ? 'border-amber-400 bg-amber-400/10 text-white shadow-md'
+                    ? 'border-[#0A84FF] bg-[#0A84FF]/10 text-white shadow-md'
                     : 'border-white/5 bg-[#141720] hover:border-white/20 text-slate-300'
                 }`}
               >
                 <div className="flex items-center justify-between mb-1.5">
                   <div className="flex items-center gap-1.5 text-xs font-semibold">
-                    <FileArchive className={`w-3.5 h-3.5 ${exportFormat === 'stl' ? 'text-amber-400' : 'text-slate-400'}`} />
+                    <FileArchive className={`w-3.5 h-3.5 ${exportFormat === 'stl' ? 'text-[#0A84FF]' : 'text-slate-400'}`} />
                     <span>Binary .STL</span>
                   </div>
                   <span className="text-[10px] font-mono text-slate-400">
@@ -283,7 +282,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
             {exportFormat === 'bambu-project' && (
               <div className="mt-3 pt-3 border-t border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
-                  <Printer className="w-4 h-4 text-amber-400 shrink-0" />
+                  <Printer className="w-4 h-4 text-[#0A84FF] shrink-0" />
                   <div>
                     <div className="text-xs font-medium text-slate-200">Target Bambu Lab Machine</div>
                     <div className="text-[11px] text-slate-400">
@@ -296,7 +295,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
                   value={selectedBambuPrinter}
                   onChange={(e) => setSelectedBambuPrinter(e.target.value as BambuPrinterModel)}
                   aria-label="Target Bambu Lab Machine"
-                  className="bg-[#141720] border border-white/10 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-200 focus:outline-none focus:border-amber-400"
+                  className="bg-[#141720] border border-white/10 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-200 focus:outline-none focus:border-[#0A84FF]"
                 >
                   {Object.values(BAMBU_PRINTER_PROFILES).map((p) => (
                     <option key={p.id} value={p.id}>
@@ -324,9 +323,9 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
               </div>
             </div>
           ) : exportFormat === 'universal' ? (
-            <div className="border border-amber-500/20 bg-amber-500/5 p-4 rounded-xl space-y-2">
-              <div className="flex items-center gap-2 text-xs font-semibold text-amber-300">
-                <Info className="w-4 h-4 shrink-0 text-amber-400" />
+            <div className="border border-[#0A84FF]/20 bg-[#0A84FF]/5 p-4 rounded-xl space-y-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-[#64B5FF]">
+                <Info className="w-4 h-4 shrink-0 text-[#0A84FF]" />
                 <span>Universal 3MF Notice</span>
               </div>
               <p className="text-xs text-slate-300 leading-relaxed">
@@ -408,7 +407,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
             {validationResult.warnings.length > 0 && (
               <div className="mt-3 pt-3 border-t border-white/5 space-y-1">
                 {validationResult.warnings.map((w, idx) => (
-                  <div key={idx} className="flex items-center gap-2 text-xs text-amber-300">
+                  <div key={idx} className="flex items-center gap-2 text-xs text-[#FF9F0A]">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                     <span>{w}</span>
                   </div>
@@ -432,32 +431,31 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
         </div>
 
         {/* Modal Footer with Actions */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-white/10 bg-[#10131a]">
+        <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2 px-4 sm:px-6 py-3 border-t border-white/10">
           <button
+            type="button"
             onClick={onClose}
-            className="px-4 py-2 text-xs font-medium text-slate-400 hover:text-white transition-colors whitespace-nowrap shrink-0"
+            className="min-h-11 px-4 text-[17px] sm:text-[15px] font-medium text-[#409CFF]"
           >
             Close
           </button>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleExport}
-              disabled={isExporting}
-              className="flex items-center gap-2 px-5 py-2.5 text-xs font-semibold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-lg shadow-md transition-all whitespace-nowrap shrink-0"
-            >
-              <Download className="w-4 h-4" />
-              <span>
-                {isExporting
-                  ? 'Generating Export...'
-                  : exportFormat === 'bambu-project'
-                  ? `Download Bambu Studio Project (${selectedBambuPrinter})`
-                  : exportFormat === 'universal'
-                  ? 'Download Universal .3MF'
-                  : 'Download Binary .STL'}
-              </span>
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={isExporting}
+            className="btn-fill w-full sm:w-auto"
+          >
+            <Download className="w-4 h-4 shrink-0" />
+            <span>
+              {isExporting
+                ? 'Preparing…'
+                : exportFormat === 'bambu-project'
+                ? `Download ${selectedBambuPrinter}`
+                : exportFormat === 'universal'
+                ? 'Download 3MF'
+                : 'Download STL'}
+            </span>
+          </button>
         </div>
       </div>
     </div>

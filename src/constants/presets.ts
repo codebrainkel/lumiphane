@@ -149,13 +149,6 @@ export const SAMPLE_IMAGES: SamplePresetImage[] = [
     url: '/src/assets/images/sample_dog_retriever_1791682818115.jpg',
   },
   {
-    id: 'portrait_girl',
-    name: 'Portrait',
-    category: 'People',
-    description: 'Vertical 3:4 studio portrait showing fine hair detail and gentle lighting (3:4 Portrait)',
-    url: '/src/assets/images/sample_portrait_1791573382706.jpg',
-  },
-  {
     id: 'wildlife',
     name: 'Wildlife',
     category: 'Nature',
@@ -175,13 +168,6 @@ export const SAMPLE_IMAGES: SamplePresetImage[] = [
     category: 'Cats',
     description: 'High-key sunlit portrait of a fluffy cat with vibrant green eyes and whiskers',
     url: '/src/assets/images/sample_cat_portrait_1791682858470.jpg',
-  },
-  {
-    id: 'architecture',
-    name: 'Structure',
-    category: 'Places',
-    description: 'High dynamic range architectural shot with strong geometric perspective',
-    url: '/src/assets/images/sample_architecture_1791573391178.jpg',
   },
 ];
 
