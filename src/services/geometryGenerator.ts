@@ -35,17 +35,25 @@ export class GeometryGenerator {
     // Back:  2 * (cols - 1) * (rows - 1)
     // Top:   2 * (cols - 1)
     // Bot:   2 * (cols - 1)
-    // Left:  2 * (rows - 1)
-    // Right: 2 * (rows - 1)
-    const triangleCount = 4 * (cols * rows - 1);
+    const isCylinder = settings.shape === 'cylinder';
+    const isCube = settings.shape === 'cube';
+    const isEnclosed = isCylinder || isCube;
+    const triangleCount = isEnclosed ? 4 * cols * rows : 4 * (cols * rows - 1);
     const indices = new Uint32Array(triangleCount * 3);
+    let triOffset = 0;
 
-    // Precalculate curved arc parameters if applicable
+    // Precalculate curved arc and cylinder parameters
     const isCurved = settings.shape === 'curved' || settings.shape === 'nightlight';
     const isConvex = settings.curveDirection !== 'concave'; // default convex (edges wrap backwards away from viewer)
     const curveDeg = Math.max(15, Math.min(180, settings.curveAngle || 75));
     const curveRad = (curveDeg * Math.PI) / 180;
     const arcRadius = W / curveRad;
+
+    const cylinderDiameter = settings.cylinderDiameter || 90;
+    const cylinderRadius = cylinderDiameter / 2;
+
+    const cubeWidth = Math.max(30, settings.cubeWidth || 90);
+    const cubeHw = cubeWidth / 2;
 
     // Frame parameters
     const hasFrame = settings.hasFrame;
@@ -73,9 +81,9 @@ export class GeometryGenerator {
         // Standard: dark (lum 0) => maxThickness; bright (lum 1) => minThickness
         let th = minTh + (1.0 - lum) * (maxTh - minTh);
 
-        // Frame reinforcement
+        // Frame reinforcement (for continuous perimeter shapes, frame applies only to top/bottom rims; zero seam gap)
         if (hasFrame) {
-          const distBorder = Math.min(distX, distY);
+          const distBorder = isEnclosed ? distY : Math.min(distX, distY);
           if (distBorder <= frameW) {
             th = Math.max(th, frameTh);
           }
@@ -88,7 +96,82 @@ export class GeometryGenerator {
         let bx = 0, by = 0, bz = 0;
         let localThickness = th;
 
-        if (isStanding) {
+        if (isCube) {
+          // ==============================================================
+          // 4-SIDED HOLLOW CUBE (Vertical square tube on Z axis, bed at Z=0)
+          // ==============================================================
+          // 4 vertical walls surrounding center (0, 0, Z) with no top and no bottom.
+          // Face 0: Front face (+Y), Face 1: Right face (+X)
+          // Face 2: Back face (-Y), Face 3: Left face (-X)
+          const sideCols = cols / 4;
+          const sideIdx = Math.min(3, Math.floor(c / sideCols));
+          const uSide = (c - sideIdx * sideCols) / sideCols; // [0, 1)
+
+          let brimExtra = 0;
+          if (supportType !== 'none' && pz < 4.0) {
+            const tBrim = Math.pow(1.0 - pz / 4.0, 2);
+            brimExtra = 2.0 * tBrim;
+          }
+          localThickness = th + brimExtra;
+
+          if (sideIdx === 0) {
+            // Face 0: Front (+Y)
+            bx = cubeHw * (2.0 * uSide - 1.0);
+            by = cubeHw;
+            fx = (cubeHw + localThickness) * (2.0 * uSide - 1.0);
+            fy = cubeHw + localThickness;
+          } else if (sideIdx === 1) {
+            // Face 1: Right (+X)
+            bx = cubeHw;
+            by = cubeHw * (1.0 - 2.0 * uSide);
+            fx = cubeHw + localThickness;
+            fy = (cubeHw + localThickness) * (1.0 - 2.0 * uSide);
+          } else if (sideIdx === 2) {
+            // Face 2: Back (-Y)
+            bx = cubeHw * (1.0 - 2.0 * uSide);
+            by = -cubeHw;
+            fx = (cubeHw + localThickness) * (1.0 - 2.0 * uSide);
+            fy = -(cubeHw + localThickness);
+          } else {
+            // Face 3: Left (-X)
+            bx = -cubeHw;
+            by = cubeHw * (2.0 * uSide - 1.0);
+            fx = -(cubeHw + localThickness);
+            fy = (cubeHw + localThickness) * (2.0 * uSide - 1.0);
+          }
+
+          bz = pz;
+          fz = pz;
+        } else if (isCylinder) {
+          // ==============================================================
+          // 360° ROUND HOLLOW CYLINDER (Vertical tube on Z axis, bed at Z=0)
+          // ==============================================================
+          // Center Sector 0 (Front) at phi = 0 facing front camera (+Y)
+          // For 1 photo, centers the single wrap photo at Front, putting the seam at the back (180°)
+          const numPanels = Math.max(1, Math.min(4, settings.cylinderPanelCount || 4));
+          const phiOffset = Math.PI / numPanels;
+          const phi = (c / cols) * Math.PI * 2 - phiOffset;
+          const sinPhi = Math.sin(phi);
+          const cosPhi = Math.cos(phi);
+
+          let brimExtra = 0;
+          if (supportType !== 'none' && pz < 4.0) {
+            const tBrim = Math.pow(1.0 - pz / 4.0, 2);
+            brimExtra = 2.0 * tBrim;
+          }
+          localThickness = th + brimExtra;
+
+          // Inner smooth bore (facing center (0,0,z))
+          bx = cylinderRadius * sinPhi;
+          by = cylinderRadius * cosPhi;
+          bz = pz;
+
+          // Outer surface modulated by image luminance
+          const rOut = cylinderRadius + localThickness;
+          fx = rOut * sinPhi;
+          fy = rOut * cosPhi;
+          fz = pz;
+        } else if (isStanding) {
           // ==============================================================
           // STANDING ORIENTATION (Z is vertical print height, bed at Z=0)
           // ==============================================================
@@ -240,9 +323,91 @@ export class GeometryGenerator {
     }
 
     // 2. Generate Triangles with Consistent Winding & Outward Normals
-    let triOffset = 0;
+    if (isEnclosed) {
+      // ==============================================================
+      // 360° HOLLOW TUBE / CUBE (Watertight Annular Shell)
+      // ==============================================================
+      // OUTER FACE (Facing outward)
+      for (let r = 0; r < rows - 1; r++) {
+        for (let c = 0; c < cols; c++) {
+          const cNext = (c + 1) % cols;
+          const p00 = r * cols + c;
+          const p10 = r * cols + cNext;
+          const p01 = (r + 1) * cols + c;
+          const p11 = (r + 1) * cols + cNext;
 
-    if (isStanding) {
+          // Tri 1: (p00, p10, p11)
+          indices[triOffset++] = p00;
+          indices[triOffset++] = p10;
+          indices[triOffset++] = p11;
+
+          // Tri 2: (p00, p11, p01)
+          indices[triOffset++] = p00;
+          indices[triOffset++] = p11;
+          indices[triOffset++] = p01;
+        }
+      }
+
+      // INNER CYLINDRICAL FACE (Facing inward towards center (0,0,z))
+      for (let r = 0; r < rows - 1; r++) {
+        for (let c = 0; c < cols; c++) {
+          const cNext = (c + 1) % cols;
+          const b00 = N + r * cols + c;
+          const b10 = N + r * cols + cNext;
+          const b01 = N + (r + 1) * cols + c;
+          const b11 = N + (r + 1) * cols + cNext;
+
+          // Tri 1: (b00, b11, b10)
+          indices[triOffset++] = b00;
+          indices[triOffset++] = b11;
+          indices[triOffset++] = b10;
+
+          // Tri 2: (b00, b01, b11)
+          indices[triOffset++] = b00;
+          indices[triOffset++] = b01;
+          indices[triOffset++] = b11;
+        }
+      }
+
+      // TOP ANNULAR RIM (r = 0, Z = H, Normal points strictly +Z)
+      for (let c = 0; c < cols; c++) {
+        const cNext = (c + 1) % cols;
+        const f0 = c;
+        const f1 = cNext;
+        const b0 = N + c;
+        const b1 = N + cNext;
+
+        // Tri 1: (f1, f0, b1)
+        indices[triOffset++] = f1;
+        indices[triOffset++] = f0;
+        indices[triOffset++] = b1;
+
+        // Tri 2: (f0, b0, b1)
+        indices[triOffset++] = f0;
+        indices[triOffset++] = b0;
+        indices[triOffset++] = b1;
+      }
+
+      // BOTTOM ANNULAR RIM (r = rows - 1, Z = 0, Normal points strictly -Z flush with bed)
+      const botRowOffset = (rows - 1) * cols;
+      for (let c = 0; c < cols; c++) {
+        const cNext = (c + 1) % cols;
+        const f0 = botRowOffset + c;
+        const f1 = botRowOffset + cNext;
+        const b0 = N + botRowOffset + c;
+        const b1 = N + botRowOffset + cNext;
+
+        // Tri 1: (f0, f1, b1)
+        indices[triOffset++] = f0;
+        indices[triOffset++] = f1;
+        indices[triOffset++] = b1;
+
+        // Tri 2: (f0, b1, b0)
+        indices[triOffset++] = f0;
+        indices[triOffset++] = b1;
+        indices[triOffset++] = b0;
+      }
+    } else if (isStanding) {
       // FRONT FACE (Facing +Y)
       // Vector p10-p00 is +X, Vector p01-p00 is -Z -> (+X) x (-Z) = +Y
       for (let r = 0; r < rows - 1; r++) {

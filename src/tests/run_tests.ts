@@ -268,7 +268,7 @@ async function runTestSuite() {
   // TEST SUITE 8: Quality Tiers & Uncompressed Sampling Pipeline
   console.log('\n[8] Testing Quality Tiers & Uncompressed Sampling Pipeline...');
   {
-    const { getResolutionForTier, QUALITY_TIERS } = await import('../constants/presets');
+    const { getResolutionForTier, getCylinderResolutionForTier, QUALITY_TIERS } = await import('../constants/presets');
 
     assert(QUALITY_TIERS.master.baseCols === 600, 'Master quality base resolution is 600 cols');
     assert(QUALITY_TIERS.studio.baseCols === 440, 'Studio quality base resolution is 440 cols');
@@ -282,6 +282,20 @@ async function runTestSuite() {
 
     const pitchMm = 120 / masterCols;
     assert(pitchMm <= 0.20, `Master physical sampling pitch is <= 0.20mm (got: ${pitchMm.toFixed(3)}mm)`);
+
+    // Cylinder Tier Assertions:
+    const cylMasterCols = getCylinderResolutionForTier('master', 90);
+    assert(cylMasterCols >= 1400, `Cylinder master quality yields >= 1400 cols (got: ${cylMasterCols})`);
+    assert(cylMasterCols % 4 === 0, `Cylinder master cols is multiple of 4 (got: ${cylMasterCols})`);
+    const cylCircumference = Math.PI * 90;
+    const cylMasterPitch = cylCircumference / cylMasterCols;
+    assert(cylMasterPitch <= 0.21, `Cylinder master physical pitch matches flat master <= 0.21mm (got: ${cylMasterPitch.toFixed(3)}mm)`);
+
+    const cylStudioCols = getCylinderResolutionForTier('studio', 90);
+    assert(cylStudioCols >= 960 && cylStudioCols % 4 === 0, `Cylinder studio yields 960 cols divisible by 4 (got: ${cylStudioCols})`);
+
+    const cylDraftCols = getCylinderResolutionForTier('balanced', 90);
+    assert(cylDraftCols >= 640 && cylDraftCols % 4 === 0, `Cylinder draft yields 640 cols divisible by 4 (got: ${cylDraftCols})`);
   }
 
   // TEST SUITE 9: Odd Size Images & Cropped Aspect Ratio Scaling
@@ -342,6 +356,132 @@ async function runTestSuite() {
     assert(Math.abs(portraitVal.dimensionsMm.width - 120) < 0.5, 'Portrait mesh width is 120mm');
     assert(Math.abs(portraitVal.dimensionsMm.height - 160) < 0.5, `Portrait mesh height is 160mm (got ${portraitVal.dimensionsMm.height}mm)`);
     assert(portraitVal.isWatertight && portraitVal.isManifold, 'Portrait cropped mesh is watertight and 2-manifold');
+  }
+
+  // TEST SUITE 10: 360° Round Hollow Cylinder Mode (4-Image Lantern)
+  console.log('\n[10] Testing Round Hollow Cylinder Lithophane (360°)...');
+  {
+    const cylDiameter = 90; // mm
+    const cylHeight = 95;   // mm
+    const circumference = Math.PI * cylDiameter; // ~282.74 mm
+    const totalAspect = circumference / cylHeight;
+    const testCols = 64; // multiple of 4
+    const testRows = Math.round(testCols / totalAspect); // ~22 rows
+
+    const cylGrid = new Float32Array(testCols * testRows);
+    // Simulate 4 distinct quadrant patterns
+    const quadCols = testCols / 4;
+    for (let r = 0; r < testRows; r++) {
+      for (let c = 0; c < testCols; c++) {
+        const quadrant = Math.floor(c / quadCols);
+        cylGrid[r * testCols + c] = 0.2 + quadrant * 0.2; // 4 distinct quadrants
+      }
+    }
+
+    const cylGeom = GeometryGenerator.generateMesh(cylGrid, testCols, testRows, {
+      ...DEFAULT_SETTINGS,
+      shape: 'cylinder',
+      cylinderDiameter: cylDiameter,
+      height: cylHeight,
+      orientation: 'standing',
+      supportType: 'flange',
+    });
+
+    const cylVal = MeshValidator.validate(cylGeom);
+
+    assert(cylVal.isWatertight, 'Round hollow cylinder mesh is strictly watertight');
+    assert(cylVal.isManifold, 'Round hollow cylinder mesh is strictly 2-manifold');
+    assert(cylVal.degenerateTriangles === 0, 'Zero degenerate triangles on hollow cylinder');
+    assert(Math.abs(cylVal.dimensionsMm.height - cylHeight) < 0.5, `Cylinder height matches 95mm (got ${cylVal.dimensionsMm.height}mm)`);
+    // Outer diameter includes base cylinder radius + thickness
+    const outerDiamExpected = cylDiameter + 3.0 * 2; // ~96mm
+    assert(cylGeom.boundingBox.min[2] === 0, 'Cylinder bottom rim rests flat at Z=0 on print bed');
+    assert(cylGeom.indices.length === 4 * testCols * testRows * 3, `Cylinder index count matches 4 * cols * rows * 3 (got ${cylGeom.indices.length})`);
+
+    // Verify outward vs inward normal directions for proper lithophane lighting
+    const midRow = Math.floor(testRows / 2);
+    const midOuterIdx = (midRow * testCols + Math.floor(testCols / 8)) * 3;
+    const midInnerIdx = (testCols * testRows + midRow * testCols + Math.floor(testCols / 8)) * 3;
+
+    const outerDot = cylGeom.normals[midOuterIdx] * cylGeom.vertices[midOuterIdx] +
+                     cylGeom.normals[midOuterIdx + 1] * cylGeom.vertices[midOuterIdx + 1];
+    const innerDot = cylGeom.normals[midInnerIdx] * cylGeom.vertices[midInnerIdx] +
+                     cylGeom.normals[midInnerIdx + 1] * cylGeom.vertices[midInnerIdx + 1];
+
+    assert(outerDot > 20, `Cylinder outer face normals point strictly outward away from center (dot: ${outerDot.toFixed(1)})`);
+    assert(innerDot < -20, `Cylinder inner bore normals point strictly inward toward center light (dot: ${innerDot.toFixed(1)})`);
+    assert(cylGeom.normals[2] > 0.1, 'Cylinder top rim normals point +Z (upward)');
+    const botIdx = (testRows - 1) * testCols * 3;
+    assert(cylGeom.normals[botIdx + 2] < -0.1, 'Cylinder bottom rim normals point -Z (downward flush with bed)');
+
+    // Verify zero vertical frame seam gap between last image (c = testCols - 1) and first image (c = 0)
+    // Even when hasFrame is enabled, the 360° cylinder perimeter must NOT have vertical side borders
+    assert(cylGeom.thicknesses !== undefined, 'Cylinder thicknesses buffer is generated');
+    const ths = cylGeom.thicknesses!;
+    const firstColTh = ths[midRow * testCols + 0];
+    const lastColTh = ths[midRow * testCols + (testCols - 1)];
+    const expectedFirstTh = DEFAULT_SETTINGS.minThickness + (1.0 - 0.2) * (DEFAULT_SETTINGS.maxThickness - DEFAULT_SETTINGS.minThickness);
+    const expectedLastTh = DEFAULT_SETTINGS.minThickness + (1.0 - 0.8) * (DEFAULT_SETTINGS.maxThickness - DEFAULT_SETTINGS.minThickness);
+    assert(Math.abs(firstColTh - expectedFirstTh) < 0.05, `First column thickness accurately reflects photo luminance without frame bar (got ${firstColTh.toFixed(2)}mm, expected ${expectedFirstTh.toFixed(2)}mm)`);
+    assert(Math.abs(lastColTh - expectedLastTh) < 0.05, `Last column thickness accurately reflects photo luminance without frame bar (got ${lastColTh.toFixed(2)}mm, expected ${expectedLastTh.toFixed(2)}mm)`);
+  }
+
+  // TEST SUITE 11: Dynamic 1, 2, and 3 Image Cylinder Configurations
+  console.log('\n[11] Testing Dynamic 1, 2, and 3 Image Cylinder Modes...');
+  {
+    const cylDiameter = 90;
+    const cylHeight = 95;
+    const testCols = 72; // multiple of 12 (divisible by 1, 2, 3, 4)
+    const testRows = 24;
+
+    // Test 1: Single Photo (Full 360° Wrap)
+    const singleWrapGrid = new Float32Array(testCols * testRows);
+    for (let r = 0; r < testRows; r++) {
+      for (let c = 0; c < testCols; c++) {
+        // Continuous horizontal gradient across full 360°
+        singleWrapGrid[r * testCols + c] = c / testCols;
+      }
+    }
+
+    const singleWrapGeom = GeometryGenerator.generateMesh(singleWrapGrid, testCols, testRows, {
+      ...DEFAULT_SETTINGS,
+      shape: 'cylinder',
+      cylinderDiameter: cylDiameter,
+      cylinderPanelCount: 1,
+      height: cylHeight,
+    });
+    const singleVal = MeshValidator.validate(singleWrapGeom);
+    assert(singleVal.isWatertight, '1-Photo 360° cylinder wrap is strictly watertight');
+    assert(singleVal.isManifold, '1-Photo 360° cylinder wrap is strictly 2-manifold');
+    assert(singleVal.degenerateTriangles === 0, '1-Photo 360° cylinder wrap has zero degenerate triangles');
+
+    // For 1-photo wrap, the center of the image (c = testCols / 2) faces front (+Y) towards viewer
+    const midRow = Math.floor(testRows / 2);
+    const centerColIdx = (midRow * testCols + Math.floor(testCols / 2)) * 3;
+    const centerNormDot = singleWrapGeom.normals[centerColIdx + 1]; // Y component of normal
+    assert(centerNormDot > 0.8, `Center of single image faces directly forward (+Y) (got normal.y: ${centerNormDot.toFixed(2)})`);
+
+    // Test 2: Two Photos (180° Halves)
+    const twoPanelGeom = GeometryGenerator.generateMesh(singleWrapGrid, testCols, testRows, {
+      ...DEFAULT_SETTINGS,
+      shape: 'cylinder',
+      cylinderDiameter: cylDiameter,
+      cylinderPanelCount: 2,
+      height: cylHeight,
+    });
+    const twoVal = MeshValidator.validate(twoPanelGeom);
+    assert(twoVal.isWatertight && twoVal.isManifold, '2-Photo cylinder is watertight and 2-manifold');
+
+    // Test 3: Three Photos (120° Thirds)
+    const threePanelGeom = GeometryGenerator.generateMesh(singleWrapGrid, testCols, testRows, {
+      ...DEFAULT_SETTINGS,
+      shape: 'cylinder',
+      cylinderDiameter: cylDiameter,
+      cylinderPanelCount: 3,
+      height: cylHeight,
+    });
+    const threeVal = MeshValidator.validate(threePanelGeom);
+    assert(threeVal.isWatertight && threeVal.isManifold, '3-Photo cylinder is watertight and 2-manifold');
   }
 
   console.log('\n========================================');

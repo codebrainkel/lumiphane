@@ -1,8 +1,43 @@
-import { LithophaneSettings, SamplePresetImage, QualityTier } from '../types/lithophane';
+import { LithophaneSettings, SamplePresetImage, QualityTier, CylinderSlot } from '../types/lithophane';
+
+export const DEFAULT_CYLINDER_SLOTS: CylinderSlot[] = [
+  {
+    id: 'slot_1',
+    label: 'Front (0°)',
+    name: 'Retriever',
+    imageSrc: '/src/assets/images/sample_dog_retriever_1791682818115.jpg',
+    cropData: null,
+  },
+  {
+    id: 'slot_2',
+    label: 'Right (90°)',
+    name: 'Corgi',
+    imageSrc: '/src/assets/images/sample_dog_corgi_1791682841012.jpg',
+    cropData: null,
+  },
+  {
+    id: 'slot_3',
+    label: 'Back (180°)',
+    name: 'Cat',
+    imageSrc: '/src/assets/images/sample_cat_portrait_1791682858470.jpg',
+    cropData: null,
+  },
+  {
+    id: 'slot_4',
+    label: 'Left (270°)',
+    name: 'Fox',
+    imageSrc: '/src/assets/images/animal_fox_portrait_1791682594622.jpg',
+    cropData: null,
+  },
+];
 
 export const DEFAULT_SETTINGS: LithophaneSettings = {
   width: 120, // mm
   height: 90, // mm (auto computed from aspect ratio initially)
+  cylinderDiameter: 90, // mm (diameter of hollow cylinder lampshade)
+  cylinderPanelCount: 4, // 1 to 4 photos around cylinder (default 4)
+  cubeWidth: 90, // mm (width of each face of hollow cube)
+  cubePanelCount: 4, // 1 to 4 photos around cube (default 4)
   minThickness: 0.8, // mm (.80mm default highlights)
   maxThickness: 3.0, // mm (3.0mm default shadows)
 
@@ -103,23 +138,23 @@ export interface QualityTierInfo {
 export const QUALITY_TIERS: Record<QualityTier, QualityTierInfo> = {
   master: {
     id: 'master',
-    label: 'Master Quality',
-    badge: 'Ultra-HD (600 pts)',
-    description: 'Pinnacle photographic fidelity (~0.18-0.20mm physical detail pitch, ~500k-650k triangles)',
+    label: 'High Detail',
+    badge: 'Sharpest',
+    description: 'Ultra-fine surface resolution for crisp, detailed photo prints.',
     baseCols: 600,
   },
   studio: {
     id: 'studio',
-    label: 'Studio Quality',
-    badge: 'High-Res (440 pts)',
-    description: 'Crisp balance for standard FDM printing (~0.25mm detail pitch, ~380k triangles)',
+    label: 'Standard',
+    badge: 'Recommended',
+    description: 'Clean, smooth photo prints with fast processing and smaller file size.',
     baseCols: 440,
   },
   balanced: {
     id: 'balanced',
-    label: 'Fast Preview',
-    badge: 'Draft (340 pts)',
-    description: 'Rapid slicing and prototyping (~0.35mm detail pitch, ~230k triangles)',
+    label: 'Fast',
+    badge: 'Draft',
+    description: 'Quickest preview and smallest file size for testing.',
     baseCols: 340,
   },
 };
@@ -129,15 +164,164 @@ export const QUALITY_TIERS: Record<QualityTier, QualityTierInfo> = {
  */
 export function getResolutionForTier(tier: QualityTier = 'master', widthMm: number = 120): number {
   if (tier === 'master') {
-    // 5.0 samples per mm (600 cols at 120mm), clamped between 520 and 720
     return Math.max(520, Math.min(720, Math.round(widthMm * (600 / 120))));
   }
   if (tier === 'studio') {
-    // ~3.67 samples per mm (440 cols at 120mm), clamped between 380 and 540
     return Math.max(380, Math.min(540, Math.round(widthMm * (440 / 120))));
   }
-  // draft/balanced:
   return Math.max(280, Math.min(420, Math.round(widthMm * (340 / 120))));
+}
+
+/**
+ * Computes optimal grid columns for chosen quality tier and cylinder diameter.
+ * Guarantees cols is a multiple of 12 (divisible by 1, 2, 3, and 4 panels)
+ * and scales to maintain high sampling density around the full 360° perimeter.
+ */
+export function getCylinderResolutionForTier(tier: QualityTier = 'master', diameterMm: number = 90): number {
+  const circumference = Math.PI * Math.max(40, diameterMm);
+  let cols: number;
+  if (tier === 'master') {
+    cols = Math.round((circumference * 5.0) / 12) * 12;
+    return Math.max(1020, Math.min(2160, cols));
+  }
+  if (tier === 'studio') {
+    cols = Math.round((circumference * 3.4) / 12) * 12;
+    return Math.max(768, Math.min(1440, cols));
+  }
+  cols = Math.round((circumference * 2.3) / 12) * 12;
+  return Math.max(516, Math.min(960, cols));
+}
+
+/**
+ * Computes optimal grid columns for chosen quality tier and cube width.
+ * Guarantees cols is a multiple of 12 (divisible by 1, 2, 3, and 4 panels)
+ * and scales to maintain high sampling density around the 4 sides of the hollow cube.
+ */
+export function getCubeResolutionForTier(tier: QualityTier = 'master', cubeWidthMm: number = 90): number {
+  const perimeter = 4 * Math.max(40, cubeWidthMm);
+  let cols: number;
+  if (tier === 'master') {
+    cols = Math.round((perimeter * 4.2) / 12) * 12;
+    return Math.max(960, Math.min(2160, cols));
+  }
+  if (tier === 'studio') {
+    cols = Math.round((perimeter * 3.0) / 12) * 12;
+    return Math.max(720, Math.min(1440, cols));
+  }
+  cols = Math.round((perimeter * 2.0) / 12) * 12;
+  return Math.max(480, Math.min(960, cols));
+}
+
+/**
+ * Returns user-facing label and angular range for each slot given a total count (1 to 4).
+ */
+export function getCylinderSlotLabels(count: number): { label: string; deg: string; spanDeg: number }[] {
+  const clamped = Math.max(1, Math.min(4, count));
+  if (clamped === 1) {
+    return [{ label: 'Full 360° Wrap', deg: '0°–360°', spanDeg: 360 }];
+  }
+  if (clamped === 2) {
+    return [
+      { label: 'Front', deg: '0°–180°', spanDeg: 180 },
+      { label: 'Back', deg: '180°–360°', spanDeg: 180 },
+    ];
+  }
+  if (clamped === 3) {
+    return [
+      { label: 'Front', deg: '0°–120°', spanDeg: 120 },
+      { label: 'Right', deg: '120°–240°', spanDeg: 120 },
+      { label: 'Left', deg: '240°–360°', spanDeg: 120 },
+    ];
+  }
+  return [
+    { label: 'Front', deg: '0°–90°', spanDeg: 90 },
+    { label: 'Right', deg: '90°–180°', spanDeg: 90 },
+    { label: 'Back', deg: '180°–270°', spanDeg: 90 },
+    { label: 'Left', deg: '270°–360°', spanDeg: 90 },
+  ];
+}
+
+/**
+ * Returns user-facing label and face name for hollow cube slots given a count (1 to 4).
+ */
+export function getCubeSlotLabels(count: number): { label: string; deg: string; spanDeg: number }[] {
+  const clamped = Math.max(1, Math.min(4, count));
+  if (clamped === 1) {
+    return [{ label: 'Full 4-Face Wrap', deg: 'All 4 Sides', spanDeg: 360 }];
+  }
+  if (clamped === 2) {
+    return [
+      { label: 'Front & Right', deg: 'Faces 1–2', spanDeg: 180 },
+      { label: 'Back & Left', deg: 'Faces 3–4', spanDeg: 180 },
+    ];
+  }
+  if (clamped === 3) {
+    return [
+      { label: 'Panel 1', deg: 'Front / Right', spanDeg: 120 },
+      { label: 'Panel 2', deg: 'Right / Back', spanDeg: 120 },
+      { label: 'Panel 3', deg: 'Back / Left', spanDeg: 120 },
+    ];
+  }
+  return [
+    { label: 'Front Face', deg: '0°', spanDeg: 90 },
+    { label: 'Right Face', deg: '90°', spanDeg: 90 },
+    { label: 'Back Face', deg: '180°', spanDeg: 90 },
+    { label: 'Left Face', deg: '270°', spanDeg: 90 },
+  ];
+}
+
+/**
+ * Returns slot labels based on whether shape is cube or cylinder
+ */
+export function getMultiPanelSlotLabels(
+  shape: string,
+  count: number
+): { label: string; deg: string; spanDeg: number }[] {
+  return shape === 'cube' ? getCubeSlotLabels(count) : getCylinderSlotLabels(count);
+}
+
+/**
+ * Calculates optimal aspect ratio (width / height) for a single cylinder slot/panel.
+ * For 1 photo wrap: (π * D) / H (e.g. ~2.98:1 for 90mm diameter and 95mm height).
+ */
+export function getOptimalCylinderWrapRatio(
+  diameterMm: number,
+  heightMm: number,
+  slotCount: number = 1
+): number {
+  const count = Math.max(1, Math.min(4, slotCount));
+  const circ = Math.PI * Math.max(30, diameterMm);
+  const arcWidthMm = circ / count;
+  const h = Math.max(20, heightMm);
+  return Math.round((arcWidthMm / h) * 100) / 100;
+}
+
+/**
+ * Calculates optimal aspect ratio (width / height) for a single hollow cube slot/panel.
+ * For 4 photos on 90x90 cube: 90 / 90 = 1.0 (Square).
+ * For 1 photo wrap: (4 * W) / H (e.g. 360 / 90 = 4.0:1).
+ */
+export function getOptimalCubeWrapRatio(
+  cubeWidthMm: number,
+  heightMm: number,
+  slotCount: number = 1
+): number {
+  const count = Math.max(1, Math.min(4, slotCount));
+  const perimeter = 4 * Math.max(30, cubeWidthMm);
+  const panelWidthMm = perimeter / count;
+  const h = Math.max(20, heightMm);
+  return Math.round((panelWidthMm / h) * 100) / 100;
+}
+
+export function getOptimalMultiPanelWrapRatio(
+  shape: string,
+  sizeMm: number,
+  heightMm: number,
+  slotCount: number = 1
+): number {
+  return shape === 'cube'
+    ? getOptimalCubeWrapRatio(sizeMm, heightMm, slotCount)
+    : getOptimalCylinderWrapRatio(sizeMm, heightMm, slotCount);
 }
 
 export const SAMPLE_IMAGES: SamplePresetImage[] = [
@@ -145,29 +329,29 @@ export const SAMPLE_IMAGES: SamplePresetImage[] = [
     id: 'golden_retriever',
     name: 'Retriever',
     category: 'Dogs',
-    description: 'Bright sunny portrait of a cheerful golden retriever with rich fur detail (4:3 Landscape)',
+    description: 'Sunny portrait with soft fur detail',
     url: '/src/assets/images/sample_dog_retriever_1791682818115.jpg',
-  },
-  {
-    id: 'wildlife',
-    name: 'Wildlife',
-    category: 'Nature',
-    description: 'Square 1:1 format wildlife scene with intricate texture and depth (1:1 Square)',
-    url: '/src/assets/images/sample_wildlife_1791573399712.jpg',
   },
   {
     id: 'corgi',
     name: 'Corgi',
     category: 'Dogs',
-    description: 'Luminous daylight portrait of a happy smiling Welsh corgi with alert ears',
+    description: 'Smiling corgi portrait',
     url: '/src/assets/images/sample_dog_corgi_1791682841012.jpg',
   },
   {
     id: 'cat',
     name: 'Cat',
     category: 'Cats',
-    description: 'High-key sunlit portrait of a fluffy cat with vibrant green eyes and whiskers',
+    description: 'Fluffy cat with whiskers',
     url: '/src/assets/images/sample_cat_portrait_1791682858470.jpg',
+  },
+  {
+    id: 'fox',
+    name: 'Fox',
+    category: 'Wildlife',
+    description: 'Red fox portrait',
+    url: '/src/assets/images/animal_fox_portrait_1791682594622.jpg',
   },
 ];
 
@@ -175,16 +359,16 @@ export const SLICER_PRESETS = [
   {
     name: 'Bambu Studio / OrcaSlicer',
     icon: 'Printer',
-    notes: 'Print vertically on the Y-axis. Infill: 100% rectilinear. Layer height: 0.12mm (0.08mm high detail). Brim: 5-8mm outer brim. When opening via File → Open or double-click, simply click "OK" on the "load geometry data only" prompt to use your active printer settings, or use File → Import → 3D Model.',
+    notes: 'Open the .3mf file directly in Bambu Studio. 100% solid infill, 0.12mm layers, and brim settings are pre-configured.',
   },
   {
     name: 'PrusaSlicer',
     icon: 'Gauge',
-    notes: 'Perimeters: 99 (solid plastic for uniform light transmission). Layer height: 0.10mm - 0.15mm. Cooling fan: 100% after layer 2. Seam position: Rear.',
+    notes: 'Set perimeters to 99 for a solid print. Use 0.10–0.12mm layer height and add a 5mm outer brim for stability.',
   },
   {
     name: 'UltiMaker Cura',
     icon: 'Layers',
-    notes: 'Infill Density: 100%. Print Speed: 30-40 mm/s for outer wall. Wall Line Count: 99. Orientation: Align long edge with Y-axis.',
+    notes: 'Set infill to 100% and outer wall speed to 30–35 mm/s. Align the model along your print bed Y-axis.',
   },
 ];

@@ -1,4 +1,6 @@
-export type LithophaneShape = 'flat' | 'curved' | 'nightlight';
+export type LithophaneShape = 'flat' | 'curved' | 'cylinder' | 'cube' | 'nightlight';
+
+export type AppStep = 'mode' | 'upload' | 'preview';
 
 export type SupportType = 'flange' | 'buttress' | 'full' | 'none';
 
@@ -6,10 +8,22 @@ export type PrintOrientation = 'standing' | 'flat';
 
 export type QualityTier = 'master' | 'studio' | 'balanced';
 
+export interface CylinderSlot {
+  id: string;
+  label: string;
+  imageSrc: string;
+  name: string;
+  cropData: ImageCropData | null;
+}
+
 export interface LithophaneSettings {
   // Physical Dimensions (mm)
   width: number;
   height: number;
+  cylinderDiameter: number; // mm (diameter of hollow cylinder, 50-300mm, default 90mm)
+  cylinderPanelCount?: number; // 1, 2, 3, or 4 images around cylinder (default 4)
+  cubeWidth?: number; // mm (side length of square hollow cube, 40-250mm, default 90mm)
+  cubePanelCount?: number; // 1, 2, 3, or 4 images around cube (default 4)
   minThickness: number; // e.g. 0.8 mm (thinnest, highlights)
   maxThickness: number; // e.g. 3.0 mm (thickest, shadows)
 

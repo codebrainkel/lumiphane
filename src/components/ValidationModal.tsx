@@ -8,19 +8,15 @@ import {
 } from '../services/threeMfExporter';
 import { StlExporter } from '../services/stlExporter';
 import {
-  CheckCircle2,
-  AlertTriangle,
+  Check,
   Download,
   FileArchive,
   Layers,
-  Scale,
   Box,
   X,
-  ShieldCheck,
-  Info,
   Printer,
-  Sparkles,
   FileCheck,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface ValidationModalProps {
@@ -93,7 +89,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
         isBambuProject: result.isBambuProject,
       });
 
-      // Trigger standard browser download
+      // Standard browser download
       const url = URL.createObjectURL(result.blob);
       const a = document.createElement('a');
       a.href = url;
@@ -111,25 +107,20 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
 
   return (
     <div className="modal-scrim">
-      <div className="modal-sheet">
-        <div className="modal-grabber" />
-        <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-white/10">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-[14px] bg-[#0A84FF]/15 border border-[#0A84FF]/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] flex items-center justify-center text-[#409CFF] shrink-0">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <div className="min-w-0">
-              <h2 className="text-[17px] font-semibold tracking-[-0.02em] text-white leading-tight">
-                Export
-              </h2>
-              <div className="text-[13px] text-emerald-400 font-medium truncate">
-                Watertight mesh
-              </div>
+      <div className="modal-dialog">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/10">
+          <div>
+            <h2 className="text-base font-semibold text-white tracking-tight">
+              Export 3D Model
+            </h2>
+            <div className="text-xs text-slate-400 font-mono mt-0.5">
+              Ready for your 3D printer · Select format below
             </div>
           </div>
           <button
             onClick={onClose}
-            className="icon-btn text-[#8E8E93]"
+            className="p-1 rounded-sm text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
             aria-label="Close"
           >
             <X className="w-4 h-4" />
@@ -137,92 +128,86 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
         </div>
 
         {/* Modal Body */}
-        <div className="modal-body p-4 sm:p-6 space-y-5">
-          {/* Integrity Metric Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="stat-card">
-              <div className="flex items-center gap-1.5 text-slate-400 text-xs mb-1">
+        <div className="modal-body p-5 space-y-4">
+          {/* Integrity Metric Strip */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div className="p-3 rounded-md bg-[#141924] border border-white/10">
+              <div className="flex items-center gap-1.5 text-slate-400 text-[11px] mb-1">
                 <Box className="w-3.5 h-3.5" />
                 <span>Dimensions</span>
               </div>
-              <div className="font-mono tabular-nums text-sm font-semibold text-white">
+              <div className="font-mono tabular-nums text-xs font-semibold text-white">
                 {validationResult.dimensionsMm.width} × {validationResult.dimensionsMm.height} mm
               </div>
-              <div className="text-[11px] text-slate-500 font-mono mt-0.5">
-                Depth {validationResult.dimensionsMm.depth} mm
+              <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                Depth: {validationResult.dimensionsMm.depth} mm
               </div>
             </div>
 
-            <div className="stat-card">
-              <div className="flex items-center gap-1.5 text-slate-400 text-xs mb-1">
-                <Sparkles className="w-3.5 h-3.5 text-[#0A84FF]" />
-                <span>Auto Thickness</span>
+            <div className="p-3 rounded-md bg-[#141924] border border-white/10">
+              <div className="flex items-center gap-1.5 text-slate-400 text-[11px] mb-1">
+                <span>Thickness</span>
               </div>
-              <div className="font-mono tabular-nums text-sm font-semibold text-[#64B5FF]">
+              <div className="font-mono tabular-nums text-xs font-bold text-amber-400">
                 {settings.minThickness.toFixed(2)} – {settings.maxThickness.toFixed(2)} mm
               </div>
-              <div className="text-[11px] text-slate-500 mt-0.5">
-                White PLA calibrated
+              <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                Min to max relief
               </div>
             </div>
 
-            <div className="stat-card">
-              <div className="flex items-center gap-1.5 text-slate-400 text-xs mb-1">
+            <div className="p-3 rounded-md bg-[#141924] border border-white/10">
+              <div className="flex items-center gap-1.5 text-slate-400 text-[11px] mb-1">
                 <Layers className="w-3.5 h-3.5" />
-                <span>Triangles</span>
+                <span>3D Polygons</span>
               </div>
-              <div className="font-mono tabular-nums text-sm font-semibold text-white">
+              <div className="font-mono tabular-nums text-xs font-bold text-white">
                 {validationResult.triangleCount.toLocaleString()}
               </div>
-              <div className="text-[11px] text-slate-500 font-mono mt-0.5">
-                ~{validationResult.estimatedWeightGrams.toFixed(1)}g PLA
+              <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                ~{validationResult.estimatedWeightGrams.toFixed(1)}g filament
               </div>
             </div>
 
-            <div className="stat-card">
-              <div className="flex items-center gap-1.5 text-slate-400 text-xs mb-1">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Topology</span>
+            <div className="p-3 rounded-md bg-[#141924] border border-white/10">
+              <div className="flex items-center gap-1.5 text-slate-400 text-[11px] mb-1">
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Print Status</span>
               </div>
-              <div className="font-mono tabular-nums text-sm font-semibold text-emerald-400">
-                100% Watertight
+              <div className="font-mono tabular-nums text-xs font-bold text-emerald-400">
+                Print Ready
               </div>
-              <div className="text-[11px] text-slate-500 font-mono mt-0.5">
-                Euler χ = {validationResult.eulerCharacteristic}
+              <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                Watertight solid
               </div>
             </div>
           </div>
 
-          {/* Slicer Export Format Selector */}
-          <div className="note space-y-3.5">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="text-xs font-semibold text-white">Choose Export Target & Config</span>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  Select your slicing workflow for seamless loading into Bambu Studio or OrcaSlicer.
-                </p>
-              </div>
+          {/* Export Target Selector */}
+          <div>
+            <div className="text-xs font-bold text-slate-300 uppercase font-mono mb-2">
+              Choose File Format
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               {/* Option 1: Bambu Studio Project */}
               <button
                 type="button"
                 onClick={() => setExportFormat('bambu-project')}
-                data-on={exportFormat === 'bambu-project'}
-                className="choice"
+                className={`p-3 text-left rounded-md border transition-colors ${
+                  exportFormat === 'bambu-project'
+                    ? 'bg-[#181e28] border-amber-400 ring-1 ring-amber-400'
+                    : 'bg-[#141924] border-white/10 hover:border-white/20'
+                }`}
               >
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold">
-                    <Printer className={`w-3.5 h-3.5 ${exportFormat === 'bambu-project' ? 'text-[#0A84FF]' : 'text-slate-400'}`} />
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-white">
+                    <Printer className="w-3.5 h-3.5 text-amber-400" />
                     <span>Bambu Studio Project</span>
                   </div>
-                  <span className="text-[10px] font-mono text-emerald-400">
-                    Direct Load
-                  </span>
+                  <span className="text-[10px] font-mono font-bold text-amber-400">Direct</span>
                 </div>
                 <p className="text-[11px] text-slate-400 leading-snug">
-                  Native Bambu project (.3mf) with valid hardware profiles, 0.12mm layer height, and 100% infill.
+                  Native 3MF project with pre-configured infill (100%), 0.12mm layers, and brim.
                 </p>
               </button>
 
@@ -230,20 +215,21 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
               <button
                 type="button"
                 onClick={() => setExportFormat('universal')}
-                data-on={exportFormat === 'universal'}
-                className="choice"
+                className={`p-3 text-left rounded-md border transition-colors ${
+                  exportFormat === 'universal'
+                    ? 'bg-[#181e28] border-amber-400 ring-1 ring-amber-400'
+                    : 'bg-[#141924] border-white/10 hover:border-white/20'
+                }`}
               >
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold">
-                    <FileCheck className={`w-3.5 h-3.5 ${exportFormat === 'universal' ? 'text-[#0A84FF]' : 'text-slate-400'}`} />
-                    <span>Universal 3MF</span>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-white">
+                    <FileCheck className="w-3.5 h-3.5 text-slate-300" />
+                    <span>Standard 3MF</span>
                   </div>
-                  <span className="text-[10px] font-mono text-blue-400">
-                    All Slicers
-                  </span>
+                  <span className="text-[10px] font-mono text-slate-400">Standard</span>
                 </div>
                 <p className="text-[11px] text-slate-400 leading-snug">
-                  Pure ISO/IEC 25422 geometry. Works with OrcaSlicer, PrusaSlicer, and Cura without machine lock-in.
+                  Modern 3D file for OrcaSlicer, PrusaSlicer, Cura, and other programs.
                 </p>
               </button>
 
@@ -251,33 +237,34 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
               <button
                 type="button"
                 onClick={() => setExportFormat('stl')}
-                data-on={exportFormat === 'stl'}
-                className="choice"
+                className={`p-3 text-left rounded-md border transition-colors ${
+                  exportFormat === 'stl'
+                    ? 'bg-[#181e28] border-amber-400 ring-1 ring-amber-400'
+                    : 'bg-[#141924] border-white/10 hover:border-white/20'
+                }`}
               >
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold">
-                    <FileArchive className={`w-3.5 h-3.5 ${exportFormat === 'stl' ? 'text-[#0A84FF]' : 'text-slate-400'}`} />
-                    <span>Binary .STL</span>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-white">
+                    <FileArchive className="w-3.5 h-3.5 text-slate-300" />
+                    <span>Standard STL</span>
                   </div>
-                  <span className="text-[10px] font-mono text-slate-400">
-                    Raw Mesh
-                  </span>
+                  <span className="text-[10px] font-mono text-slate-400">Classic</span>
                 </div>
                 <p className="text-[11px] text-slate-400 leading-snug">
-                  Classic raw triangle mesh. Loads directly onto any active build plate with zero project dialogs.
+                  Classic 3D printing format compatible with all 3D printers and software.
                 </p>
               </button>
             </div>
 
             {/* Bambu Printer Selector (When Bambu Project mode is active) */}
             {exportFormat === 'bambu-project' && (
-              <div className="mt-3 pt-3 border-t border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="mt-3 p-3 rounded-md bg-[#141924] border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
-                  <Printer className="w-4 h-4 text-[#0A84FF] shrink-0" />
+                  <Printer className="w-4 h-4 text-amber-400 shrink-0" />
                   <div>
-                    <div className="text-xs font-medium text-slate-200">Target Bambu Lab Machine</div>
+                    <div className="text-xs font-bold text-slate-200">Printer Model</div>
                     <div className="text-[11px] text-slate-400">
-                      Matches your hardware to avoid &quot;Printer mismatch&quot; notifications.
+                      Sets build plate size for your Bambu printer.
                     </div>
                   </div>
                 </div>
@@ -286,7 +273,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
                   value={selectedBambuPrinter}
                   onChange={(e) => setSelectedBambuPrinter(e.target.value as BambuPrinterModel)}
                   aria-label="Target Bambu Lab Machine"
-                  className="select-glass"
+                  className="bg-[#0b0e14] border border-white/15 rounded-md px-2.5 py-1 text-xs text-slate-200 font-mono focus:outline-none focus:border-amber-400"
                 >
                   {Object.values(BAMBU_PRINTER_PROFILES).map((p) => (
                     <option key={p.id} value={p.id}>
@@ -298,107 +285,35 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
             )}
           </div>
 
-          {/* Dynamic Guidance / Notice Card */}
-          {exportFormat === 'bambu-project' ? (
-            <div className="note note-ok space-y-2">
-              <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
-                <Sparkles className="w-4 h-4 shrink-0" />
-                <span>Native Bambu Studio Project Active</span>
-              </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                This export includes full, valid <code className="text-emerald-300">Metadata/project_settings.config</code> and <code className="text-emerald-300">model_settings.config</code> specifically structured for <strong>{BAMBU_PRINTER_PROFILES[selectedBambuPrinter].name}</strong>.
-              </p>
-              <div className="text-[11px] text-slate-400 space-y-1 pt-1 border-t border-white/5">
-                <div>• <strong>Zero Prompts:</strong> Double-clicking or opening in Bambu Studio loads the model instantly without the &quot;invalid config&quot; dialog.</div>
-                <div>• <strong>Pre-configured Slicing:</strong> 0.12mm layer height, 100% rectilinear infill, 4 wall loops, and 5mm outer brim are pre-applied.</div>
-              </div>
-            </div>
-          ) : exportFormat === 'universal' ? (
-            <div className="note note-accent space-y-2">
-              <div className="flex items-center gap-2 text-xs font-semibold text-[#64B5FF]">
-                <Info className="w-4 h-4 shrink-0 text-[#0A84FF]" />
-                <span>Universal 3MF Notice</span>
-              </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Universal 3MF contains pure geometric mesh data without hardcoding a proprietary machine profile, ensuring it won&apos;t overwrite your existing printer setup.
-              </p>
-              <div className="text-[11px] text-slate-400 space-y-1 pt-1 border-t border-white/5">
-                <div>• <strong>Bambu Studio &quot;Geometry Only&quot; Prompt:</strong> When opening via <em>File → Open</em>, Bambu Studio expects a project and displays <em>&quot;The 3mf file has invalid config, load geometry data only&quot;</em>. Simply click <strong>OK</strong> to load the model with your active settings.</div>
-                <div>• <strong>To avoid this prompt:</strong> Switch to <strong>Bambu Studio Project</strong> mode above, or use <strong>File → Import → 3D Model</strong>.</div>
-              </div>
-            </div>
-          ) : (
-            <div className="note note-muted space-y-2">
-              <div className="flex items-center gap-2 text-xs font-semibold text-slate-300">
-                <Info className="w-4 h-4 shrink-0 text-slate-400" />
-                <span>Binary STL Notice</span>
-              </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                STL files carry pure surface triangles without project envelopes. Every slicer imports STL directly onto the bed without project checks.
-              </p>
-            </div>
-          )}
-
-          {/* Mathematical Integrity Audit Checklist */}
-          <div className="note space-y-3">
-            <h3 className="text-xs font-semibold text-white tracking-wide uppercase">
-              Geometric Quality & Slicer Readiness Audit
-            </h3>
-
-            <div className="flex items-start gap-2.5 text-xs">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-medium text-slate-200">High-Density Mesh Resolution</span>
-                <p className="text-slate-400 text-[11px]">
-                  Full dynamic range calibration ({geometryData.gridResolution.cols} × {geometryData.gridResolution.rows} grid, {(settings.width / geometryData.gridResolution.cols).toFixed(2)} mm physical pitch).
-                </p>
-              </div>
+          {/* Slicer Readiness Checklist */}
+          <div className="p-3.5 rounded-md bg-[#141924] border border-white/10 space-y-2.5">
+            <div className="text-xs font-semibold text-slate-300 tracking-wide uppercase font-mono">
+              Pre-Print Quality Check
             </div>
 
-            <div className="flex items-start gap-2.5 text-xs">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-medium text-slate-200">Watertight 2-Manifold Boundary</span>
-                <p className="text-slate-400 text-[11px]">
-                  Euler characteristic χ = 2 confirmed. Exactly zero boundary edges, zero non-manifold vertices, zero self-intersections.
-                </p>
+            <div className="space-y-1.5 text-xs">
+              <div className="flex items-start gap-2 text-slate-300">
+                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                <span>Watertight solid mesh with closed edges (no holes or gaps)</span>
               </div>
-            </div>
-
-            <div className="flex items-start gap-2.5 text-xs">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-medium text-slate-200">Consistent Triangle Winding & Outward Normals</span>
-                <p className="text-slate-400 text-[11px]">
-                  All facets oriented with counter-clockwise half-edges facing external space. Slicers identify solid positive volume without surface inversion.
-                </p>
+              <div className="flex items-start gap-2 text-slate-300">
+                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                <span>Correct surface direction for realistic backlight simulation</span>
               </div>
-            </div>
-
-            <div className="flex items-start gap-2.5 text-xs">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-medium text-slate-200">Standing Vertical Print Orientation</span>
-                <p className="text-slate-400 text-[11px]">
-                  Model is oriented standing upright on the Z-axis, resting directly at Z = 0 on the build plate with integrated stabilizing supports to prevent tall-blade bed vibration.
-                </p>
+              <div className="flex items-start gap-2 text-slate-300">
+                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                <span>Stands upright on the build plate (Z = 0) with stabilizing base</span>
               </div>
-            </div>
-
-            <div className="flex items-start gap-2.5 text-xs">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-medium text-slate-200">Physical Sizing & Units</span>
-                <p className="text-slate-400 text-[11px]">
-                  Exported unit explicitly declared as &quot;millimeter&quot;. Physical dimensions match exactly.
-                </p>
+              <div className="flex items-start gap-2 text-slate-300">
+                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                <span>Accurate millimeter dimensions for 1:1 real-world size</span>
               </div>
             </div>
 
             {validationResult.warnings.length > 0 && (
-              <div className="mt-3 pt-3 border-t border-white/5 space-y-1">
+              <div className="mt-2 pt-2 border-t border-white/5 space-y-1">
                 {validationResult.warnings.map((w, idx) => (
-                  <div key={idx} className="flex items-center gap-2 text-xs text-[#FF9F0A]">
+                  <div key={idx} className="flex items-center gap-1.5 text-xs text-amber-400">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                     <span>{w}</span>
                   </div>
@@ -407,26 +322,26 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
             )}
           </div>
 
-          {/* Live Package Verification Badge */}
+          {/* Live Package Verification Notice */}
           {verified3Mf && (
-            <div className="note note-ok flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2 text-emerald-300 font-medium">
-                <CheckCircle2 className="w-4 h-4" />
+            <div className="p-3 rounded-md bg-emerald-950/40 border border-emerald-500/30 flex items-center justify-between text-xs text-emerald-300">
+              <div className="flex items-center gap-2">
+                <Check className="w-4 h-4 text-emerald-400" />
                 <span>
-                  {verified3Mf.isBambuProject ? 'Bambu Studio Project Archive' : 'Universal 3MF Archive'} Validated ({verified3Mf.sizeKb} KB, {verified3Mf.parsedVertices.toLocaleString()} vertices)
+                  File Ready ({verified3Mf.sizeKb} KB · {verified3Mf.parsedVertices.toLocaleString()} points)
                 </span>
               </div>
-              <span className="text-[11px] font-mono text-emerald-400">Unit: {verified3Mf.unit}</span>
+              <span className="font-mono text-emerald-400">Unit: mm</span>
             </div>
           )}
         </div>
 
-        {/* Modal Footer with Actions */}
-        <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2 px-4 sm:px-6 py-3 border-t border-white/10">
+        {/* Modal Footer */}
+        <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-t border-white/10 bg-[#10141d]">
           <button
             type="button"
             onClick={onClose}
-            className="min-h-11 px-4 text-[17px] sm:text-[15px] font-medium text-[#409CFF]"
+            className="btn-secondary text-xs py-1.5 px-3 min-h-[34px]"
           >
             Close
           </button>
@@ -434,17 +349,17 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
             type="button"
             onClick={handleExport}
             disabled={isExporting}
-            className="btn-fill w-full sm:w-auto"
+            className="btn-primary text-xs py-1.5 px-4 min-h-[34px]"
           >
-            <Download className="w-4 h-4 shrink-0" />
+            <Download className="w-3.5 h-3.5 shrink-0" />
             <span>
               {isExporting
-                ? 'Preparing…'
+                ? 'Preparing file…'
                 : exportFormat === 'bambu-project'
-                ? `Download ${selectedBambuPrinter}`
+                ? `Download ${selectedBambuPrinter} File (.3mf)`
                 : exportFormat === 'universal'
-                ? 'Download 3MF'
-                : 'Download STL'}
+                ? 'Download .3mf File'
+                : 'Download .stl File'}
             </span>
           </button>
         </div>

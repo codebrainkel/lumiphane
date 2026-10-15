@@ -10,14 +10,14 @@ interface Viewport3DProps {
   isGenerating: boolean;
 }
 
-// Fixed warm optical properties
-const WARM_LIGHT_COLOR = 0xffdfa8; // Warm 2700K incandescent glow
+// Fixed optical properties for calibrated translucent PLA
+const WARM_LIGHT_COLOR = 0xffdfa8; // Warm 2700K backlight
 const MATERIAL_BASE_COLOR = 0xf7f4ec; // Warm Ivory PLA base color
 const EXTINCTION_COEFFICIENT = 1.15; // Material light extinction mu in mm^-1
 const SCATTER_STRENGTH = 0.8;
 const BACKLIGHT_INTENSITY = 1.56 * 1.25;
-const VIEW_EDGE_PAD = 10;
-const ROOM_LIGHT_INTENSITY = 0.18;
+const VIEW_EDGE_PAD = 16;
+const ROOM_LIGHT_INTENSITY = 0.22;
 
 export const Viewport3D: React.FC<Viewport3DProps> = ({
   geometryData,
@@ -56,7 +56,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
 
     // Scene
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x000000);
+    scene.background = new THREE.Color(0x090b0f);
     sceneRef.current = scene;
 
     // Camera: Z is vertical print axis (camera.up = (0, 0, 1))
@@ -89,9 +89,9 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     controls.target.set(0, 0, 45);
     controlsRef.current = controls;
 
-    // Build Plate (220x220 mm at Z = 0)
+    // Build Plate (340x340 mm at Z = 0, supports large format 3D prints up to 300mm)
     const bedGroup = new THREE.Group();
-    const grid = new THREE.GridHelper(220, 44, 0x343d52, 0x161a25);
+    const grid = new THREE.GridHelper(340, 68, 0x242d3d, 0x141822);
     grid.rotation.x = Math.PI / 2;
     grid.position.set(0, 0, 0);
     bedGroup.add(grid);
@@ -99,8 +99,8 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     scene.add(bedGroup);
     bedPlinthRef.current = bedGroup;
 
-    // Invisible Point Light behind model (provides scene lighting without any visible mesh)
-    const pLight = new THREE.PointLight(WARM_LIGHT_COLOR, BACKLIGHT_INTENSITY, 350, 1.1);
+    // Point Light behind/inside lithophane
+    const pLight = new THREE.PointLight(WARM_LIGHT_COLOR, BACKLIGHT_INTENSITY, 600, 1.1);
     pLight.position.set(0, -35, 45);
     scene.add(pLight);
     pointLightRef.current = pLight;
@@ -165,15 +165,18 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     };
   }, []);
 
-  // 2. Custom Physical Lithophane Shader
+  // 2. Physical Translucent Lithophane Shader
   const createLithophaneShaderMaterial = useCallback((): THREE.ShaderMaterial => {
     const effectiveLightColor = new THREE.Color(WARM_LIGHT_COLOR);
     const effectiveBaseColor = new THREE.Color(MATERIAL_BASE_COLOR);
 
+    const isEnclosed = settings.shape === 'cylinder' || settings.shape === 'cube';
+    const lightY = isEnclosed ? 0 : -35;
+
     const uniforms = {
       uBacklightIntensity: { value: BACKLIGHT_INTENSITY },
       uBacklightColor: { value: effectiveLightColor },
-      uBacklightPos: { value: new THREE.Vector3(0, -35, 45) },
+      uBacklightPos: { value: new THREE.Vector3(0, lightY, 45) },
       uRoomLightIntensity: { value: ROOM_LIGHT_INTENSITY },
       uRoomLightColor: { value: new THREE.Color(0xdce7f5) },
       uMaterialBaseColor: { value: effectiveBaseColor },
@@ -181,6 +184,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       uScatteringStrength: { value: SCATTER_STRENGTH },
       uMinThickness: { value: Math.max(0.4, settings.minThickness) },
       uMaxThickness: { value: Math.max(1.0, settings.maxThickness) },
+      uIsCylinder: { value: isEnclosed },
     };
 
     const vertexShader = `
@@ -214,6 +218,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       uniform float uScatteringStrength;
       uniform float uMinThickness;
       uniform float uMaxThickness;
+      uniform bool uIsCylinder;
 
       varying vec3 vNormal;
       varying vec3 vWorldPosition;
@@ -221,7 +226,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       varying vec2 vUv;
       varying float vThickness;
 
-      // ACES Filmic Tone Mapping for natural photographic highlights
+      // ACES Filmic Tone Mapping
       vec3 acesFilm(vec3 x) {
         float a = 2.51;
         float b = 0.03;
@@ -235,49 +240,39 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
         vec3 N = normalize(vNormal);
         vec3 V = normalize(vViewPosition);
 
-        // Lithophane stands upright facing +Y direction
-        bool isFront = N.y >= -0.15;
-
-        // When lamp is off, ensure realistic room light visibility on unlit plastic
+        bool isFront = uIsCylinder ? (dot(N.xy, vWorldPosition.xy) >= 0.0) : (N.y >= -0.15);
         float effectiveRoomLight = uBacklightIntensity > 0.0 ? uRoomLightIntensity : max(uRoomLightIntensity, 0.55);
 
         vec3 finalColor;
 
         if (isFront) {
-          // Front surface: light transmitted through solid thickness
           vec3 toLight = uBacklightPos - vWorldPosition;
           float distToLight = length(toLight);
           vec3 lightDir = normalize(toLight);
 
-          // Radial falloff and incident cosine from point light behind model
           float backlightReach = 1.0 / (1.0 + 0.007 * distToLight + 0.00018 * distToLight * distToLight);
-          float cosInc = clamp(dot(-lightDir, vec3(0.0, 1.0, 0.0)), 0.25, 1.0);
+          float cosInc = uIsCylinder ? clamp(dot(-lightDir, N), 0.25, 1.0) : clamp(dot(-lightDir, vec3(0.0, 1.0, 0.0)), 0.25, 1.0);
           backlightReach *= cosInc;
 
           // Beer-Lambert physical absorption: T = exp( - mu * thickness )
           float th = max(0.25, vThickness);
           float transmittance = exp(-uTranslucencyExtinction * th);
 
-          // Warm chromatic scattering characteristic of PLA
+          // Warm chromatic scattering in translucent PLA
           float normTh = clamp((th - uMinThickness) / max(0.1, uMaxThickness - uMinThickness), 0.0, 1.0);
           vec3 scatterShift = mix(vec3(1.0), vec3(1.0, 0.86, 0.68), normTh * uScatteringStrength);
 
-          // Forward scatter micro-glow toward viewer
           float forwardScatter = pow(max(0.0, dot(V, -lightDir)), 2.2) * 0.16;
-
           vec3 transmitted = uBacklightColor * scatterShift * (transmittance * 2.8 + forwardScatter) * backlightReach * uBacklightIntensity;
 
-          // Room ambient and directional lighting on front plastic ridges
           vec3 roomKeyDir = normalize(vec3(0.35, 0.82, 0.45));
           float roomDiff = max(0.0, dot(N, roomKeyDir));
           vec3 roomHalf = normalize(roomKeyDir + V);
           float roomSpec = pow(max(0.0, dot(N, roomHalf)), 28.0) * 0.24;
 
           vec3 frontRoomLight = (uMaterialBaseColor * (uRoomLightColor * (0.24 + roomDiff * 0.85)) + vec3(roomSpec)) * effectiveRoomLight;
-
           finalColor = transmitted + frontRoomLight;
         } else {
-          // Back surface: light illuminates the rear face directly
           vec3 toLight = uBacklightPos - vWorldPosition;
           float distToLight = length(toLight);
           vec3 lightDir = normalize(toLight);
@@ -302,27 +297,39 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       uniforms,
       side: THREE.DoubleSide,
     });
-  }, [settings.minThickness, settings.maxThickness]);
+  }, [settings.minThickness, settings.maxThickness, settings.shape]);
 
-  // Update light position behind model
+  // Update light position behind model or inside cylinder/cube
   const updateLightPosition = useCallback(
     (geom: MeshGeometryData | null) => {
       if (!geom) return;
+      const isEnclosed = settings.shape === 'cylinder' || settings.shape === 'cube';
       const centerZ = (geom.boundingBox.max[2] + geom.boundingBox.min[2]) / 2;
-      const lightY = geom.boundingBox.min[1] - 34;
+      const lightX = 0;
+      const lightY = isEnclosed ? 0 : geom.boundingBox.min[1] - 34;
+      const lightZ = centerZ;
 
       if (pointLightRef.current) {
-        pointLightRef.current.position.set(0, lightY, centerZ);
+        pointLightRef.current.position.set(lightX, lightY, lightZ);
         pointLightRef.current.intensity = BACKLIGHT_INTENSITY;
       }
 
       if (shaderMaterialRef.current) {
-        shaderMaterialRef.current.uniforms.uBacklightPos.value.set(0, lightY, centerZ);
+        shaderMaterialRef.current.uniforms.uBacklightPos.value.set(lightX, lightY, lightZ);
         shaderMaterialRef.current.uniforms.uBacklightIntensity.value = BACKLIGHT_INTENSITY;
+        if (shaderMaterialRef.current.uniforms.uIsCylinder) {
+          shaderMaterialRef.current.uniforms.uIsCylinder.value = isEnclosed;
+        }
       }
     },
-    []
+    [settings.shape]
   );
+
+  useEffect(() => {
+    if (geometryData) {
+      updateLightPosition(geometryData);
+    }
+  }, [updateLightPosition, geometryData]);
 
   // 3. Update Three.js Mesh when geometry changes
   useEffect(() => {
@@ -423,22 +430,8 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     const objW = Math.max(span(xAxis), 1);
     const objH = Math.max(span(yAxis), 1);
 
-    const canvasRect = mount.getBoundingClientRect();
-    const root = mount.parentElement?.parentElement;
-    const tools = root?.querySelector('.viewport-tools');
-    const badge = root?.querySelector('.dim-badge');
-    let topPad = VIEW_EDGE_PAD;
-    let bottomPad = VIEW_EDGE_PAD;
-    if (tools) {
-      const toolsRect = tools.getBoundingClientRect();
-      topPad = Math.max(topPad, toolsRect.bottom - canvasRect.top + VIEW_EDGE_PAD);
-    }
-    if (badge) {
-      const badgeRect = badge.getBoundingClientRect();
-      bottomPad = Math.max(bottomPad, canvasRect.bottom - badgeRect.top + VIEW_EDGE_PAD);
-    }
     const availW = Math.max(32, canvasW - VIEW_EDGE_PAD * 2);
-    const availH = Math.max(32, canvasH - topPad - bottomPad);
+    const availH = Math.max(32, canvasH - VIEW_EDGE_PAD * 2 - 50);
 
     const tan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
     const aspect = canvasW / canvasH;
@@ -447,7 +440,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     let distance = Math.max(distH, distW);
 
     const desiredLeft = VIEW_EDGE_PAD;
-    const desiredTop = topPad;
+    const desiredTop = VIEW_EDGE_PAD + 40;
     const desiredCx = desiredLeft + availW / 2;
     const desiredCy = desiredTop + availH / 2;
 
@@ -504,10 +497,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     camera.lookAt(look);
     controls.update();
 
-    if (shaderMaterialRef.current) {
-      const lightY = geom.boundingBox.min[1] - 34;
-      shaderMaterialRef.current.uniforms.uBacklightPos.value.set(0, lightY, centerZ);
-    }
+    updateLightPosition(geom);
   };
   placeViewRef.current = placeView;
 
@@ -535,13 +525,14 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
 
   return (
     <div className="viewport">
+      {/* Floating CAD HUD Bar */}
       <div className="viewport-tools">
-        <div className="glass-bar">
+        <div className="hud-bar">
           <button
             type="button"
             onClick={() => setViewAngle('front')}
             data-on={activeView === 'front'}
-            className="glass-btn"
+            className="hud-btn"
             title="Front view"
           >
             Front
@@ -550,58 +541,70 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
             type="button"
             onClick={() => setViewAngle('iso')}
             data-on={activeView === 'iso'}
-            className="glass-btn"
-            title="Angled view"
+            className="hud-btn"
+            title="3D angle view"
           >
             Angle
           </button>
-          <button type="button" onClick={resetCamera} className="glass-btn" title="Fit model" aria-label="Fit model">
-            <Maximize2 className="w-4 h-4" />
+          <button
+            type="button"
+            onClick={resetCamera}
+            className="hud-icon-btn"
+            title="Fit to view"
+            aria-label="Fit to view"
+          >
+            <Maximize2 className="w-3.5 h-3.5" />
           </button>
+
+          <div className="w-[1px] h-4 bg-white/10 mx-0.5" />
+
           <button
             type="button"
             onClick={() => setShowBed(!showBed)}
             data-on={showBed}
-            className="icon-btn"
+            className="hud-icon-btn"
             title="Toggle print bed"
             aria-pressed={showBed}
             aria-label="Toggle print bed"
           >
-            <Layers className="w-[18px] h-[18px]" />
+            <Layers className="w-3.5 h-3.5" />
           </button>
           <button
             type="button"
             onClick={() => setAutoRotate(!autoRotate)}
             data-on={autoRotate}
-            className="icon-btn"
-            title="Spin model"
+            className="hud-icon-btn"
+            title="Auto-rotate view"
             aria-pressed={autoRotate}
-            aria-label="Spin model"
+            aria-label="Auto-rotate view"
           >
-            <RotateCcw className={`w-[18px] h-[18px] ${autoRotate ? 'animate-spin' : ''}`} />
+            <RotateCcw className={`w-3.5 h-3.5 ${autoRotate ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
 
+      {/* Model Dimensions Badge */}
       {geometryData && (
-        <div className="dim-badge">
-          {Math.round(geometryData.boundingBox.size[0])} × {Math.round(geometryData.boundingBox.size[1])} × {Math.round(geometryData.boundingBox.size[2])} mm
+        <div className="hud-badge">
+          {settings.shape === 'cylinder'
+            ? `Ø ${Math.round(settings.cylinderDiameter || 90)} × ${Math.round(settings.height || 95)} mm`
+            : `${Math.round(geometryData.boundingBox.size[0])} × ${Math.round(geometryData.boundingBox.size[2])} mm`}
         </div>
       )}
 
+      {/* 3D Canvas Mount */}
       <div className="viewport-canvas">
         <div
           ref={mountRef}
           className="w-full h-full cursor-grab active:cursor-grabbing"
         />
 
+        {/* Loading Spinner */}
         {isGenerating && (
-          <div className="mesh-overlay bg-black/35 backdrop-blur-[2px] flex items-center justify-center pointer-events-none">
-            <div className="toast">
-              <div className="w-4 h-4 border-2 border-[#0A84FF] border-t-transparent rounded-full animate-spin" />
-              <span className="text-[13px] font-medium tracking-[-0.01em] text-white/90">
-                Building mesh
-              </span>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center pointer-events-none z-20">
+            <div className="p-3 bg-[#10141d] border border-white/10 rounded-md shadow-lg flex items-center gap-2.5 text-xs text-slate-200 font-mono">
+              <div className="w-3.5 h-3.5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin shrink-0" />
+              <span className="font-bold text-amber-300">Updating 3D model...</span>
             </div>
           </div>
         )}

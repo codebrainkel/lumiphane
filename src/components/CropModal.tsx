@@ -4,17 +4,17 @@ import {
   Check,
   X,
   Crop as CropIcon,
-  RotateCw,
+  RotateCcw,
   Maximize,
   Move,
-  Layers,
-  Sparkles,
 } from 'lucide-react';
 
 interface CropModalProps {
   imageSrc: string;
   initialCrop: ImageCropData | null;
   physicalWidthMm?: number;
+  targetAspect?: number;
+  targetAspectLabel?: string;
   onApplyCrop: (crop: ImageCropData | null) => void;
   onClose: () => void;
 }
@@ -24,26 +24,27 @@ type DragMode = 'none' | 'move' | 'nw' | 'ne' | 'se' | 'sw' | 'n' | 'e' | 's' | 
 interface AspectPreset {
   id: ImageCropData['aspectRatioMode'];
   label: string;
-  ratio: number | null; // null for original / custom
-  type: 'general' | 'landscape' | 'portrait';
+  ratio: number | null;
 }
 
 const PRESETS: AspectPreset[] = [
-  { id: 'original', label: 'Full Image', ratio: null, type: 'general' },
-  { id: '1:1', label: '1:1 Square', ratio: 1.0, type: 'general' },
-  { id: '4:3', label: '4:3 Standard', ratio: 4 / 3, type: 'landscape' },
-  { id: '3:4', label: '3:4 Portrait', ratio: 3 / 4, type: 'portrait' },
-  { id: '3:2', label: '3:2 Photo', ratio: 3 / 2, type: 'landscape' },
-  { id: '2:3', label: '2:3 Portrait', ratio: 2 / 3, type: 'portrait' },
-  { id: '16:9', label: '16:9 Wide', ratio: 16 / 9, type: 'landscape' },
-  { id: '9:16', label: '9:16 Tall', ratio: 9 / 16, type: 'portrait' },
-  { id: 'custom', label: 'Freeform', ratio: null, type: 'general' },
+  { id: 'original', label: 'Full Image', ratio: null },
+  { id: '1:1', label: '1:1 Square', ratio: 1.0 },
+  { id: '4:3', label: '4:3 Standard', ratio: 4 / 3 },
+  { id: '3:4', label: '3:4 Portrait', ratio: 3 / 4 },
+  { id: '3:2', label: '3:2 Photo', ratio: 3 / 2 },
+  { id: '2:3', label: '2:3 Portrait', ratio: 2 / 3 },
+  { id: '16:9', label: '16:9 Wide', ratio: 16 / 9 },
+  { id: '9:16', label: '9:16 Tall', ratio: 9 / 16 },
+  { id: 'custom', label: 'Freeform', ratio: null },
 ];
 
 export const CropModal: React.FC<CropModalProps> = ({
   imageSrc,
   initialCrop,
   physicalWidthMm = 120,
+  targetAspect,
+  targetAspectLabel,
   onApplyCrop,
   onClose,
 }) => {
@@ -54,7 +55,6 @@ export const CropModal: React.FC<CropModalProps> = ({
   const [aspectMode, setAspectMode] = useState<ImageCropData['aspectRatioMode']>(
     initialCrop?.aspectRatioMode || 'original'
   );
-  // Crop rect in natural image pixels
   const [cropRect, setCropRect] = useState<{
     x: number;
     y: number;
@@ -85,7 +85,7 @@ export const CropModal: React.FC<CropModalProps> = ({
     initialCrop: { x: 0, y: 0, width: 0, height: 0 },
   });
 
-  // Load image dimensions
+  // Load natural image dimensions
   useEffect(() => {
     const img = new Image();
     img.src = imageSrc;
@@ -114,7 +114,7 @@ export const CropModal: React.FC<CropModalProps> = ({
     };
   }, [imageSrc, initialCrop]);
 
-  // Track container size
+  // Track container dimensions
   useEffect(() => {
     if (!containerRef.current) return;
     const observer = new ResizeObserver((entries) => {
@@ -131,7 +131,6 @@ export const CropModal: React.FC<CropModalProps> = ({
     return () => observer.disconnect();
   }, []);
 
-  // Compute rendered image bounds inside preview container (letterboxed object-contain)
   const getImageRenderBounds = useCallback(() => {
     if (!naturalSize.width || !naturalSize.height || !containerSize.width || !containerSize.height) {
       return { x: 0, y: 0, width: 0, height: 0, scale: 1 };
@@ -157,7 +156,7 @@ export const CropModal: React.FC<CropModalProps> = ({
 
     const renderX = (containerSize.width - renderW) / 2;
     const renderY = (containerSize.height - renderH) / 2;
-    const scale = renderW / naturalSize.width; // display pixels per natural pixel
+    const scale = renderW / naturalSize.width;
 
     return {
       x: renderX,
@@ -168,7 +167,6 @@ export const CropModal: React.FC<CropModalProps> = ({
     };
   }, [naturalSize, containerSize]);
 
-  // Set preset ratio
   const setPresetRatio = (mode: ImageCropData['aspectRatioMode']) => {
     setAspectMode(mode);
     if (!naturalSize.width || !naturalSize.height) return;
@@ -181,9 +179,7 @@ export const CropModal: React.FC<CropModalProps> = ({
       return;
     }
 
-    if (mode === 'custom') {
-      return;
-    }
+    if (mode === 'custom') return;
 
     const preset = PRESETS.find((p) => p.id === mode);
     if (!preset || !preset.ratio) return;
@@ -200,6 +196,27 @@ export const CropModal: React.FC<CropModalProps> = ({
     const cropX = Math.round((nw - cropW) / 2);
     const cropY = Math.round((nh - cropH) / 2);
 
+    setCropRect({
+      x: Math.max(0, cropX),
+      y: Math.max(0, cropY),
+      width: Math.min(nw, Math.round(cropW)),
+      height: Math.min(nh, Math.round(cropH)),
+    });
+  };
+
+  const applySpecificRatio = (targetRatio: number, mode: ImageCropData['aspectRatioMode'] = 'custom') => {
+    setAspectMode(mode);
+    if (!naturalSize.width || !naturalSize.height) return;
+    const nw = naturalSize.width;
+    const nh = naturalSize.height;
+    let cropW = nw;
+    let cropH = nw / targetRatio;
+    if (cropH > nh) {
+      cropH = nh;
+      cropW = nh * targetRatio;
+    }
+    const cropX = Math.round((nw - cropW) / 2);
+    const cropY = Math.round((nh - cropH) / 2);
     setCropRect({
       x: Math.max(0, cropX),
       y: Math.max(0, cropY),
@@ -230,7 +247,6 @@ export const CropModal: React.FC<CropModalProps> = ({
     });
   };
 
-  // Pointer drag handling
   const handlePointerDown = (mode: DragMode, e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -252,7 +268,6 @@ export const CropModal: React.FC<CropModalProps> = ({
     const bounds = getImageRenderBounds();
     if (bounds.scale <= 0) return;
 
-    // Convert display displacement (px) to image pixel space
     const deltaDisplayX = e.clientX - startX;
     const deltaDisplayY = e.clientY - startY;
     const deltaX = deltaDisplayX / bounds.scale;
@@ -272,14 +287,12 @@ export const CropModal: React.FC<CropModalProps> = ({
       return;
     }
 
-    // Resizing handles
     const currentPreset = PRESETS.find((p) => p.id === aspectMode);
     const lockedRatio = currentPreset?.ratio ?? null;
 
     let { x, y, width, height } = initialCrop;
 
     if (lockedRatio !== null) {
-      // Locked aspect ratio resize from corners
       if (mode === 'se') {
         let newW = initialCrop.width + deltaX;
         let newH = newW / lockedRatio;
@@ -338,7 +351,6 @@ export const CropModal: React.FC<CropModalProps> = ({
         y = initialCrop.y + initialCrop.height - height;
       }
     } else {
-      // Freeform resize
       if (mode.includes('e')) {
         width = Math.max(20, Math.min(nw - x, Math.round(initialCrop.width + deltaX)));
       }
@@ -381,7 +393,6 @@ export const CropModal: React.FC<CropModalProps> = ({
   };
 
   const handleApply = () => {
-    // If full image and uncropped, pass null to avoid unnecessary canvas slice
     const isFullImage =
       aspectMode === 'original' &&
       cropRect.x <= 2 &&
@@ -414,26 +425,20 @@ export const CropModal: React.FC<CropModalProps> = ({
 
   return (
     <div className="modal-scrim select-none">
-      <div className="modal-sheet wide">
-        <div className="modal-grabber" />
-        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-white/10">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-[12px] bg-[#0A84FF]/10 border border-[#0A84FF]/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] flex items-center justify-center">
-              <CropIcon className="w-4 h-4 text-[#0A84FF]" />
-            </div>
-            <div>
-              <h3 className="text-[17px] font-semibold tracking-[-0.02em] text-white leading-tight">
-                <span className="sm:hidden">Crop</span>
-                <span className="hidden sm:inline">Crop & aspect ratio</span>
-              </h3>
-              <p className="text-[13px] text-[#8E8E93] hidden sm:block">
-                The print size follows this crop.
-              </p>
-            </div>
+      <div className="modal-dialog wide">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/10">
+          <div>
+            <h3 className="text-base font-semibold text-white tracking-tight">
+              Crop Photo
+            </h3>
+            <p className="text-xs text-slate-400 font-mono mt-0.5">
+              Adjust framing and proportions for your 3D print.
+            </p>
           </div>
           <button
             onClick={onClose}
-            className="icon-btn text-[#8E8E93]"
+            className="p-1 rounded-sm text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
             aria-label="Close"
           >
             <X className="w-4 h-4" />
@@ -441,17 +446,31 @@ export const CropModal: React.FC<CropModalProps> = ({
         </div>
 
         {/* Modal Body */}
-        <div className="modal-body p-4 sm:p-5 flex flex-col gap-4">
+        <div className="modal-body p-5 flex flex-col gap-4">
           {/* Preset Buttons Bar */}
-          <div className="seg seg-scroll">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+            {targetAspect && (
+              <button
+                type="button"
+                onClick={() => applySpecificRatio(targetAspect, 'custom')}
+                className="px-3 py-1.5 rounded-sm text-xs font-semibold whitespace-nowrap transition-colors shrink-0 bg-amber-400 text-slate-950 hover:bg-amber-300 border border-amber-300 shadow-xs flex items-center gap-1.5"
+                title={`Fit crop exactly to ${targetAspectLabel || 'cylinder sector'} (${targetAspect.toFixed(2)}:1)`}
+              >
+                <CropIcon className="w-3.5 h-3.5" />
+                <span>{targetAspectLabel || `Fit Ratio (${targetAspect.toFixed(2)}:1)`}</span>
+              </button>
+            )}
             {PRESETS.map((p) => {
               const isActive = aspectMode === p.id;
               return (
                 <button
                   key={p.id}
                   onClick={() => setPresetRatio(p.id)}
-                  data-on={isActive}
-                  className="seg-btn"
+                  className={`px-3 py-1.5 rounded-sm text-xs font-medium whitespace-nowrap transition-colors shrink-0 ${
+                    isActive
+                      ? 'bg-[#1e2535] text-white border border-white/20 font-semibold'
+                      : 'bg-[#141924] text-slate-400 hover:text-slate-200 border border-white/5'
+                  }`}
                 >
                   {p.label}
                 </button>
@@ -462,7 +481,7 @@ export const CropModal: React.FC<CropModalProps> = ({
           {/* Interactive Visual Canvas / Crop Viewport */}
           <div
             ref={containerRef}
-            className="relative bg-black border border-white/10 rounded-[20px] h-[42dvh] min-h-56 sm:h-96 flex items-center justify-center overflow-hidden touch-none"
+            className="relative bg-[#080a0e] border border-white/10 rounded-md h-[40dvh] min-h-56 sm:h-96 flex items-center justify-center overflow-hidden touch-none"
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
           >
@@ -470,8 +489,8 @@ export const CropModal: React.FC<CropModalProps> = ({
             {bounds.width > 0 && (
               <img
                 src={imageSrc}
-                alt="Framing Source"
-                className="absolute pointer-events-none select-none rounded shadow-md"
+                alt="Source"
+                className="absolute pointer-events-none select-none"
                 style={{
                   left: `${bounds.x}px`,
                   top: `${bounds.y}px`,
@@ -484,7 +503,7 @@ export const CropModal: React.FC<CropModalProps> = ({
             {/* Dark Mask Top */}
             {bounds.width > 0 && (
               <div
-                className="absolute bg-black/65 pointer-events-none"
+                className="absolute bg-black/75 pointer-events-none"
                 style={{
                   left: `${bounds.x}px`,
                   top: `${bounds.y}px`,
@@ -497,7 +516,7 @@ export const CropModal: React.FC<CropModalProps> = ({
             {/* Dark Mask Bottom */}
             {bounds.width > 0 && (
               <div
-                className="absolute bg-black/65 pointer-events-none"
+                className="absolute bg-black/75 pointer-events-none"
                 style={{
                   left: `${bounds.x}px`,
                   top: `${cropDisplayY + cropDisplayH}px`,
@@ -510,7 +529,7 @@ export const CropModal: React.FC<CropModalProps> = ({
             {/* Dark Mask Left */}
             {bounds.width > 0 && (
               <div
-                className="absolute bg-black/65 pointer-events-none"
+                className="absolute bg-black/75 pointer-events-none"
                 style={{
                   left: `${bounds.x}px`,
                   top: `${cropDisplayY}px`,
@@ -523,7 +542,7 @@ export const CropModal: React.FC<CropModalProps> = ({
             {/* Dark Mask Right */}
             {bounds.width > 0 && (
               <div
-                className="absolute bg-black/65 pointer-events-none"
+                className="absolute bg-black/75 pointer-events-none"
                 style={{
                   left: `${cropDisplayX + cropDisplayW}px`,
                   top: `${cropDisplayY}px`,
@@ -536,7 +555,7 @@ export const CropModal: React.FC<CropModalProps> = ({
             {/* Active Highlighted Crop Window */}
             {bounds.width > 0 && cropDisplayW > 0 && cropDisplayH > 0 && (
               <div
-                className="absolute border-2 border-[#0A84FF] shadow-2xl cursor-move group"
+                className="absolute border border-amber-400 shadow-xl cursor-move group"
                 style={{
                   left: `${cropDisplayX}px`,
                   top: `${cropDisplayY}px`,
@@ -546,164 +565,134 @@ export const CropModal: React.FC<CropModalProps> = ({
                 onPointerDown={(e) => handlePointerDown('move', e)}
               >
                 {/* Rule-of-thirds grid */}
-                <div className="absolute inset-0 pointer-events-none grid grid-cols-3 grid-rows-3 opacity-40 group-hover:opacity-75 transition-opacity">
-                  <div className="border-r border-b border-[#64B5FF]/40" />
-                  <div className="border-r border-b border-[#64B5FF]/40" />
-                  <div className="border-b border-[#64B5FF]/40" />
-                  <div className="border-r border-b border-[#64B5FF]/40" />
-                  <div className="border-r border-b border-[#64B5FF]/40" />
-                  <div className="border-b border-[#64B5FF]/40" />
-                  <div className="border-r border-[#64B5FF]/40" />
-                  <div className="border-r border-[#64B5FF]/40" />
+                <div className="absolute inset-0 pointer-events-none grid grid-cols-3 grid-rows-3 opacity-30 group-hover:opacity-60 transition-opacity">
+                  <div className="border-r border-b border-amber-400/30" />
+                  <div className="border-r border-b border-amber-400/30" />
+                  <div className="border-b border-amber-400/30" />
+                  <div className="border-r border-b border-amber-400/30" />
+                  <div className="border-r border-b border-amber-400/30" />
+                  <div className="border-b border-amber-400/30" />
+                  <div className="border-r border-b border-amber-400/30" />
+                  <div className="border-r border-b border-amber-400/30" />
                   <div />
-                </div>
-
-                {/* Move Hint Center Icon */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-0 group-hover:opacity-60 transition-opacity">
-                  <Move className="w-5 h-5 text-[#64B5FF] drop-shadow" />
                 </div>
 
                 {/* Corner Resize Handles */}
                 <div
-                  className="absolute -top-2 -left-2 w-6 h-6 bg-[#0A84FF] border-2 border-black rounded-md shadow cursor-nwse-resize"
+                  className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-amber-400 border border-white cursor-nwse-resize"
                   onPointerDown={(e) => handlePointerDown('nw', e)}
                 />
                 <div
-                  className="absolute -top-2 -right-2 w-6 h-6 bg-[#0A84FF] border-2 border-black rounded-md shadow cursor-nesw-resize"
+                  className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-amber-400 border border-white cursor-nesw-resize"
                   onPointerDown={(e) => handlePointerDown('ne', e)}
                 />
                 <div
-                  className="absolute -bottom-2 -right-2 w-6 h-6 bg-[#0A84FF] border-2 border-black rounded-md shadow cursor-nwse-resize"
+                  className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-amber-400 border border-white cursor-nwse-resize"
                   onPointerDown={(e) => handlePointerDown('se', e)}
                 />
                 <div
-                  className="absolute -bottom-2 -left-2 w-6 h-6 bg-[#0A84FF] border-2 border-black rounded-md shadow cursor-nesw-resize"
+                  className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-amber-400 border border-white cursor-nesw-resize"
                   onPointerDown={(e) => handlePointerDown('sw', e)}
                 />
 
-                {/* Edge Handles if Freeform */}
-                {aspectMode === 'custom' && (
-                  <>
-                    <div
-                      className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-1.5 bg-[#0A84FF] border border-slate-950 rounded-xs cursor-ns-resize"
-                      onPointerDown={(e) => handlePointerDown('n', e)}
-                    />
-                    <div
-                      className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 w-4 h-1.5 bg-[#0A84FF] border border-slate-950 rounded-xs cursor-ns-resize"
-                      onPointerDown={(e) => handlePointerDown('s', e)}
-                    />
-                    <div
-                      className="absolute top-1/2 left-0 -translate-x-1/2 -translate-y-1/2 w-1.5 h-4 bg-[#0A84FF] border border-slate-950 rounded-xs cursor-ew-resize"
-                      onPointerDown={(e) => handlePointerDown('w', e)}
-                    />
-                    <div
-                      className="absolute top-1/2 right-0 translate-x-1/2 -translate-y-1/2 w-1.5 h-4 bg-[#0A84FF] border border-slate-950 rounded-xs cursor-ew-resize"
-                      onPointerDown={(e) => handlePointerDown('e', e)}
-                    />
-                  </>
-                )}
-
-                {/* Floating Dimension Label */}
-                <div className="absolute bottom-2 right-2 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded-full text-[10px] font-mono text-[#64B5FF] border border-[#0A84FF]/30 pointer-events-none">
+                {/* Dimension Tooltip */}
+                <div className="absolute bottom-1.5 right-1.5 bg-black/80 px-1.5 py-0.5 rounded-xs text-[10px] font-mono text-amber-400 font-bold border border-white/10 pointer-events-none">
                   {cropRect.width} × {cropRect.height} px
                 </div>
               </div>
             )}
           </div>
 
-          {/* Quick Tools & Live Metric Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {/* Metric 1: Source & Crop Resolution */}
-            <div className="stat-card flex items-center justify-between">
+          {/* Quick Metrics & Utility Bar */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <div className="p-2.5 rounded-md bg-[#141924] border border-white/10 flex items-center justify-between">
               <div>
-                <span className="text-[10px] uppercase font-semibold text-slate-500 block">
-                  Crop Dimensions
+                <span className="text-[10px] uppercase font-bold text-slate-400 font-mono block">
+                  Crop Size
                 </span>
-                <span className="text-xs font-mono font-medium text-white">
+                <span className="text-xs font-mono font-bold text-white">
                   {cropRect.width} × {cropRect.height} px
                 </span>
               </div>
               <span className="text-[11px] font-mono text-slate-400">
-                Source: {naturalSize.width} × {naturalSize.height}
+                Original: {naturalSize.width} × {naturalSize.height}
               </span>
             </div>
 
-            {/* Metric 2: Ratio */}
-            <div className="stat-card flex items-center justify-between">
+            <div className="p-2.5 rounded-md bg-[#141924] border border-white/10 flex items-center justify-between">
               <div>
-                <span className="text-[10px] uppercase font-semibold text-slate-500 block">
-                  Aspect Ratio
+                <span className="text-[10px] uppercase font-bold text-slate-400 font-mono block">
+                  Proportions
                 </span>
-                <span className="text-xs font-mono font-medium text-[#64B5FF]">
-                  {currentRatioVal.toFixed(2)}:1 ({aspectMode.toUpperCase()})
+                <span className="text-xs font-mono font-bold text-amber-400">
+                  {currentRatioVal.toFixed(2)}:1
                 </span>
               </div>
-              <span className="text-[11px] text-slate-400 font-mono">
-                {currentRatioVal >= 1.05 ? 'Landscape' : currentRatioVal <= 0.95 ? 'Portrait' : 'Square'}
+              <span className="text-[11px] text-slate-400 font-mono capitalize">
+                {aspectMode}
               </span>
             </div>
 
-            {/* Metric 3: Projected Lithophane Dimensions */}
-            <div className="stat-card accent flex items-center justify-between">
+            <div className="p-2.5 rounded-md bg-[#141924] border border-white/10 flex items-center justify-between">
               <div>
-                <span className="text-[10px] uppercase font-semibold text-[#0A84FF]/80 block">
-                  3D Lithograph Size
+                <span className="text-[10px] uppercase font-semibold text-slate-500 font-mono block">
+                  3D Dimensions
                 </span>
-                <span className="text-xs font-mono font-semibold text-[#64B5FF]">
+                <span className="text-xs font-mono font-semibold text-white">
                   {physicalWidthMm} × {projectedHeightMm} mm
                 </span>
               </div>
-              <span className="text-[10px] text-slate-400">
-                Auto-calculated
+              <span className="text-[10px] text-slate-400 font-mono">
+                Auto scaled
               </span>
             </div>
           </div>
 
-          {/* Quick Action Buttons */}
-          <div className="flex flex-wrap items-center justify-between gap-2 text-[13px] text-[#8E8E93] pt-1">
-            <div className="flex flex-wrap items-center gap-1">
+          {/* Quick Action Tools */}
+          <div className="flex items-center justify-between gap-2 pt-1 border-t border-white/10">
+            <div className="flex items-center gap-1.5">
               <button
                 onClick={handleCenterCrop}
-                className="inline-flex items-center gap-1.5 min-h-11 px-3 rounded-full text-[#409CFF]"
+                className="btn-secondary text-xs py-1 px-2.5 min-h-[28px]"
               >
-                <Move className="w-4 h-4" />
+                <Move className="w-3 h-3" />
                 <span>Center</span>
               </button>
               <button
                 onClick={handleMaximizeCrop}
-                className="inline-flex items-center gap-1.5 min-h-11 px-3 rounded-full text-[#409CFF]"
+                className="btn-secondary text-xs py-1 px-2.5 min-h-[28px]"
               >
-                <Maximize className="w-4 h-4" />
-                <span>Fill</span>
+                <Maximize className="w-3 h-3" />
+                <span>Fit Image</span>
               </button>
               <button
                 onClick={handleReset}
-                className="inline-flex items-center gap-1.5 min-h-11 px-3 rounded-full text-[#409CFF]"
+                className="btn-secondary text-xs py-1 px-2.5 min-h-[28px]"
               >
-                <RotateCw className="w-4 h-4" />
+                <RotateCcw className="w-3 h-3" />
                 <span>Reset</span>
               </button>
             </div>
-            <span className="text-[11px] text-slate-500 italic hidden sm:inline">
-              Drag inside box to move · Drag corners to resize
+            <span className="text-[11px] text-slate-500 font-mono hidden sm:inline">
+              Drag frame to move · Drag corners to resize
             </span>
           </div>
         </div>
 
         {/* Modal Footer */}
-        <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 px-4 sm:px-6 py-3 border-t border-white/10">
+        <div className="flex items-center justify-end gap-2.5 px-5 py-3 border-t border-white/10 bg-[#10141d]">
           <button
             onClick={onClose}
-            className="min-h-11 px-4 text-[17px] sm:text-[15px] font-medium text-[#409CFF] rounded-full"
+            className="btn-secondary text-xs py-1.5 px-3 min-h-[32px]"
           >
             Cancel
           </button>
           <button
             onClick={handleApply}
-            className="btn-fill w-full sm:w-auto sm:min-w-44"
+            className="btn-primary text-xs py-1.5 px-4 min-h-[32px]"
           >
-            <Check className="w-4 h-4" />
-            <span>Apply</span>
+            <Check className="w-3.5 h-3.5" />
+            <span>Save Crop</span>
           </button>
         </div>
       </div>
