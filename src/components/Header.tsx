@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, ArrowRight, Eye } from 'lucide-react';
+import { Download, ArrowRight, Eye, Printer } from 'lucide-react';
 import { AppStep, LithophaneShape } from '../types/lithophane';
 
 interface HeaderProps {
@@ -8,6 +8,9 @@ interface HeaderProps {
   shape: LithophaneShape;
   canPreview: boolean;
   onExportClick: () => void;
+  printOrderingEnabled?: boolean;
+  orderReady?: boolean;
+  onOrderPrint?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -16,6 +19,9 @@ export const Header: React.FC<HeaderProps> = ({
   shape,
   canPreview,
   onExportClick,
+  printOrderingEnabled = false,
+  orderReady = false,
+  onOrderPrint,
 }) => {
   const shapeLabel =
     shape === 'cylinder'
@@ -105,12 +111,27 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Zone 3: 1 Primary Action */}
-      <div className="flex items-center shrink-0">
+      <div className="flex items-center gap-2 shrink-0">
         {currentStep === 'preview' ? (
-          <button type="button" onClick={onExportClick} className="nav-action">
-            <Download className="w-3.5 h-3.5 shrink-0 stroke-[2.5]" />
-            <span>Export</span>
-          </button>
+          <>
+            {printOrderingEnabled && (
+              <button
+                type="button"
+                onClick={onOrderPrint}
+                disabled={!orderReady}
+                aria-label="Order a print"
+                title={orderReady ? 'Order a physical print' : 'Wait for the model to finish'}
+                className="btn-secondary"
+              >
+                <Printer className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline">Order a print</span>
+              </button>
+            )}
+            <button type="button" onClick={onExportClick} className="nav-action">
+              <Download className="w-3.5 h-3.5 shrink-0 stroke-[2.5]" />
+              <span>Export</span>
+            </button>
+          </>
         ) : currentStep === 'upload' ? (
           <button
             type="button"

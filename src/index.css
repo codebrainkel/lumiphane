@@ -572,6 +572,11 @@ input.slider::-moz-range-thumb {
   transform: translateY(1px);
 }
 
+.btn-secondary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .btn-ghost {
   display: inline-flex;
   align-items: center;

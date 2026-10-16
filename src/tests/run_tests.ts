@@ -17,6 +17,15 @@ import { ImageProcessor } from '../services/imageProcessor';
 import { GeometryGenerator } from '../services/geometryGenerator';
 import { MeshValidator } from '../services/meshValidator';
 import { ThreeMfExporter } from '../services/threeMfExporter';
+import { StlExporter } from '../services/stlExporter';
+import {
+  inspectBinaryStl,
+  isPrintOrderingConfigured,
+  isTreatstockHttpsUrl,
+  prepareTreatstockCheckout,
+  sanitizeModelFilename,
+  selectTreatstockCheckout,
+} from '../services/printOrder';
 import { DEFAULT_SETTINGS, ULTRA_FINE_RESOLUTION } from '../constants/presets';
 import { LithophaneSettings } from '../types/lithophane';
 import { borderIconCoverage, createBorderIconField } from '../services/borderIcons';
@@ -838,6 +847,109 @@ async function runTestSuite() {
     }
     assert(faceMin < 2.4 - 0.4, `Cube front rim has a star cut into it (got ${faceMin.toFixed(2)}mm)`);
     assert(cornerMin > 2.15, `Cube corners stay a plain border (got ${cornerMin.toFixed(2)}mm)`);
+  }
+
+  console.log('\n[13] Testing Treatstock print-order handoff...');
+  {
+    assert(isPrintOrderingConfigured('') === false, 'Empty Treatstock key disables ordering');
+    assert(isPrintOrderingConfigured('short') === false, 'Short placeholder key disables ordering');
+    assert(isPrintOrderingConfigured('MY_TREATSTOCK_PRIVATE_KEY') === false, 'Example placeholder key disables ordering');
+    assert(isPrintOrderingConfigured('abc123def456') === true, 'A real-looking private key enables ordering');
+
+    assert(sanitizeModelFilename('my photo!.stl') === 'my_photo.stl', 'STL filenames are sanitized');
+    assert(isTreatstockHttpsUrl('https://www.treatstock.com/catalog/model3d/preload-printable-pack?packPublicToken=abc'), 'Treatstock HTTPS checkout links are allowed');
+    assert(isTreatstockHttpsUrl('http://www.treatstock.com/catalog') === false, 'Plain HTTP checkout links are rejected');
+    assert(isTreatstockHttpsUrl('https://evil.example/phish') === false, 'Non-Treatstock checkout links are rejected');
+
+    const whitePla = selectTreatstockCheckout('https://www.treatstock.com/catalog/model3d/preload-printable-pack?packPublicToken=fallback', [
+      { materialGroup: 'ABS', color: 'Black', price: 4, url: 'https://www.treatstock.com/model3d/preload-printable-pack?packPublicToken=abs' },
+      { materialGroup: 'Resin', color: 'White', price: 9, url: 'https://www.treatstock.com/model3d/preload-printable-pack?packPublicToken=resin' },
+      { materialGroup: 'PLA', color: 'White', price: 11, url: 'https://www.treatstock.com/model3d/preload-printable-pack?packPublicToken=pla-dear' },
+      { materialGroup: 'PLA', color: 'White', price: 6.5, url: 'https://www.treatstock.com/model3d/preload-printable-pack?packPublicToken=pla' },
+      { materialGroup: 'PLA', color: 'White', price: 1, url: 'https://evil.example/steal' },
+    ]);
+    assert(whitePla.url.includes('packPublicToken=pla') && !whitePla.url.includes('pla-dear'), 'White PLA is preferred over white resin and other filaments', whitePla.url);
+    assert(whitePla.price === 6.5, 'The cheaper allowed white PLA offer is chosen');
+
+    const fallback = selectTreatstockCheckout('https://www.treatstock.com/catalog/model3d/preload-printable-pack?packPublicToken=fallback', [
+      { materialGroup: 'Nylon', color: 'Black', price: 3, url: 'https://www.treatstock.com/model3d/preload-printable-pack?packPublicToken=nylon' },
+    ]);
+    assert(fallback.url.includes('packPublicToken=fallback'), 'Unsuitable offers fall back to the model checkout link');
+
+    const cols = 4;
+    const rows = 3;
+    const grid = new Float32Array(cols * rows);
+    grid.fill(0.4);
+    const geometry = GeometryGenerator.generateMesh(grid, cols, rows, {
+      ...DEFAULT_SETTINGS,
+      width: 40,
+      height: 30,
+      shape: 'flat',
+      supportType: 'none',
+      hasFrame: false,
+    });
+    const exported = StlExporter.exportBinaryStl(geometry, 'order test');
+    const stlBytes = new Uint8Array(await exported.blob.arrayBuffer());
+    const inspected = inspectBinaryStl(stlBytes);
+    assert(inspected.ok, 'Exporter STL passes the upload inspector');
+
+    const calls: string[] = [];
+    const mockFetch: typeof fetch = async (input, init) => {
+      const url = String(input);
+      calls.push(`${init?.method || 'GET'} ${url}`);
+      if (url.includes('/printable-packs/') && !url.includes('printable-pack-costs') && init?.method === 'PUT') {
+        return new Response(JSON.stringify({ success: true }), { status: 200 });
+      }
+      if (url.includes('/printable-pack-costs/')) {
+        return new Response(JSON.stringify({
+          pricesInfo: [
+            {
+              materialGroup: 'PLA',
+              color: 'White',
+              price: 8.25,
+              url: 'https://www.treatstock.com/model3d/preload-printable-pack?packPublicToken=white-pla',
+            },
+          ],
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({
+        success: true,
+        id: 42,
+        redir: 'https://www.treatstock.com/catalog/model3d/preload-printable-pack?packPublicToken=pack',
+        widgetUrl: 'https://www.treatstock.com/api/v2/printable-pack-widget/?apiPrintablePackToken=pack',
+      }), { status: 200 });
+    };
+
+    const ready = await prepareTreatstockCheckout({
+      apiKey: 'abc123def456',
+      fileBytes: stlBytes,
+      filename: exported.filename,
+      country: 'US',
+      fetchImpl: mockFetch,
+      wait: async () => {},
+    });
+    assert(ready.ok === true, 'A configured key produces a Treatstock checkout');
+    if (ready.ok) {
+      assert(ready.checkoutUrl.includes('packPublicToken=white-pla'), 'Checkout uses the white PLA deep link');
+      assert(ready.material === 'PLA' && ready.color === 'White', 'Checkout records white PLA');
+      assert(ready.packId === 42, 'Printable pack id is returned');
+      assert(!ready.checkoutUrl.includes('private-key'), 'The checkout link handed to the browser does not contain the private key');
+    }
+    assert(calls.some((call) => call.startsWith('POST ') && call.includes('private-key=abc123def456')), 'The STL upload carries the server-side private key');
+    assert(calls.some((call) => call.startsWith('PUT ')), 'Scale is set with a PUT to the printable pack');
+
+    const rejected = await prepareTreatstockCheckout({
+      apiKey: 'abc123def456',
+      fileBytes: stlBytes,
+      filename: 'lithophane.stl',
+      fetchImpl: async () => new Response(JSON.stringify({
+        success: true,
+        id: 7,
+        redir: 'https://evil.example/checkout',
+      }), { status: 200 }),
+      wait: async () => {},
+    });
+    assert(rejected.ok === false, 'A non-Treatstock redirect is refused');
   }
 
   console.log('\n========================================');
