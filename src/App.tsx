@@ -34,6 +34,7 @@ import { ControlPanel } from './components/ControlPanel';
 import { ValidationModal } from './components/ValidationModal';
 import { CropModal } from './components/CropModal';
 import { SlicingModal } from './components/SlicingModal';
+import { OrderPrintModal } from './components/OrderPrintModal';
 import { AlertCircle } from 'lucide-react';
 
 async function readImageAsDataUrl(
@@ -145,9 +146,26 @@ export default function App() {
   const [showValidationModal, setShowValidationModal] = useState<boolean>(false);
   const [showCropModal, setShowCropModal] = useState<boolean>(false);
   const [showSlicingModal, setShowSlicingModal] = useState<boolean>(false);
+  const [showOrderModal, setShowOrderModal] = useState<boolean>(false);
+  const [printOrderingEnabled, setPrintOrderingEnabled] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const slotFileInputRef = useRef<HTMLInputElement>(null);
   const debounceTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/print-order/status')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { enabled?: boolean } | null) => {
+        if (!cancelled) setPrintOrderingEnabled(Boolean(data?.enabled));
+      })
+      .catch(() => {
+        if (!cancelled) setPrintOrderingEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // =========================================================================
   // 1. Load Images
@@ -747,6 +765,9 @@ export default function App() {
       )
     : getOptimalMultiPanelWrapRatio(settings.shape, cropSizeMm, settings.height, photoCount);
   const lockCropToTile = !isStripShape || photoCount > 1;
+  const exportName =
+    photoCount > 1 ? `${settings.shape}_lithophane_${photoCount}photos` : imageName || 'lithophane';
+  const orderReady = Boolean(geometryData) && !isGenerating;
 
   return (
     <div
@@ -788,6 +809,9 @@ export default function App() {
         shape={settings.shape}
         canPreview={photosReady}
         onExportClick={() => setShowValidationModal(true)}
+        printOrderingEnabled={printOrderingEnabled}
+        orderReady={orderReady}
+        onOrderPrint={() => setShowOrderModal(true)}
       />
 
       {/* Error Banner */}
@@ -909,6 +933,9 @@ export default function App() {
             onReorderCylinderSlots={(newSlots) => setCylinderSlots(newSlots)}
             onMatchCylinderHeightToPhoto={handleMatchCylinderHeightToPhoto}
             onPlacePhotos={() => setPlacementOpen(true)}
+            printOrderingEnabled={printOrderingEnabled}
+            orderReady={orderReady}
+            onOrderPrint={() => setShowOrderModal(true)}
           />
         </main>
       )}
@@ -919,9 +946,7 @@ export default function App() {
           geometryData={geometryData}
           validationResult={validationResult}
           settings={settings}
-          imageName={
-            photoCount > 1 ? `${settings.shape}_lithophane_${photoCount}photos` : imageName
-          }
+          imageName={exportName}
           onClose={() => setShowValidationModal(false)}
         />
       )}
@@ -955,6 +980,14 @@ export default function App() {
 
       {showSlicingModal && (
         <SlicingModal onClose={() => setShowSlicingModal(false)} />
+      )}
+
+      {showOrderModal && geometryData && (
+        <OrderPrintModal
+          geometryData={geometryData}
+          imageName={exportName}
+          onClose={() => setShowOrderModal(false)}
+        />
       )}
     </div>
   );
