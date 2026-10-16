@@ -1,55 +1,196 @@
 import JSZip from 'jszip';
+import { getBambuPrinter, retargetBambuProject } from '../constants/bambuPrinters';
 import { MeshGeometryData } from '../types/lithophane';
 
-export type BambuPrinterModel = 'A1' | 'A1_MINI' | 'P1S' | 'X1C';
-
-export interface BambuPrinterProfile {
-  id: BambuPrinterModel;
-  name: string;
+/**
+ * Print profile taken from blank-profile.3mf, a project saved by Bambu Studio.
+ * Studio rejects handmade project_settings.config files ("invalid config") and
+ * then imports geometry only. The saved file is copied through unchanged.
+ */
+export interface EmbeddedBambuProfile {
   printerModel: string;
   printerSettingsId: string;
-  processSettingsId: string;
+  printSettingsId: string;
   filamentSettingsId: string;
+  layerHeight: string;
+  infillDensity: string;
+  brimType: string;
+  brimWidth: string;
+  bedType: string;
+  version: string;
+  nozzleDiameter: string[];
+  extruderType: string[];
 }
-
-export const BAMBU_PRINTER_PROFILES: Record<BambuPrinterModel, BambuPrinterProfile> = {
-  A1: {
-    id: 'A1',
-    name: 'Bambu Lab A1 (0.4 nozzle)',
-    printerModel: 'Bambu Lab A1',
-    printerSettingsId: 'Bambu Lab A1 0.4 nozzle',
-    processSettingsId: '0.12mm High Detail @BBL A1',
-    filamentSettingsId: 'Bambu PLA Basic @BBL A1',
-  },
-  A1_MINI: {
-    id: 'A1_MINI',
-    name: 'Bambu Lab A1 mini (0.4 nozzle)',
-    printerModel: 'Bambu Lab A1 mini',
-    printerSettingsId: 'Bambu Lab A1 mini 0.4 nozzle',
-    processSettingsId: '0.12mm High Detail @BBL A1M',
-    filamentSettingsId: 'Bambu PLA Basic @BBL A1M',
-  },
-  P1S: {
-    id: 'P1S',
-    name: 'Bambu Lab P1S / P1P (0.4 nozzle)',
-    printerModel: 'Bambu Lab P1S',
-    printerSettingsId: 'Bambu Lab P1S 0.4 nozzle',
-    processSettingsId: '0.12mm High Detail @BBL P1S',
-    filamentSettingsId: 'Bambu PLA Basic @BBL P1S',
-  },
-  X1C: {
-    id: 'X1C',
-    name: 'Bambu Lab X1 Carbon (0.4 nozzle)',
-    printerModel: 'Bambu Lab X1 Carbon',
-    printerSettingsId: 'Bambu Lab X1 Carbon 0.4 nozzle',
-    processSettingsId: '0.12mm High Detail @BBL X1C',
-    filamentSettingsId: 'Bambu PLA Basic @BBL X1C',
-  },
-};
 
 export interface ThreeMfExportOptions {
   mode?: 'universal' | 'bambu-project';
-  bambuPrinter?: BambuPrinterModel;
+  /** Bambu printer id from BAMBU_PRINTERS. Defaults to the saved A2L profile. */
+  bambuPrinterId?: string;
+}
+
+const VOLUME_OBJECT_ID = 1;
+const MODEL_OBJECT_ID = 2;
+const IDENTIFY_ID = 1;
+const BAMBU_IDENTITY_3MF = '1 0 0 0 1 0 0 0 1 0 0 0';
+const BAMBU_IDENTITY_MATRIX = '1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1';
+
+let templateBytesPromise: Promise<Uint8Array> | null = null;
+let embeddedProfilePromise: Promise<EmbeddedBambuProfile> | null = null;
+
+async function readBlankProfileBytes(): Promise<Uint8Array> {
+  const isNode = typeof process !== 'undefined' && typeof process.versions?.node === 'string';
+  if (isNode) {
+    const { readFile } = await import('node:fs/promises');
+    const { fileURLToPath } = await import('node:url');
+    const path = fileURLToPath(new URL('../../blank-profile.3mf', import.meta.url));
+    return new Uint8Array(await readFile(path));
+  }
+
+  const mod = (await import('../../blank-profile.3mf?url')) as { default: string };
+  const res = await fetch(mod.default);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch the Bambu Studio profile (${res.status})`);
+  }
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+function loadTemplateBytes(): Promise<Uint8Array> {
+  if (!templateBytesPromise) {
+    templateBytesPromise = readBlankProfileBytes().catch((err) => {
+      templateBytesPromise = null;
+      throw err;
+    });
+  }
+  return templateBytesPromise;
+}
+
+function parseEmbeddedProfile(configText: string): EmbeddedBambuProfile {
+  const config = JSON.parse(configText) as Record<string, unknown>;
+  const asString = (value: unknown, fallback = ''): string =>
+    typeof value === 'string' ? value : fallback;
+  const asStringList = (value: unknown): string[] =>
+    Array.isArray(value) ? value.map((entry) => String(entry)) : [];
+
+  const profile: EmbeddedBambuProfile = {
+    printerModel: asString(config.printer_model),
+    printerSettingsId: asString(config.printer_settings_id),
+    printSettingsId: asString(config.print_settings_id),
+    filamentSettingsId: asStringList(config.filament_settings_id)[0] ?? '',
+    layerHeight: asString(config.layer_height),
+    infillDensity: asString(config.sparse_infill_density),
+    brimType: asString(config.brim_type),
+    brimWidth: asString(config.brim_width),
+    bedType: asString(config.curr_bed_type),
+    version: asString(config.version),
+    nozzleDiameter: asStringList(config.nozzle_diameter),
+    extruderType: asStringList(config.extruder_type),
+  };
+
+  if (!profile.printerModel || !profile.version || profile.nozzleDiameter.length === 0 || profile.extruderType.length === 0) {
+    throw new Error('blank-profile.3mf is missing a complete Bambu Studio project_settings.config');
+  }
+  if (profile.nozzleDiameter.length !== profile.extruderType.length) {
+    throw new Error('blank-profile.3mf printer config has a mismatched extruder count');
+  }
+  return profile;
+}
+
+export function loadEmbeddedBambuProfile(): Promise<EmbeddedBambuProfile> {
+  if (!embeddedProfilePromise) {
+    embeddedProfilePromise = (async () => {
+      const zip = await JSZip.loadAsync(await loadTemplateBytes());
+      const configFile = zip.file('Metadata/project_settings.config');
+      if (!configFile) {
+        throw new Error('blank-profile.3mf has no Metadata/project_settings.config');
+      }
+      return parseEmbeddedProfile(await configFile.async('text'));
+    })().catch((err) => {
+      embeddedProfilePromise = null;
+      throw err;
+    });
+  }
+  return embeddedProfilePromise;
+}
+
+function printerToken(printerModel: string): string {
+  const stripped = printerModel.replace(/^Bambu Lab\s+/i, '').trim();
+  return stripped.replace(/[^a-zA-Z0-9]+/g, '') || 'Bambu';
+}
+
+function isUnusedPlateFile(path: string): boolean {
+  return /(?:^|\/)(?:plate_(?:no_light_)?[2-9](?:_small)?|top_[2-9]|pick_[2-9])\./.test(path)
+    || /plate_[2-9]\.json$/.test(path);
+}
+
+function singlePlateFilamentSequence(sequenceText: string): string {
+  let plate1: unknown = { nozzle_sequence: [], optimal_assignment: [], sequence: [] };
+  if (sequenceText.trim()) {
+    try {
+      const parsed = JSON.parse(sequenceText) as { plate_1?: unknown };
+      if (parsed.plate_1) plate1 = parsed.plate_1;
+    } catch {
+      // Keep the empty plate-1 sequence if the template file is not JSON.
+    }
+  }
+  return JSON.stringify({ plate_1: plate1 });
+}
+
+function bedSizeFromPrintableArea(printableArea: unknown): { width: number; depth: number } {
+  let width = 0;
+  let depth = 0;
+  if (Array.isArray(printableArea)) {
+    for (const pair of printableArea) {
+      if (typeof pair !== 'string') continue;
+      const [x, y] = pair.split('x').map(Number);
+      if (Number.isFinite(x) && x > width) width = x;
+      if (Number.isFinite(y) && y > depth) depth = y;
+    }
+  }
+  return { width: width || 256, depth: depth || 256 };
+}
+
+/**
+ * Bambu's bed origin is the front-left corner. Mesh vertices are centered on
+ * zero, so an identity transform parks the lithophane on that corner, hanging
+ * off the plate. This moves the part to the middle of the bed, base on Z = 0.
+ * A sheet that was modeled face-down is stood up first: its photo height
+ * becomes Z and its thickness stays horizontal.
+ */
+interface BambuBedPlacement {
+  standUp: boolean;
+  bedBBox: [number, number, number, number];
+  map(x: number, y: number, z: number): [number, number, number];
+}
+
+function bambuBedPlacement(
+  geometry: MeshGeometryData,
+  bedWidth: number,
+  bedDepth: number
+): BambuBedPlacement {
+  const [minX, minY, minZ] = geometry.boundingBox.min;
+  const [maxX, maxY, maxZ] = geometry.boundingBox.max;
+  const sizeX = maxX - minX;
+  const sizeY = maxY - minY;
+  const sizeZ = maxZ - minZ;
+  const standUp = sizeZ < Math.min(sizeX, sizeY) * 0.35;
+
+  const loX = minX;
+  const hiX = maxX;
+  const loY = standUp ? -maxZ : minY;
+  const hiY = standUp ? -minZ : maxY;
+  const loZ = standUp ? minY : minZ;
+  const tx = bedWidth / 2 - (loX + hiX) / 2;
+  const ty = bedDepth / 2 - (loY + hiY) / 2;
+  const tz = -loZ;
+
+  return {
+    standUp,
+    bedBBox: [loX + tx, loY + ty, hiX + tx, hiY + ty],
+    map(x, y, z) {
+      if (standUp) return [x + tx, -z + ty, y + tz];
+      return [x + tx, y + ty, z + tz];
+    },
+  };
 }
 
 export interface ThreeMfExportResult {
@@ -65,119 +206,25 @@ export class ThreeMfExporter {
   /**
    * Generates a 3MF package file.
    * - Universal mode: strict 3MF Core Specification (ISO/IEC 25422), pure geometry.
-   * - Bambu Project mode: valid native Bambu Studio project archive with exact printer and slicing profiles.
+   * - Bambu Project mode: the lithophane mesh inside the saved Bambu Studio project
+   *   from blank-profile.3mf, so Studio loads the print profile with the geometry.
    */
   static async export3MF(
     geometry: MeshGeometryData,
     modelName: string = 'lithophane',
     options?: ThreeMfExportOptions
   ): Promise<ThreeMfExportResult> {
-    const zip = new JSZip();
     const isBambuProject = options?.mode === 'bambu-project';
     const cleanName = modelName.replace(/[^a-zA-Z0-9_-]/g, '_') || 'lithophane';
+    const profile = isBambuProject ? await loadEmbeddedBambuProfile() : null;
+    const printer = isBambuProject ? getBambuPrinter(options?.bambuPrinterId) : null;
+    const zip = isBambuProject
+      ? await this.buildBambuProjectZip(geometry, cleanName, modelName, profile!, printer!)
+      : this.buildUniversalZip(geometry, modelName);
 
-    // 1. [Content_Types].xml
-    let contentTypesXml: string;
-    if (isBambuProject) {
-      contentTypesXml = `<?xml version="1.0" encoding="UTF-8"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-  <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodelxml"/>
-  <Default Extension="config" ContentType="text/xml"/>
-  <Default Extension="json" ContentType="application/json"/>
-</Types>`;
-    } else {
-      contentTypesXml = `<?xml version="1.0" encoding="UTF-8"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-  <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodelxml"/>
-</Types>`;
-    }
-    zip.file('[Content_Types].xml', contentTypesXml);
-
-    // 2. _rels/.rels
-    const relsXml = `<?xml version="1.0" encoding="UTF-8"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>
-</Relationships>`;
-    zip.folder('_rels')?.file('.rels', relsXml);
-
-    // 3. 3D/3dmodel.model
-    const modelXml = this.generateModelXml(geometry, modelName);
-    zip.folder('3D')?.file('3dmodel.model', modelXml);
-
-    // 4. If Bambu Project mode, inject fully formed, valid Bambu Studio project metadata
-    if (isBambuProject) {
-      const printerKey = options?.bambuPrinter || 'P1S';
-      const profile = BAMBU_PRINTER_PROFILES[printerKey];
-      const metadataFolder = zip.folder('Metadata');
-
-      if (metadataFolder) {
-        // model_settings.config (Plate, object, and part configuration)
-        const modelSettingsXml = `<?xml version="1.0" encoding="UTF-8"?>
-<config>
-  <object id="1">
-    <metadata key="name" value="${cleanName}"/>
-    <part id="1" name="${cleanName}">
-      <metadata key="name" value="${cleanName}"/>
-      <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>
-      <metadata key="source_file" value="${cleanName}.stl"/>
-      <metadata key="source_object_id" value="0"/>
-      <metadata key="source_volume_id" value="0"/>
-      <metadata key="source_offset_x" value="0"/>
-      <metadata key="source_offset_y" value="0"/>
-      <metadata key="source_offset_z" value="0"/>
-      <metadata key="extruder" value="1"/>
-    </part>
-  </object>
-  <plate>
-    <metadata key="plater_id" value="1"/>
-    <metadata key="plater_name" value="Plate 1"/>
-    <metadata key="locked" value="false"/>
-  </plate>
-</config>`;
-        metadataFolder.file('model_settings.config', modelSettingsXml);
-
-        // project_settings.config (Full Bambu slicer config with lithophane parameters)
-        const projectSettings = {
-          version: '01.09.00.00',
-          project_name: cleanName,
-          printer_model: profile.printerModel,
-          printer_variant: '0.4',
-          printer_settings_id: profile.printerSettingsId,
-          curr_bed_type: 'textured_plate',
-          filament_settings_id: [profile.filamentSettingsId],
-          filament_type: ['PLA'],
-          filament_vendor: ['Bambu'],
-          filament_colour: ['#FFFFFF'],
-          process_settings_id: profile.processSettingsId,
-          layer_height: '0.12',
-          initial_layer_print_height: '0.20',
-          sparse_infill_density: '100%',
-          sparse_infill_pattern: 'rectilinear',
-          wall_loops: '4',
-          top_shell_layers: '6',
-          bottom_shell_layers: '5',
-          brim_type: 'outer_only',
-          brim_width: '5',
-          enable_support: '0',
-        };
-        metadataFolder.file('project_settings.config', JSON.stringify(projectSettings, null, 2));
-
-        // plate_1.json
-        const plateJson = {
-          plate_id: 1,
-          plate_name: 'Plate 1',
-          bed_type: 'textured_plate',
-        };
-        metadataFolder.file('plate_1.json', JSON.stringify(plateJson, null, 2));
-      }
-    }
-
-    // 5. Generate compressed binary ZIP archive
     const blob = await zip.generateAsync({
       type: 'blob',
-      mimeType: 'application/vnd.ms-package.3dmanufacturing-3dmodelxml',
+      mimeType: 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml',
       compression: 'DEFLATE',
       compressionOptions: { level: 6 },
     });
@@ -185,9 +232,10 @@ export class ThreeMfExporter {
     const isStanding = geometry.boundingBox.size[2] > geometry.boundingBox.size[1];
     const widthMm = Math.round(geometry.boundingBox.size[0]);
     const heightMm = Math.round(isStanding ? geometry.boundingBox.size[2] : geometry.boundingBox.size[1]);
+    const layerTag = profile?.layerHeight || '0.12';
 
     const filename = isBambuProject
-      ? `${cleanName}_Bambu_${options?.bambuPrinter || 'P1S'}_0.12mm.3mf`
+      ? `${cleanName}_Bambu_${printerToken(printer!.printerModel)}_${layerTag}mm.3mf`
       : `${cleanName}_${widthMm}x${heightMm}mm.3mf`;
 
     return {
@@ -200,18 +248,230 @@ export class ThreeMfExporter {
     };
   }
 
+  private static buildUniversalZip(geometry: MeshGeometryData, modelName: string): JSZip {
+    const zip = new JSZip();
+    zip.file(
+      '[Content_Types].xml',
+      `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>
+</Types>`
+    );
+    zip.folder('_rels')?.file(
+      '.rels',
+      `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>
+</Relationships>`
+    );
+    zip.folder('3D')?.file('3dmodel.model', this.generateModelXml(geometry, modelName));
+    return zip;
+  }
+
+  /**
+   * Copies the saved Bambu Studio project and swaps in the lithophane mesh.
+   * The A2L project_settings.config is kept byte-for-byte. Another Bambu
+   * printer keeps the lithophane process settings and replaces the machine
+   * profile (bed, limits, and G-code) with that model's Studio 02.08.02.60 preset.
+   */
+  private static async buildBambuProjectZip(
+    geometry: MeshGeometryData,
+    cleanName: string,
+    modelName: string,
+    profile: EmbeddedBambuProfile,
+    printer: ReturnType<typeof getBambuPrinter>
+  ): Promise<JSZip> {
+    const template = await JSZip.loadAsync(await loadTemplateBytes());
+    const projectSettingsFile = template.file('Metadata/project_settings.config');
+    const modelSettingsFile = template.file('Metadata/model_settings.config');
+    if (!projectSettingsFile || !modelSettingsFile) {
+      throw new Error('blank-profile.3mf is not a Bambu Studio project');
+    }
+
+    const projectSettingsText = await projectSettingsFile.async('text');
+    const projectSettings = JSON.parse(projectSettingsText) as Record<string, unknown>;
+    const retargeted = retargetBambuProject(projectSettings, printer);
+    const zip = new JSZip();
+
+    const replacements = new Set([
+      '3D/3dmodel.model',
+      'Metadata/model_settings.config',
+      'Metadata/plate_1.json',
+      'Metadata/filament_sequence.json',
+    ]);
+    if (retargeted) replacements.add('Metadata/project_settings.config');
+
+    const copies: Array<Promise<void>> = [];
+    template.forEach((relativePath, file) => {
+      if (file.dir || replacements.has(relativePath) || isUnusedPlateFile(relativePath)) return;
+      copies.push(
+        file.async('uint8array').then((bytes) => {
+          zip.file(relativePath, bytes);
+        })
+      );
+    });
+    await Promise.all(copies);
+
+    const bed = bedSizeFromPrintableArea(projectSettings.printable_area);
+    const sequenceFile = template.file('Metadata/filament_sequence.json');
+    const [modelSettingsText, plate1Json, sequenceText] = await Promise.all([
+      modelSettingsFile.async('text'),
+      this.buildPlateJson(template, geometry, cleanName, projectSettings, 1),
+      sequenceFile ? sequenceFile.async('text') : Promise.resolve(''),
+    ]);
+    zip.file('3D/3dmodel.model', this.generateModelXml(geometry, modelName, profile, bed));
+    if (retargeted) {
+      zip.file('Metadata/project_settings.config', JSON.stringify(projectSettings));
+    }
+    zip.file(
+      'Metadata/model_settings.config',
+      this.buildBambuModelSettings(modelSettingsText, cleanName, geometry.indices.length / 3)
+    );
+    zip.file('Metadata/plate_1.json', plate1Json);
+    zip.file('Metadata/filament_sequence.json', singlePlateFilamentSequence(sequenceText));
+    return zip;
+  }
+
+  /**
+   * Places the mesh on plate 1 using the same model_settings grammar Studio writes:
+   * the mesh is a part, the parent object is what the plate instance points at.
+   */
+  private static buildBambuModelSettings(templateXml: string, cleanName: string, triangleCount: number): string {
+    const safeName = this.escapeXml(cleanName);
+    const objectXml = `  <object id="${MODEL_OBJECT_ID}">
+    <metadata key="name" value="${safeName}"/>
+    <metadata key="extruder" value="1"/>
+    <metadata face_count="${triangleCount}"/>
+    <part id="${VOLUME_OBJECT_ID}" subtype="normal_part">
+      <metadata key="name" value="${safeName}"/>
+      <metadata key="matrix" value="${BAMBU_IDENTITY_MATRIX}"/>
+      <metadata key="source_file" value="${safeName}.stl"/>
+      <metadata key="source_object_id" value="0"/>
+      <metadata key="source_volume_id" value="0"/>
+      <metadata key="source_offset_x" value="0"/>
+      <metadata key="source_offset_y" value="0"/>
+      <metadata key="source_offset_z" value="0"/>
+      <mesh_stat face_count="${triangleCount}" edges_fixed="0" degenerate_facets="0" facets_removed="0" facets_reversed="0" backwards_edges="0"/>
+    </part>
+  </object>
+`;
+    const instanceXml = `    <model_instance>
+      <metadata key="object_id" value="${MODEL_OBJECT_ID}"/>
+      <metadata key="instance_id" value="0"/>
+      <metadata key="identify_id" value="${IDENTIFY_ID}"/>
+    </model_instance>
+`;
+    const assembleXml = `  <assemble>
+    <assemble_item object_id="${MODEL_OBJECT_ID}" instance_id="0" transform="${BAMBU_IDENTITY_3MF}" offset="0 0 0" />
+  </assemble>`;
+
+    if (!templateXml.includes('<plate>') || !templateXml.includes('</plate>')) {
+      throw new Error('blank-profile.3mf model_settings.config has no plate');
+    }
+
+    let xml = templateXml.replace(/<config>\s*/, `<config>\n${objectXml}`);
+    xml = xml.replace('</plate>', `${instanceXml}  </plate>`);
+    if (/<assemble>[\s\S]*?<\/assemble>/.test(xml)) {
+      xml = xml.replace(/<assemble>[\s\S]*?<\/assemble>/, assembleXml);
+    } else {
+      xml = xml.replace('</config>', `${assembleXml}\n</config>`);
+    }
+
+    // The saved profile can carry empty extra plates. Keep the plate that holds the lithophane.
+    let keptPlate = false;
+    xml = xml.replace(/[ \t]*<plate>[\s\S]*?<\/plate>\s*/g, (block) => {
+      if (keptPlate) return '';
+      keptPlate = true;
+      return block;
+    });
+    return xml;
+  }
+
+  private static async buildPlateJson(
+    template: JSZip,
+    geometry: MeshGeometryData | null,
+    cleanName: string,
+    projectSettings: Record<string, unknown>,
+    plateNumber: number
+  ): Promise<string> {
+    const existingFile = template.file(`Metadata/plate_${plateNumber}.json`);
+    const existing = existingFile ? (JSON.parse(await existingFile.async('text')) as Record<string, unknown>) : {};
+    const { width, depth } = bedSizeFromPrintableArea(projectSettings.printable_area);
+    const layerHeight = Number(projectSettings.layer_height);
+    const nozzle = Array.isArray(projectSettings.nozzle_diameter)
+      ? Number(projectSettings.nozzle_diameter[0])
+      : 0.4;
+    const filamentColors = Array.isArray(projectSettings.filament_colour)
+      ? projectSettings.filament_colour
+      : ['#FFFFFF'];
+
+    let bbox = [0, 0, 0, 0];
+    let objects: Array<Record<string, unknown>> = [];
+    if (geometry) {
+      bbox = [...bambuBedPlacement(geometry, width, depth).bedBBox];
+      objects = [
+        {
+          area: Math.abs(geometry.boundingBox.size[0] * geometry.boundingBox.size[1]),
+          bbox,
+          id: IDENTIFY_ID,
+          layer_height: Number.isFinite(layerHeight) ? layerHeight : 0.12,
+          name: cleanName,
+        },
+      ];
+    }
+
+    return JSON.stringify({
+      ...existing,
+      bbox_all: bbox,
+      bbox_objects: objects,
+      bed_type: existing.bed_type ?? 'textured_plate',
+      filament_colors: filamentColors,
+      filament_ids: existing.filament_ids ?? [0],
+      first_extruder: existing.first_extruder ?? 0,
+      is_seq_print: false,
+      nozzle_diameter: Number.isFinite(nozzle) ? nozzle : 0.4,
+      version: existing.version ?? 2,
+    });
+  }
+
   /**
    * Builds the official 3MF model XML string with high performance chunking.
    */
-  private static generateModelXml(geometry: MeshGeometryData, title: string): string {
+  private static generateModelXml(
+    geometry: MeshGeometryData,
+    title: string,
+    bambuProfile?: EmbeddedBambuProfile,
+    bed?: { width: number; depth: number }
+  ): string {
     const { vertices, indices } = geometry;
     const vertexCount = vertices.length / 3;
     const triangleCount = indices.length / 3;
     const dateStr = new Date().toISOString().split('T')[0];
+    const safeTitle = this.escapeXml(title);
+    const meshUuid = this.createUuid();
+    const objectUuid = this.createUuid();
+    const componentUuid = this.createUuid();
+    const buildUuid = this.createUuid();
+    const itemUuid = this.createUuid();
 
-    const header = `<?xml version="1.0" encoding="UTF-8"?>
+    const header = bambuProfile
+      ? `<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p">
+ <metadata name="Application">BambuStudio-${this.escapeXml(bambuProfile.version)}</metadata>
+ <metadata name="BambuStudio:3mfVersion">1</metadata>
+ <metadata name="CreationDate">${dateStr}</metadata>
+ <metadata name="ModificationDate">${dateStr}</metadata>
+ <metadata name="Title">${safeTitle}</metadata>
+ <metadata name="Thumbnail_Middle">/Metadata/plate_1.png</metadata>
+ <metadata name="Thumbnail_Small">/Metadata/plate_1_small.png</metadata>
+ <resources>
+  <object id="${VOLUME_OBJECT_ID}" type="model" p:UUID="${meshUuid}">
+   <mesh>
+    <vertices>\n`
+      : `<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
-  <metadata name="Title">${this.escapeXml(title)} Lithophane</metadata>
+  <metadata name="Title">${safeTitle} Lithophane</metadata>
   <metadata name="Designer">Lumiphane 3D</metadata>
   <metadata name="Application">Lumiphane 3D Generator</metadata>
   <metadata name="CreationDate">${dateStr}</metadata>
@@ -224,13 +484,19 @@ export class ThreeMfExporter {
     const vertChunks: string[] = [];
     const CHUNK_SIZE = 5000;
     let tempStr = '';
+    const placement = bambuProfile
+      ? bambuBedPlacement(geometry, bed?.width ?? 256, bed?.depth ?? 256)
+      : null;
 
     for (let i = 0; i < vertexCount; i++) {
       const idx = i * 3;
-      const x = vertices[idx].toFixed(4);
-      const y = vertices[idx + 1].toFixed(4);
-      const z = vertices[idx + 2].toFixed(4);
-      tempStr += `          <vertex x="${x}" y="${y}" z="${z}" />\n`;
+      let x = vertices[idx];
+      let y = vertices[idx + 1];
+      let z = vertices[idx + 2];
+      if (placement) {
+        [x, y, z] = placement.map(x, y, z);
+      }
+      tempStr += `          <vertex x="${x.toFixed(4)}" y="${y.toFixed(4)}" z="${z.toFixed(4)}" />\n`;
 
       if (i > 0 && i % CHUNK_SIZE === 0) {
         vertChunks.push(tempStr);
@@ -259,7 +525,21 @@ export class ThreeMfExporter {
     }
     if (tempStr) triChunks.push(tempStr);
 
-    const footer = `        </triangles>
+    const footer = bambuProfile
+      ? `    </triangles>
+   </mesh>
+  </object>
+  <object id="${MODEL_OBJECT_ID}" type="model" p:UUID="${objectUuid}">
+   <components>
+    <component objectid="${VOLUME_OBJECT_ID}" p:UUID="${componentUuid}" transform="${BAMBU_IDENTITY_3MF}"/>
+   </components>
+  </object>
+ </resources>
+ <build p:UUID="${buildUuid}">
+  <item objectid="${MODEL_OBJECT_ID}" p:UUID="${itemUuid}" transform="${BAMBU_IDENTITY_3MF}" printable="1"/>
+ </build>
+</model>`
+      : `        </triangles>
       </mesh>
     </object>
   </resources>
@@ -290,6 +570,7 @@ export class ThreeMfExporter {
     let hasContentTypes = false;
     let hasRels = false;
     let hasModelXml = false;
+    let hasMetadataConfigs = false;
     let parsedVertexCount = 0;
     let parsedTriangleCount = 0;
     let unit = 'unknown';
@@ -302,7 +583,7 @@ export class ThreeMfExporter {
       if (ctFile) {
         hasContentTypes = true;
         const ctText = await ctFile.async('text');
-        if (!ctText.includes('3dmanufacturing-3dmodelxml')) {
+        if (!/3dmanufacturing-3dmodel\+?xml/.test(ctText)) {
           errors.push('[Content_Types].xml missing 3D model content type');
         }
       } else {
@@ -352,6 +633,35 @@ export class ThreeMfExporter {
       } else {
         errors.push('Missing 3D/3dmodel.model file in 3MF archive');
       }
+
+      const projectFile = zip.file('Metadata/project_settings.config');
+      const settingsFile = zip.file('Metadata/model_settings.config');
+      if (projectFile && settingsFile) {
+        hasMetadataConfigs = true;
+        const projectText = await projectFile.async('text');
+        const settingsText = await settingsFile.async('text');
+        let config: Record<string, unknown> = {};
+        try {
+          config = JSON.parse(projectText) as Record<string, unknown>;
+        } catch {
+          errors.push('Bambu project_settings.config is not valid JSON');
+        }
+        const nozzleCount = Array.isArray(config.nozzle_diameter) ? config.nozzle_diameter.length : 0;
+        const extruderCount = Array.isArray(config.extruder_type) ? config.extruder_type.length : 0;
+        if (!config.printer_model || !config.print_settings_id || nozzleCount === 0 || extruderCount === 0) {
+          errors.push('Bambu project_settings.config is missing the printer profile');
+        }
+        if (nozzleCount !== extruderCount) {
+          errors.push('Bambu project_settings.config extruder list does not match nozzle count');
+        }
+        if (!settingsText.includes(`id="${MODEL_OBJECT_ID}"`) || !settingsText.includes('model_instance')) {
+          errors.push('Bambu model_settings.config does not place the lithophane on a plate');
+        }
+        const modelText = modelFile ? await modelFile.async('text') : '';
+        if (!modelText.includes('BambuStudio-')) {
+          errors.push('3dmodel.model is missing the Bambu Studio application stamp');
+        }
+      }
     } catch (err: unknown) {
       errors.push('ZIP unpacking failed: ' + (err instanceof Error ? err.message : String(err)));
     }
@@ -363,12 +673,23 @@ export class ThreeMfExporter {
       hasContentTypes,
       hasRels,
       hasModelXml,
-      hasMetadataConfigs: true,
+      hasMetadataConfigs,
       parsedVertexCount,
       parsedTriangleCount,
       unit,
       errors,
     };
+  }
+
+  private static createUuid(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+      const random = Math.floor(Math.random() * 16);
+      const value = char === 'x' ? random : (random & 0x3) | 0x8;
+      return value.toString(16);
+    });
   }
 
   private static escapeXml(unsafe: string): string {

@@ -8,12 +8,18 @@ export type PrintOrientation = 'standing' | 'flat';
 
 export type QualityTier = 'master' | 'studio' | 'balanced';
 
+export type BorderIcon = 'none' | 'heart' | 'bone' | 'star';
+
 export interface CylinderSlot {
   id: string;
   label: string;
   imageSrc: string;
   name: string;
   cropData: ImageCropData | null;
+  // Slides the photo inside its frame. 0 keeps the crop, or the centered cover.
+  // Positive X moves the photo right. Positive Y moves the photo up. Range is -1 to 1.
+  offsetX?: number;
+  offsetY?: number;
 }
 
 export interface LithophaneSettings {
@@ -24,21 +30,24 @@ export interface LithophaneSettings {
   cylinderPanelCount?: number; // 1, 2, 3, or 4 images around cylinder (default 4)
   cubeWidth?: number; // mm (side length of square hollow cube, 40-250mm, default 90mm)
   cubePanelCount?: number; // 1, 2, 3, or 4 images around cube (default 4)
-  minThickness: number; // e.g. 0.8 mm (thinnest, highlights)
-  maxThickness: number; // e.g. 3.0 mm (thickest, shadows)
+  minThickness: number; // e.g. 0.6 mm (thinnest, highlights)
+  maxThickness: number; // e.g. 2.25 mm (thickest, shadows)
 
   // Quality & Resolution Pipeline
   qualityTier: QualityTier; // 'master' (peak photographic fidelity 600+ cols), 'studio' (440 cols), 'balanced' (340 cols)
   sharpness: number; // 0 to 100 (Unsharp mask micro-contrast for maximum edge definition in translucent PLA)
-  autoLevels: boolean; // Dynamic range histogram expansion to use full 0.8mm - 3.0mm thickness gamut
+  autoLevels: boolean; // Dynamic range histogram expansion to use full 0.6mm - 2.25mm thickness gamut
 
   // Shape & Structural Rigidity
   shape: LithophaneShape;
+  // Preset collage for flat and curved panels when 2–4 photos are used.
+  stripLayout?: string;
   curveAngle: number; // in degrees for curved arc (e.g. 60° to 120°)
   curveDirection?: 'convex' | 'concave'; // default convex (edges wrap backwards away from viewer)
   hasFrame: boolean;
   frameWidth: number; // mm (e.g. 3.0 mm)
-  frameThickness: number; // mm (e.g. 3.2 mm)
+  frameThickness: number; // mm (e.g. 2.4 mm)
+  borderIcon: BorderIcon; // one motif repeated along the middle of the border
 
   // Print Standing Orientation & Stabilization Supports
   orientation: PrintOrientation; // 'standing' (vertical on Z axis, print-ready) or 'flat'
@@ -104,10 +113,11 @@ export interface MeshValidationResult {
   eulerCharacteristic: number;
 }
 
-export interface SamplePresetImage {
+export interface PhotoUploadJob {
   id: string;
-  name: string;
-  category: string;
-  description: string;
-  url: string;
+  fileName: string;
+  progress: number;
+  status: 'reading' | 'done' | 'error';
+  slotId?: string;
+  slotIndex?: number;
 }

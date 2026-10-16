@@ -21,40 +21,38 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
       title: 'Round Cylinder',
       badge: '360° Lampshade',
       description: 'Wraps 1 to 4 photos into a continuous circular lantern, perfect for nightlights and lamps.',
-      specs: [
-        { label: 'Photos', value: '1–4 photos' },
-        { label: 'Lighting', value: 'Fits LED pucks or bulbs' },
-        { label: 'Default Size', value: '90mm wide × 95mm tall' },
-        { label: 'Base', value: 'Built-in print brim' },
-      ],
       diagram: (
         <svg
-          viewBox="0 0 180 115"
-          className="w-full h-36 sm:h-40 text-slate-400 stroke-current fill-none select-none"
+          viewBox="0 0 200 156"
+          className="block w-full h-auto text-slate-400 stroke-current fill-none select-none"
         >
+          {/* Brim shares the base ellipse: same center (100, 124) and the same rx/ry ratio, scaled out. */}
+          <path
+            d="M 32 112 A 85 20 0 0 0 15 124 A 85 20 0 0 0 185 124 A 85 20 0 0 0 168 112 L 168 124 A 68 16 0 0 1 32 124 Z"
+            stroke="none"
+            className="fill-amber-400/15"
+          />
+          <path
+            d="M 32 112 A 85 20 0 0 0 15 124 A 85 20 0 0 0 185 124 A 85 20 0 0 0 168 112"
+            strokeWidth="1.25"
+            className="stroke-amber-400"
+          />
+
           {/* Top Ellipse Rim */}
-          <ellipse cx="90" cy="22" rx="46" ry="13" strokeWidth="1.25" className="stroke-slate-300" />
+          <ellipse cx="100" cy="28" rx="68" ry="16" strokeWidth="1.25" className="stroke-slate-300" />
           {/* Inner Hollow Hole */}
-          <ellipse cx="90" cy="22" rx="34" ry="10" strokeWidth="1" strokeDasharray="3 3" className="stroke-amber-400/80" />
+          <ellipse cx="100" cy="28" rx="50" ry="11.8" strokeWidth="1" strokeDasharray="3 3" className="stroke-amber-400/80" />
 
           {/* Cylinder Side Walls */}
-          <line x1="44" y1="22" x2="44" y2="84" strokeWidth="1.25" className="stroke-slate-300" />
-          <line x1="136" y1="22" x2="136" y2="84" strokeWidth="1.25" className="stroke-slate-300" />
+          <line x1="32" y1="28" x2="32" y2="124" strokeWidth="1.25" className="stroke-slate-300" />
+          <line x1="168" y1="28" x2="168" y2="124" strokeWidth="1.25" className="stroke-slate-300" />
 
-          {/* Bottom Ellipse Rim */}
-          <path d="M 44 84 A 46 13 0 0 0 136 84" strokeWidth="1.25" className="stroke-slate-300" />
-          <path d="M 44 84 A 46 13 0 0 1 136 84" strokeWidth="0.75" strokeDasharray="3 3" className="stroke-slate-600" />
+          {/* Bottom Ellipse Rim — concentric with the brim */}
+          <path d="M 32 124 A 68 16 0 0 0 168 124" strokeWidth="1.25" className="stroke-slate-300" />
+          <path d="M 32 124 A 68 16 0 0 1 168 124" strokeWidth="0.75" strokeDasharray="3 3" className="stroke-slate-600" />
 
           {/* Quadrant Meridian Center Line */}
-          <line x1="90" y1="35" x2="90" y2="97" strokeWidth="1" strokeDasharray="3 3" className="stroke-amber-400/70" />
-
-          {/* Adhesion Brim Flange */}
-          <ellipse cx="90" cy="94" rx="52" ry="9" strokeWidth="1" className="stroke-amber-400 fill-amber-400/10" />
-
-          {/* Diagram Label */}
-          <text x="90" y="60" textAnchor="middle" fontSize="9" fill="#fef08a" className="font-mono font-normal">
-            Cylinder
-          </text>
+          <line x1="100" y1="52" x2="100" y2="116" strokeWidth="1" strokeDasharray="3 3" className="stroke-amber-400/70" />
         </svg>
       ),
     },
@@ -63,50 +61,53 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
       title: 'Hollow Cube',
       badge: '4-Sided Lantern',
       description: 'A 4-sided square lantern with open top and bottom, displaying 1 to 4 photos around the perimeter.',
-      specs: [
-        { label: 'Photos', value: '1–4 photos' },
-        { label: 'Lighting', value: 'Fits LED pucks or bulbs' },
-        { label: 'Default Size', value: '90mm × 90mm × 90mm' },
-        { label: 'Base', value: 'Built-in print brim' },
-      ],
       diagram: (
         <svg
-          viewBox="0 0 180 115"
-          className="w-full h-36 sm:h-40 text-slate-400 stroke-current fill-none select-none"
+          viewBox="0 0 200 156"
+          className="block w-full h-auto text-slate-400 stroke-current fill-none select-none"
         >
+          {/*
+            Square footprint in the same projection as the cube.
+            Bottom corners: left (40,122), front (100,140), right (160,122), back (100,104).
+            Brim is that rhombus scaled 1.25× from the same center, so the flange
+            follows the square instead of a mismatched diamond.
+          */}
+          <path
+            d="M 40 122 L 25 122 L 100 144.5 L 175 122 L 160 122 L 100 140 Z"
+            stroke="none"
+            className="fill-amber-400/15"
+          />
+          <path
+            d="M 40 122 L 25 122 L 100 144.5 L 175 122 L 160 122"
+            strokeWidth="1.25"
+            className="stroke-amber-400"
+          />
+
           {/* Top Square Rim in Isometric View */}
-          <polygon points="90,12 136,27 90,42 44,27" strokeWidth="1.25" className="stroke-slate-300" />
+          <polygon points="100,16 160,34 100,52 40,34" strokeWidth="1.25" className="stroke-slate-300" />
           {/* Inner Hollow Square Opening */}
-          <polygon points="90,20 122,30 90,40 58,30" strokeWidth="1" strokeDasharray="3 3" className="stroke-amber-400/80" />
+          <polygon points="100,23.2 136,34 100,44.8 64,34" strokeWidth="1" strokeDasharray="3 3" className="stroke-amber-400/80" />
 
           {/* Cube Vertical Corner Edges */}
-          <line x1="44" y1="27" x2="44" y2="82" strokeWidth="1.25" className="stroke-slate-300" />
-          <line x1="90" y1="42" x2="90" y2="96" strokeWidth="1.25" className="stroke-slate-300" />
-          <line x1="136" y1="27" x2="136" y2="82" strokeWidth="1.25" className="stroke-slate-300" />
+          <line x1="40" y1="34" x2="40" y2="122" strokeWidth="1.25" className="stroke-slate-300" />
+          <line x1="100" y1="52" x2="100" y2="140" strokeWidth="1.25" className="stroke-slate-300" />
+          <line x1="160" y1="34" x2="160" y2="122" strokeWidth="1.25" className="stroke-slate-300" />
 
-          {/* Bottom Outer Faces */}
-          <line x1="44" y1="82" x2="90" y2="96" strokeWidth="1.25" className="stroke-slate-300" />
-          <line x1="90" y1="96" x2="136" y2="82" strokeWidth="1.25" className="stroke-slate-300" />
+          {/* Bottom face — same rhombus as the top, dropped on the verticals */}
+          <line x1="40" y1="122" x2="100" y2="140" strokeWidth="1.25" className="stroke-slate-300" />
+          <line x1="100" y1="140" x2="160" y2="122" strokeWidth="1.25" className="stroke-slate-300" />
 
           {/* Hidden Back Bottom Edges (dashed) */}
-          <line x1="44" y1="82" x2="90" y2="68" strokeWidth="0.75" strokeDasharray="3 3" className="stroke-slate-600" />
-          <line x1="90" y1="68" x2="136" y2="82" strokeWidth="0.75" strokeDasharray="3 3" className="stroke-slate-600" />
-
-          {/* Base Adhesion Brim Flange */}
-          <polygon points="90,86 144,76 90,102 36,76" strokeWidth="1" className="stroke-amber-400 fill-amber-400/10" />
+          <line x1="40" y1="122" x2="100" y2="104" strokeWidth="0.75" strokeDasharray="3 3" className="stroke-slate-600" />
+          <line x1="100" y1="104" x2="160" y2="122" strokeWidth="0.75" strokeDasharray="3 3" className="stroke-slate-600" />
 
           {/* Subtle Relief Contours on visible Front-Right face */}
-          <path d="M 98 56 Q 112 52 128 58" strokeWidth="0.8" className="stroke-amber-400/70" />
-          <path d="M 98 70 Q 112 66 128 72" strokeWidth="0.8" className="stroke-amber-400/70" />
+          <path d="M 124 72 Q 138 68 152 74" strokeWidth="0.8" className="stroke-amber-400/70" />
+          <path d="M 124 100 Q 138 96 152 102" strokeWidth="0.8" className="stroke-amber-400/70" />
 
           {/* Subtle Relief Contours on visible Front-Left face */}
-          <path d="M 52 58 Q 68 52 82 56" strokeWidth="0.8" className="stroke-amber-400/70" />
-          <path d="M 52 72 Q 68 66 82 70" strokeWidth="0.8" className="stroke-amber-400/70" />
-
-          {/* Diagram Label */}
-          <text x="90" y="58" textAnchor="middle" fontSize="9" fill="#fef08a" className="font-mono font-normal">
-            Hollow Cube
-          </text>
+          <path d="M 48 70 Q 62 66 76 72" strokeWidth="0.8" className="stroke-amber-400/70" />
+          <path d="M 48 98 Q 62 94 76 100" strokeWidth="0.8" className="stroke-amber-400/70" />
         </svg>
       ),
     },
@@ -114,42 +115,32 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
       id: 'flat' as LithophaneShape,
       title: 'Flat Panel',
       badge: 'Classic Frame',
-      description: 'A clean rectangular panel made for picture frames, lightboxes, or window displays.',
-      specs: [
-        { label: 'Photos', value: '1 photo' },
-        { label: 'Proportions', value: 'Matches your photo size' },
-        { label: 'Default Size', value: '120mm × 90mm' },
-        { label: 'Base', value: 'Built-in stable stand' },
-      ],
+      description: 'Tiles 1 to 4 photos across a flat panel for frames, lightboxes, or windows.',
       diagram: (
         <svg
-          viewBox="0 0 180 115"
-          className="w-full h-36 sm:h-40 text-slate-400 stroke-current fill-none select-none"
+          viewBox="0 0 200 156"
+          className="block w-full h-auto text-slate-400 stroke-current fill-none select-none"
         >
           {/* Planar Plate Outline */}
-          <rect x="42" y="16" width="96" height="68" rx="1.5" strokeWidth="1.25" className="stroke-slate-300" />
-          <rect x="47" y="21" width="86" height="58" rx="1" strokeWidth="0.75" strokeDasharray="3 3" className="stroke-slate-600" />
+          <rect x="28" y="16" width="144" height="108" rx="1.5" strokeWidth="1.25" className="stroke-slate-300" />
+          <rect x="34" y="22" width="132" height="96" rx="1" strokeWidth="0.75" strokeDasharray="3 3" className="stroke-slate-600" />
 
           {/* Subtle Relief Contour Lines */}
-          <path d="M 52 38 Q 74 32 94 40 T 128 36" strokeWidth="1" className="stroke-amber-400/70" />
-          <path d="M 52 52 Q 76 46 96 54 T 128 50" strokeWidth="1" className="stroke-amber-400/70" />
+          <path d="M 42 48 Q 72 40 100 50 T 158 46" strokeWidth="1" className="stroke-amber-400/70" />
+          <path d="M 42 74 Q 74 66 102 76 T 158 72" strokeWidth="1" className="stroke-amber-400/70" />
+          <path d="M 42 100 Q 74 92 102 102 T 158 98" strokeWidth="1" className="stroke-amber-400/70" />
 
-          {/* Base Footing / Flange */}
+          {/* Base Footing / Flange — top edge sits on the panel bottom */}
           <rect
-            x="34"
-            y="84"
-            width="112"
-            height="12"
+            x="14"
+            y="124"
+            width="172"
+            height="14"
             rx="1.5"
             strokeWidth="1.25"
             className="stroke-amber-400 fill-amber-400/15"
           />
-          <line x1="30" y1="96" x2="150" y2="96" strokeWidth="1" className="stroke-slate-600" />
-
-          {/* Diagram Label */}
-          <text x="90" y="68" textAnchor="middle" fontSize="9" fill="#fef08a" className="font-mono font-normal">
-            Flat Panel
-          </text>
+          <line x1="8" y1="142" x2="192" y2="142" strokeWidth="1" className="stroke-slate-600" />
         </svg>
       ),
     },
@@ -157,51 +148,41 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
       id: 'curved' as LithophaneShape,
       title: 'Curved Arc',
       badge: 'Self-Standing',
-      description: 'A gentle curve that stands upright on desks and tables without any stand needed.',
-      specs: [
-        { label: 'Photos', value: '1 photo' },
-        { label: 'Curve', value: '75° panoramic arc' },
-        { label: 'Default Size', value: '120mm wide' },
-        { label: 'Base', value: 'Self-balancing base' },
-      ],
+      description: 'Tiles 1 to 4 photos along a curve that stands upright on its own.',
       diagram: (
         <svg
-          viewBox="0 0 180 115"
-          className="w-full h-36 sm:h-40 text-slate-400 stroke-current fill-none select-none"
+          viewBox="0 0 200 156"
+          className="block w-full h-auto text-slate-400 stroke-current fill-none select-none"
         >
           {/* Top Arc */}
-          <path d="M 44 24 Q 90 12 136 24" strokeWidth="1.25" className="stroke-slate-300" />
-          <path d="M 48 28 Q 90 17 132 28" strokeWidth="0.75" strokeDasharray="3 3" className="stroke-slate-600" />
+          <path d="M 22 28 Q 100 12 178 28" strokeWidth="1.25" className="stroke-slate-300" />
+          <path d="M 28 34 Q 100 18 172 34" strokeWidth="0.75" strokeDasharray="3 3" className="stroke-slate-600" />
 
           {/* Side Edges */}
-          <line x1="44" y1="24" x2="44" y2="82" strokeWidth="1.25" className="stroke-slate-300" />
-          <line x1="136" y1="24" x2="136" y2="82" strokeWidth="1.25" className="stroke-slate-300" />
+          <line x1="22" y1="28" x2="22" y2="126" strokeWidth="1.25" className="stroke-slate-300" />
+          <line x1="178" y1="28" x2="178" y2="126" strokeWidth="1.25" className="stroke-slate-300" />
 
           {/* Subtle Relief Contour along Arc */}
-          <path d="M 48 46 Q 90 34 132 46" strokeWidth="1" className="stroke-amber-400/70" />
-          <path d="M 48 60 Q 90 48 132 60" strokeWidth="1" className="stroke-amber-400/70" />
+          <path d="M 28 52 Q 100 36 172 52" strokeWidth="1" className="stroke-amber-400/70" />
+          <path d="M 28 80 Q 100 64 172 80" strokeWidth="1" className="stroke-amber-400/70" />
+          <path d="M 28 108 Q 100 92 172 108" strokeWidth="1" className="stroke-amber-400/70" />
 
           {/* Bottom Arc */}
-          <path d="M 44 82 Q 90 70 136 82" strokeWidth="1.25" className="stroke-slate-300" />
+          <path d="M 22 126 Q 100 110 178 126" strokeWidth="1.25" className="stroke-slate-300" />
 
           {/* Self-Standing Base Arc Footprint */}
           <path
-            d="M 38 88 Q 90 74 142 88 L 138 94 Q 90 80 42 94 Z"
+            d="M 12 132 Q 100 114 188 132 L 182 140 Q 100 122 18 140 Z"
             strokeWidth="1.25"
             className="stroke-amber-400 fill-amber-400/15"
           />
-
-          {/* Diagram Label */}
-          <text x="90" y="74" textAnchor="middle" fontSize="9" fill="#fef08a" className="font-mono font-normal">
-            Curved Arc
-          </text>
         </svg>
       ),
     },
   ];
 
   return (
-    <div className="w-full max-w-5xl mx-auto px-4 py-6 md:py-10 flex flex-col items-center justify-start pb-28">
+    <div className="w-full max-w-5xl mx-auto px-4 py-6 md:py-10 flex flex-col items-center justify-start">
       {/* Header */}
       <div className="text-center max-w-2xl mb-6">
         <div className="text-xs font-bold tracking-wider text-amber-400 uppercase font-mono mb-2">
@@ -211,7 +192,7 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
           Choose a Shape
         </h1>
         <p className="text-sm text-slate-400 mt-2 leading-relaxed">
-          Pick how you want your lithophane shaped. All models are optimized for 3D printing with sturdy bases.
+          Pick how you want your lithophane shaped. Every shape holds 1 to 4 photos, tiled to fit, and prints with a sturdy base.
         </p>
       </div>
 
@@ -226,54 +207,38 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
             <div
               key={mode.id}
               onClick={() => onSelectShape(mode.id)}
-              className={`w-[76vw] max-w-[310px] shrink-0 snap-start sm:w-auto sm:max-w-none sm:shrink relative flex flex-col justify-between p-4 sm:p-5 rounded-lg border cursor-pointer transition-all ${
+              className={`w-[76vw] max-w-[310px] shrink-0 snap-start sm:w-auto sm:max-w-none sm:shrink relative flex flex-col overflow-hidden rounded-lg border cursor-pointer transition-all ${
                 isSelected
                   ? 'bg-[#151a26] border-amber-400 shadow-lg shadow-amber-500/10 ring-1 ring-amber-400'
                   : 'bg-[#10141d] hover:bg-[#141924] border-white/10 hover:border-white/20'
               }`}
             >
               {/* Header & Radio */}
-              <div>
-                <div className="flex items-start justify-between gap-3 mb-2">
-                  <div>
-                    <h3 className="text-base font-bold text-white tracking-tight">
-                      {mode.title}
-                    </h3>
-                    <div className="text-xs text-amber-400 font-bold font-mono mt-0.5">
-                      {mode.badge}
-                    </div>
-                  </div>
-                  <div
-                    className={`w-5 h-5 rounded-sm flex items-center justify-center shrink-0 border transition-colors ${
-                      isSelected
-                        ? 'bg-amber-400 border-amber-400 text-slate-950 font-bold'
-                        : 'border-white/20 bg-transparent'
-                    }`}
-                  >
-                    {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-                  </div>
+              <div className="relative p-4 sm:p-5 pb-3 text-center">
+                <div
+                  className={`absolute top-4 right-4 w-5 h-5 rounded-sm flex items-center justify-center border transition-colors ${
+                    isSelected
+                      ? 'bg-amber-400 border-amber-400 text-slate-950 font-bold'
+                      : 'border-white/20 bg-transparent'
+                  }`}
+                >
+                  {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
                 </div>
 
-                <p className="text-xs text-slate-400 leading-relaxed mt-1 mb-3">
+                <h3 className="text-base font-bold text-white tracking-tight px-6">
+                  {mode.title}
+                </h3>
+                <div className="text-xs text-amber-400 font-bold font-mono mt-0.5">
+                  {mode.badge}
+                </div>
+                <p className="text-xs text-slate-400 leading-relaxed mt-2">
                   {mode.description}
                 </p>
-
-                {/* Clean, Streamlined Wireframe Diagram */}
-                <div className="py-2 px-2 bg-[#090b10] border border-white/10 rounded-md mb-4 flex items-center justify-center overflow-hidden">
-                  {mode.diagram}
-                </div>
               </div>
 
-              {/* Technical Specifications with Bold Subtitles and Values */}
-              <div className="border-t border-white/10 pt-3 space-y-1.5">
-                {mode.specs.map((s, idx) => (
-                  <div key={idx} className="flex items-baseline justify-between text-[11px] gap-2">
-                    <span className="text-slate-400 font-medium shrink-0">{s.label}</span>
-                    <span className="text-slate-200 text-right font-mono font-bold truncate">
-                      {s.value}
-                    </span>
-                  </div>
-                ))}
+              {/* Wireframe bleeds to the card edges */}
+              <div className="mt-auto bg-[#090b10] border-t border-white/10">
+                {mode.diagram}
               </div>
             </div>
           );
@@ -297,15 +262,14 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
         ))}
       </div>
 
-      {/* Bottom Action Strip */}
-      <div className="flex items-center justify-end w-full p-3 sm:p-4 bg-[#10141d] border border-white/10 rounded-lg mt-4 box-border">
+      <div className="flex items-center justify-center w-full mt-6">
         <button
           type="button"
           onClick={onContinue}
-          className="btn-primary w-full sm:w-auto font-bold"
+          className="btn-primary"
         >
-          <span className="font-bold">Continue to Photos</span>
-          <ArrowRight className="w-4 h-4 shrink-0 stroke-[2.5]" />
+          <span>Continue to Photos</span>
+          <ArrowRight className="w-3.5 h-3.5 shrink-0 stroke-[2.5]" />
         </button>
       </div>
     </div>

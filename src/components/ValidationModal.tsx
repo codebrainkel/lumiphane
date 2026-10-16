@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { MeshValidationResult, MeshGeometryData, LithophaneSettings } from '../types/lithophane';
+import { BAMBU_PRINTERS, DEFAULT_BAMBU_PRINTER_ID, getBambuPrinter } from '../constants/bambuPrinters';
 import {
   ThreeMfExporter,
   ThreeMfExportResult,
-  BambuPrinterModel,
-  BAMBU_PRINTER_PROFILES,
+  EmbeddedBambuProfile,
+  loadEmbeddedBambuProfile,
 } from '../services/threeMfExporter';
 import { StlExporter } from '../services/stlExporter';
 import {
@@ -37,7 +38,9 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   onClose,
 }) => {
   const [exportFormat, setExportFormat] = useState<ExportFormatType>('bambu-project');
-  const [selectedBambuPrinter, setSelectedBambuPrinter] = useState<BambuPrinterModel>('P1S');
+  const [bambuPrinterId, setBambuPrinterId] = useState(DEFAULT_BAMBU_PRINTER_ID);
+  const [bambuProfile, setBambuProfile] = useState<EmbeddedBambuProfile | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [verified3Mf, setVerified3Mf] = useState<{
     hasRun: boolean;
@@ -48,6 +51,20 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
     parsedTriangles: number;
     isBambuProject?: boolean;
   } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadEmbeddedBambuProfile()
+      .then((profile) => {
+        if (!cancelled) setBambuProfile(profile);
+      })
+      .catch(() => {
+        if (!cancelled) setExportError('The saved Bambu Studio profile could not be loaded.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleExport = async () => {
     try {
@@ -67,27 +84,33 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
       }
 
       // 3MF Export (Bambu Project or Universal)
+      setExportError(null);
       const isBambu = exportFormat === 'bambu-project';
       const result: ThreeMfExportResult = await ThreeMfExporter.export3MF(
         geometryData,
         imageName,
         {
           mode: isBambu ? 'bambu-project' : 'universal',
-          bambuPrinter: selectedBambuPrinter,
+          bambuPrinterId: isBambu ? bambuPrinterId : undefined,
         }
       );
 
       // Verify the generated 3MF package independently
       const verification = await ThreeMfExporter.verify3MfPackage(result.blob);
-      setVerified3Mf({
-        hasRun: true,
-        isValid: verification.isValid,
-        sizeKb: Math.round(result.filesizeBytes / 1024),
-        unit: verification.unit,
-        parsedVertices: verification.parsedVertexCount,
-        parsedTriangles: verification.parsedTriangleCount,
-        isBambuProject: result.isBambuProject,
-      });
+      if (!verification.isValid) {
+        setVerified3Mf(null);
+        setExportError(verification.errors[0] || 'The 3MF package failed verification.');
+      } else {
+        setVerified3Mf({
+          hasRun: true,
+          isValid: verification.isValid,
+          sizeKb: Math.round(result.filesizeBytes / 1024),
+          unit: verification.unit,
+          parsedVertices: verification.parsedVertexCount,
+          parsedTriangles: verification.parsedTriangleCount,
+          isBambuProject: result.isBambuProject,
+        });
+      }
 
       // Standard browser download
       const url = URL.createObjectURL(result.blob);
@@ -100,6 +123,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (err) {
       console.error('Export failed:', err);
+      setExportError(err instanceof Error ? err.message : 'Export failed.');
     } finally {
       setIsExporting(false);
     }
@@ -207,7 +231,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
                   <span className="text-[10px] font-mono font-bold text-amber-400">Direct</span>
                 </div>
                 <p className="text-[11px] text-slate-400 leading-snug">
-                  Native 3MF project with pre-configured infill (100%), 0.12mm layers, and brim.
+                  Native 3MF project with the saved Bambu Studio print profile.
                 </p>
               </button>
 
@@ -256,31 +280,35 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
               </button>
             </div>
 
-            {/* Bambu Printer Selector (When Bambu Project mode is active) */}
             {exportFormat === 'bambu-project' && (
-              <div className="mt-3 p-3 rounded-md bg-[#141924] border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <Printer className="w-4 h-4 text-amber-400 shrink-0" />
-                  <div>
-                    <div className="text-xs font-bold text-slate-200">Printer Model</div>
-                    <div className="text-[11px] text-slate-400">
-                      Sets build plate size for your Bambu printer.
-                    </div>
-                  </div>
+              <div className="mt-3 p-3 rounded-md bg-[#141924] border border-white/10 space-y-2.5">
+                <label className="block">
+                  <span className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
+                    <Printer className="w-3.5 h-3.5 text-amber-400" />
+                    Printer
+                  </span>
+                  <select
+                    value={bambuPrinterId}
+                    onChange={(event) => {
+                      setBambuPrinterId(event.target.value);
+                      setVerified3Mf(null);
+                      setExportError(null);
+                    }}
+                    className="mt-1.5 w-full rounded-md border border-white/10 bg-[#10141d] px-2.5 py-2 text-xs text-slate-200 outline-none focus:border-amber-400"
+                    style={{ colorScheme: 'dark' }}
+                  >
+                    {BAMBU_PRINTERS.map((printer) => (
+                      <option key={printer.id} value={printer.id}>
+                        {printer.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="text-[11px] text-slate-400">
+                  {bambuProfile
+                    ? `${getBambuPrinter(bambuPrinterId).bedWidth} × ${getBambuPrinter(bambuPrinterId).bedDepth} mm plate · ${bambuProfile.layerHeight} mm layers · ${bambuProfile.infillDensity} infill · ${bambuProfile.brimWidth} mm brim`
+                    : 'Loading the saved Bambu Studio profile…'}
                 </div>
-
-                <select
-                  value={selectedBambuPrinter}
-                  onChange={(e) => setSelectedBambuPrinter(e.target.value as BambuPrinterModel)}
-                  aria-label="Target Bambu Lab Machine"
-                  className="bg-[#0b0e14] border border-white/15 rounded-md px-2.5 py-1 text-xs text-slate-200 font-mono focus:outline-none focus:border-amber-400"
-                >
-                  {Object.values(BAMBU_PRINTER_PROFILES).map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
               </div>
             )}
           </div>
@@ -323,6 +351,12 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
           </div>
 
           {/* Live Package Verification Notice */}
+          {exportError && (
+            <div className="p-3 rounded-md bg-red-950/40 border border-red-500/30 text-xs text-red-300">
+              {exportError}
+            </div>
+          )}
+
           {verified3Mf && (
             <div className="p-3 rounded-md bg-emerald-950/40 border border-emerald-500/30 flex items-center justify-between text-xs text-emerald-300">
               <div className="flex items-center gap-2">
@@ -341,7 +375,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="btn-secondary text-xs py-1.5 px-3 min-h-[34px]"
+            className="btn-secondary"
           >
             Close
           </button>
@@ -349,14 +383,14 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
             type="button"
             onClick={handleExport}
             disabled={isExporting}
-            className="btn-primary text-xs py-1.5 px-4 min-h-[34px]"
+            className="btn-primary"
           >
             <Download className="w-3.5 h-3.5 shrink-0" />
             <span>
               {isExporting
                 ? 'Preparing file…'
                 : exportFormat === 'bambu-project'
-                ? `Download ${selectedBambuPrinter} File (.3mf)`
+                ? 'Download Bambu Studio File (.3mf)'
                 : exportFormat === 'universal'
                 ? 'Download .3mf File'
                 : 'Download .stl File'}

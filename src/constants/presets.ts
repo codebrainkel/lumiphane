@@ -1,35 +1,4 @@
-import { LithophaneSettings, SamplePresetImage, QualityTier, CylinderSlot } from '../types/lithophane';
-
-export const DEFAULT_CYLINDER_SLOTS: CylinderSlot[] = [
-  {
-    id: 'slot_1',
-    label: 'Front (0°)',
-    name: 'Retriever',
-    imageSrc: '/src/assets/images/sample_dog_retriever_1791682818115.jpg',
-    cropData: null,
-  },
-  {
-    id: 'slot_2',
-    label: 'Right (90°)',
-    name: 'Corgi',
-    imageSrc: '/src/assets/images/sample_dog_corgi_1791682841012.jpg',
-    cropData: null,
-  },
-  {
-    id: 'slot_3',
-    label: 'Back (180°)',
-    name: 'Cat',
-    imageSrc: '/src/assets/images/sample_cat_portrait_1791682858470.jpg',
-    cropData: null,
-  },
-  {
-    id: 'slot_4',
-    label: 'Left (270°)',
-    name: 'Fox',
-    imageSrc: '/src/assets/images/animal_fox_portrait_1791682594622.jpg',
-    cropData: null,
-  },
-];
+import { LithophaneSettings, QualityTier } from '../types/lithophane';
 
 export const DEFAULT_SETTINGS: LithophaneSettings = {
   width: 120, // mm
@@ -38,8 +7,8 @@ export const DEFAULT_SETTINGS: LithophaneSettings = {
   cylinderPanelCount: 4, // 1 to 4 photos around cylinder (default 4)
   cubeWidth: 90, // mm (width of each face of hollow cube)
   cubePanelCount: 4, // 1 to 4 photos around cube (default 4)
-  minThickness: 0.8, // mm (.80mm default highlights)
-  maxThickness: 3.0, // mm (3.0mm default shadows)
+  minThickness: 0.6, // mm (0.60mm highlights — 25% thinner, full tonal range kept)
+  maxThickness: 2.25, // mm (2.25mm shadows — 25% thinner than 3.0mm)
 
   // Quality & Resolution Pipeline (Uncompressed Master Quality)
   qualityTier: 'master',
@@ -47,11 +16,13 @@ export const DEFAULT_SETTINGS: LithophaneSettings = {
   autoLevels: true, // Auto dynamic range expansion for maximum tonal gamut
 
   shape: 'flat',
+  stripLayout: 'pair-row',
   curveAngle: 75, // degrees arc for curved lithophane
   curveDirection: 'convex',
   hasFrame: true,
-  frameWidth: 3.0, // mm
-  frameThickness: 3.2, // mm
+  frameWidth: 5.0, // mm
+  frameThickness: 2.4, // mm
+  borderIcon: 'none',
 
   orientation: 'standing', // Print-ready vertical on Z axis
   supportType: 'flange', // Wide stabilizing base footing
@@ -70,7 +41,9 @@ export const DEFAULT_SETTINGS: LithophaneSettings = {
 
 /**
  * Calculates optimal lithophane thickness and structural parameters automatically.
- * Baseline at standard size (<= 120mm): .80mm min thickness (highlights) and 3.0mm max thickness (shadows).
+ * Baseline at standard size (<= 120mm): 0.60mm min thickness (highlights) and 2.25mm max thickness (shadows).
+ * That is 25% thinner than the previous 0.80–3.00mm wall. Min and max scale together so the
+ * relief that carries image detail stays proportional.
  * Auto-scales appropriately when size is scaled up or adjusted to ensure high optical contrast,
  * proper light diffusion, and warp-free bed adhesion during tall vertical 3D printing.
  */
@@ -87,10 +60,10 @@ export function getAutoScaledThickness(width: number, height: number): {
 
   if (maxDim <= baseDim) {
     return {
-      minThickness: 0.80,
-      maxThickness: 3.00,
-      frameWidth: 3.0,
-      frameThickness: 3.2,
+      minThickness: 0.60,
+      maxThickness: 2.25,
+      frameWidth: 5.0,
+      frameThickness: 2.4,
       supportBaseDepth: 14.0,
       supportHeight: 8.0,
     };
@@ -99,15 +72,15 @@ export function getAutoScaledThickness(width: number, height: number): {
   // Size is increased from defaults (e.g. 130mm - 280mm):
   const scaleRatio = (maxDim - baseDim) / baseDim; // 0 at 120mm, 0.33 at 160mm, 1.0 at 240mm
 
-  // minThickness gently scales (0.80mm -> 0.92mm max) to maintain stiffness during tall printing
-  const minThickness = Math.round((0.80 + Math.min(0.20, scaleRatio * 0.12)) * 100) / 100;
+  // minThickness gently scales (0.60mm -> 0.69mm) to maintain stiffness during tall printing
+  const minThickness = Math.round((0.60 + Math.min(0.15, scaleRatio * 0.09)) * 100) / 100;
 
-  // maxThickness scales smoothly (3.00mm -> 3.30mm max) to maintain rich deep shadows across broad surface area
-  const maxThickness = Math.round((3.00 + Math.min(0.40, scaleRatio * 0.25)) * 100) / 100;
+  // maxThickness scales smoothly (2.25mm -> 2.44mm) so shadows stay deep without a bulky wall
+  const maxThickness = Math.round((2.25 + Math.min(0.30, scaleRatio * 0.1875)) * 100) / 100;
 
   // Frame width and depth adapt proportionally to structural size
-  const frameWidth = Math.round((3.0 + Math.min(2.0, scaleRatio * 1.5)) * 10) / 10;
-  const frameThickness = Math.round((maxThickness + 0.2) * 10) / 10;
+  const frameWidth = Math.round((5.0 + Math.min(2.0, scaleRatio * 1.5)) * 10) / 10;
+  const frameThickness = Math.round((maxThickness + 0.15) * 10) / 10;
 
   // Support footing deepens for taller prints to ensure 100% bed adhesion stability
   const heightRatio = Math.max(1, height / 90);
@@ -270,14 +243,245 @@ export function getCubeSlotLabels(count: number): { label: string; deg: string; 
   ];
 }
 
+export interface StripLayoutCell {
+  col: number;
+  row: number;
+  colSpan: number;
+  rowSpan: number;
+  label: string;
+}
+
+export interface StripLayoutPreset {
+  id: string;
+  label: string;
+  count: 1 | 2 | 3 | 4;
+  gridCols: number;
+  gridRows: number;
+  cells: StripLayoutCell[];
+}
+
+const cell = (
+  col: number,
+  row: number,
+  colSpan: number,
+  rowSpan: number,
+  label: string
+): StripLayoutCell => ({ col, row, colSpan, rowSpan, label });
+
 /**
- * Returns slot labels based on whether shape is cube or cylinder
+ * Collage presets for a flat or curved panel.
+ * Cells are listed in reading order so photo 1 is the first block.
+ */
+export const STRIP_LAYOUTS: StripLayoutPreset[] = [
+  {
+    id: 'single',
+    label: 'Full panel',
+    count: 1,
+    gridCols: 1,
+    gridRows: 1,
+    cells: [cell(0, 0, 1, 1, 'Full panel')],
+  },
+  {
+    id: 'pair-row',
+    label: 'Side by side',
+    count: 2,
+    gridCols: 2,
+    gridRows: 1,
+    cells: [cell(0, 0, 1, 1, 'Left'), cell(1, 0, 1, 1, 'Right')],
+  },
+  {
+    id: 'pair-stack',
+    label: 'Stacked',
+    count: 2,
+    gridCols: 1,
+    gridRows: 2,
+    cells: [cell(0, 0, 1, 1, 'Top'), cell(0, 1, 1, 1, 'Bottom')],
+  },
+  {
+    id: 'trio-row',
+    label: '3 wide',
+    count: 3,
+    gridCols: 3,
+    gridRows: 1,
+    cells: [
+      cell(0, 0, 1, 1, 'Left'),
+      cell(1, 0, 1, 1, 'Center'),
+      cell(2, 0, 1, 1, 'Right'),
+    ],
+  },
+  {
+    id: 'trio-stack',
+    label: 'Stacked',
+    count: 3,
+    gridCols: 1,
+    gridRows: 3,
+    cells: [
+      cell(0, 0, 1, 1, 'Top'),
+      cell(0, 1, 1, 1, 'Middle'),
+      cell(0, 2, 1, 1, 'Bottom'),
+    ],
+  },
+  {
+    id: 'trio-two-over-one',
+    label: '2 wide, 1 under',
+    count: 3,
+    gridCols: 2,
+    gridRows: 2,
+    cells: [
+      cell(0, 0, 1, 1, 'Top left'),
+      cell(1, 0, 1, 1, 'Top right'),
+      cell(0, 1, 2, 1, 'Bottom'),
+    ],
+  },
+  {
+    id: 'trio-one-over-two',
+    label: '1 top, 2 under',
+    count: 3,
+    gridCols: 2,
+    gridRows: 2,
+    cells: [
+      cell(0, 0, 2, 1, 'Top'),
+      cell(0, 1, 1, 1, 'Bottom left'),
+      cell(1, 1, 1, 1, 'Bottom right'),
+    ],
+  },
+  {
+    id: 'trio-left',
+    label: 'Tall left',
+    count: 3,
+    gridCols: 3,
+    gridRows: 2,
+    cells: [
+      cell(0, 0, 2, 2, 'Left'),
+      cell(2, 0, 1, 1, 'Top right'),
+      cell(2, 1, 1, 1, 'Bottom right'),
+    ],
+  },
+  {
+    id: 'trio-right',
+    label: 'Tall right',
+    count: 3,
+    gridCols: 3,
+    gridRows: 2,
+    cells: [
+      cell(0, 0, 1, 1, 'Top left'),
+      cell(0, 1, 1, 1, 'Bottom left'),
+      cell(1, 0, 2, 2, 'Right'),
+    ],
+  },
+  {
+    id: 'quad-grid',
+    label: '2×2',
+    count: 4,
+    gridCols: 2,
+    gridRows: 2,
+    cells: [
+      cell(0, 0, 1, 1, 'Top left'),
+      cell(1, 0, 1, 1, 'Top right'),
+      cell(0, 1, 1, 1, 'Bottom left'),
+      cell(1, 1, 1, 1, 'Bottom right'),
+    ],
+  },
+  {
+    id: 'quad-row',
+    label: '4 wide',
+    count: 4,
+    gridCols: 4,
+    gridRows: 1,
+    cells: [
+      cell(0, 0, 1, 1, 'Left'),
+      cell(1, 0, 1, 1, 'Center left'),
+      cell(2, 0, 1, 1, 'Center right'),
+      cell(3, 0, 1, 1, 'Right'),
+    ],
+  },
+  {
+    id: 'quad-left',
+    label: 'Tall left',
+    count: 4,
+    gridCols: 3,
+    gridRows: 3,
+    cells: [
+      cell(0, 0, 2, 3, 'Left'),
+      cell(2, 0, 1, 1, 'Top right'),
+      cell(2, 1, 1, 1, 'Middle right'),
+      cell(2, 2, 1, 1, 'Bottom right'),
+    ],
+  },
+  {
+    id: 'quad-right',
+    label: 'Tall right',
+    count: 4,
+    gridCols: 3,
+    gridRows: 3,
+    cells: [
+      cell(0, 0, 1, 1, 'Top left'),
+      cell(0, 1, 1, 1, 'Middle left'),
+      cell(0, 2, 1, 1, 'Bottom left'),
+      cell(1, 0, 2, 3, 'Right'),
+    ],
+  },
+];
+
+const DEFAULT_STRIP_LAYOUT: Record<number, string> = {
+  1: 'single',
+  2: 'pair-row',
+  3: 'trio-row',
+  4: 'quad-grid',
+};
+
+export function getStripLayoutsForCount(count: number): StripLayoutPreset[] {
+  const n = Math.max(1, Math.min(4, count)) as 1 | 2 | 3 | 4;
+  return STRIP_LAYOUTS.filter((layout) => layout.count === n);
+}
+
+/** Picks the saved collage when it matches the photo count, otherwise the default for that count. */
+export function resolveStripLayout(layoutId: string | undefined, count: number): StripLayoutPreset {
+  const n = Math.max(1, Math.min(4, count)) as 1 | 2 | 3 | 4;
+  const match = STRIP_LAYOUTS.find((layout) => layout.id === layoutId && layout.count === n);
+  if (match) return match;
+  const fallbackId = DEFAULT_STRIP_LAYOUT[n];
+  return STRIP_LAYOUTS.find((layout) => layout.id === fallbackId) ?? STRIP_LAYOUTS[0];
+}
+
+/**
+ * Grid size for a flat or curved collage. Defaults match the previous fixed tiling.
+ */
+export function getStripTileLayout(
+  count: number,
+  layoutId?: string
+): { tileCols: number; tileRows: number } {
+  const layout = resolveStripLayout(layoutId, count);
+  return { tileCols: layout.gridCols, tileRows: layout.gridRows };
+}
+
+/**
+ * Labels for photos tiled across a flat panel or curved arc.
+ */
+export function getStripSlotLabels(
+  count: number,
+  layoutId?: string
+): { label: string; deg: string; spanDeg: number }[] {
+  const layout = resolveStripLayout(layoutId, count);
+  return layout.cells.map((item) => ({
+    label: item.label,
+    deg: '',
+    spanDeg: 0,
+  }));
+}
+
+/**
+ * Returns slot labels for the active shape.
+ * Enclosed lamps wrap around the perimeter. Flat and curved panels tile across the face.
  */
 export function getMultiPanelSlotLabels(
   shape: string,
-  count: number
+  count: number,
+  layoutId?: string
 ): { label: string; deg: string; spanDeg: number }[] {
-  return shape === 'cube' ? getCubeSlotLabels(count) : getCylinderSlotLabels(count);
+  if (shape === 'cube') return getCubeSlotLabels(count);
+  if (shape === 'cylinder') return getCylinderSlotLabels(count);
+  return getStripSlotLabels(count, layoutId);
 }
 
 /**
@@ -313,47 +517,90 @@ export function getOptimalCubeWrapRatio(
   return Math.round((panelWidthMm / h) * 100) / 100;
 }
 
+/**
+ * Aspect ratio (width / height) of one tile on a flat or curved panel.
+ */
+export function getOptimalStripWrapRatio(
+  widthMm: number,
+  heightMm: number,
+  slotCount: number = 1,
+  layoutId?: string
+): number {
+  const { tileCols, tileRows } = getStripTileLayout(slotCount, layoutId);
+  const cellW = Math.max(10, widthMm) / tileCols;
+  const cellH = Math.max(10, heightMm) / tileRows;
+  return Math.round((cellW / cellH) * 100) / 100;
+}
+
+/** Width/height of one photo's block inside the current collage. */
+export function getStripCellAspect(
+  widthMm: number,
+  heightMm: number,
+  slotCount: number,
+  layoutId: string | undefined,
+  index: number
+): number {
+  const layout = resolveStripLayout(layoutId, slotCount);
+  const item = layout.cells[Math.max(0, Math.min(layout.cells.length - 1, index))] ?? layout.cells[0];
+  const cellW = (Math.max(10, widthMm) * item.colSpan) / layout.gridCols;
+  const cellH = (Math.max(10, heightMm) * item.rowSpan) / layout.gridRows;
+  return Math.round((cellW / Math.max(1, cellH)) * 100) / 100;
+}
+
+/** Physical width of one photo's block, in millimetres. */
+export function getStripCellWidthMm(
+  widthMm: number,
+  slotCount: number,
+  layoutId: string | undefined,
+  index: number
+): number {
+  const layout = resolveStripLayout(layoutId, slotCount);
+  const item = layout.cells[Math.max(0, Math.min(layout.cells.length - 1, index))] ?? layout.cells[0];
+  return (Math.max(10, widthMm) * item.colSpan) / layout.gridCols;
+}
+
+/**
+ * Panel height that lets a single grid cell keep the photo's aspect ratio.
+ * Wider or taller blocks in the same collage are cover-cropped to fit.
+ */
+export function getStripHeightForPhotos(
+  widthMm: number,
+  photoAspect: number,
+  slotCount: number,
+  layoutId?: string
+): number {
+  const { tileCols, tileRows } = getStripTileLayout(slotCount, layoutId);
+  const aspect = Math.max(0.2, photoAspect);
+  const height = ((Math.max(10, widthMm) / tileCols) * tileRows) / aspect;
+  return Math.max(10, Math.min(260, Math.round(height)));
+}
+
 export function getOptimalMultiPanelWrapRatio(
   shape: string,
   sizeMm: number,
   heightMm: number,
   slotCount: number = 1
 ): number {
-  return shape === 'cube'
-    ? getOptimalCubeWrapRatio(sizeMm, heightMm, slotCount)
-    : getOptimalCylinderWrapRatio(sizeMm, heightMm, slotCount);
+  if (shape === 'cube') return getOptimalCubeWrapRatio(sizeMm, heightMm, slotCount);
+  if (shape === 'cylinder') return getOptimalCylinderWrapRatio(sizeMm, heightMm, slotCount);
+  return getOptimalStripWrapRatio(sizeMm, heightMm, slotCount);
 }
 
-export const SAMPLE_IMAGES: SamplePresetImage[] = [
-  {
-    id: 'golden_retriever',
-    name: 'Retriever',
-    category: 'Dogs',
-    description: 'Sunny portrait with soft fur detail',
-    url: '/src/assets/images/sample_dog_retriever_1791682818115.jpg',
-  },
-  {
-    id: 'corgi',
-    name: 'Corgi',
-    category: 'Dogs',
-    description: 'Smiling corgi portrait',
-    url: '/src/assets/images/sample_dog_corgi_1791682841012.jpg',
-  },
-  {
-    id: 'cat',
-    name: 'Cat',
-    category: 'Cats',
-    description: 'Fluffy cat with whiskers',
-    url: '/src/assets/images/sample_cat_portrait_1791682858470.jpg',
-  },
-  {
-    id: 'fox',
-    name: 'Fox',
-    category: 'Wildlife',
-    description: 'Red fox portrait',
-    url: '/src/assets/images/animal_fox_portrait_1791682594622.jpg',
-  },
-];
+/** Aspect ratio of the frame one photo is fitted into. */
+export function getSlotFrameAspect(
+  shape: string,
+  widthMm: number,
+  heightMm: number,
+  slotCount: number,
+  layoutId: string | undefined,
+  index: number,
+  cylinderDiameterMm = 90,
+  cubeWidthMm = 90
+): number {
+  if (shape === 'cube') return getOptimalCubeWrapRatio(cubeWidthMm, heightMm, slotCount);
+  if (shape === 'cylinder') return getOptimalCylinderWrapRatio(cylinderDiameterMm, heightMm, slotCount);
+  return getStripCellAspect(widthMm, heightMm, slotCount, layoutId, index);
+}
 
 export const SLICER_PRESETS = [
   {

@@ -601,11 +601,9 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
 
         {/* Loading Spinner */}
         {isGenerating && (
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center pointer-events-none z-20">
-            <div className="p-3 bg-[#10141d] border border-white/10 rounded-md shadow-lg flex items-center gap-2.5 text-xs text-slate-200 font-mono">
-              <div className="w-3.5 h-3.5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin shrink-0" />
-              <span className="font-bold text-amber-300">Updating 3D model...</span>
-            </div>
+          <div className="absolute top-14 right-3 z-20 pointer-events-none flex items-center gap-2 rounded-md border border-white/10 bg-[#10141d]/90 px-2.5 py-1.5 text-[11px] font-mono text-slate-200 shadow-lg">
+            <div className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin shrink-0" />
+            <span className="font-bold text-amber-300">Updating</span>
           </div>
         )}
       </div>

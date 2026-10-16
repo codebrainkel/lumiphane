@@ -13,11 +13,13 @@
  * 10. Robustness & error handling with extreme inputs (e.g. minThickness >= maxThickness, tiny sizes)
  */
 
+import { ImageProcessor } from '../services/imageProcessor';
 import { GeometryGenerator } from '../services/geometryGenerator';
 import { MeshValidator } from '../services/meshValidator';
 import { ThreeMfExporter } from '../services/threeMfExporter';
 import { DEFAULT_SETTINGS, ULTRA_FINE_RESOLUTION } from '../constants/presets';
 import { LithophaneSettings } from '../types/lithophane';
+import { borderIconCoverage, createBorderIconField } from '../services/borderIcons';
 import JSZip from 'jszip';
 
 let totalTests = 0;
@@ -39,6 +41,48 @@ async function runTestSuite() {
   console.log('\n========================================');
   console.log('  LUMIPHANE 3D — AUTOMATED TEST SUITE');
   console.log('========================================\n');
+
+  // TEST SUITE 0: Default cover crop keeps the vertical center of odd-sized photos
+  console.log('[0] Testing centered cover crop for mismatched photos...');
+  {
+    const tall = ImageProcessor.centeredCoverRect(1001, 2001, 1);
+    assert(tall.sw === 1001 && tall.sh === 1001, `Tall odd photo crops to a square (got ${tall.sw}x${tall.sh})`);
+    assert(tall.sx === 0, 'Tall photo keeps its full width');
+    const tallBottom = 2001 - (tall.sy + tall.sh);
+    assert(
+      Math.abs(tall.sy - tallBottom) <= 1 && tall.sy > 400,
+      `Tall odd photo is vertically centered (top ${tall.sy}px, bottom ${tallBottom}px)`
+    );
+
+    const wide = ImageProcessor.centeredCoverRect(2001, 1000, 1);
+    assert(wide.sh === 1000, 'Wide photo keeps its full height');
+    const wideRight = 2001 - (wide.sx + wide.sw);
+    assert(
+      Math.abs(wide.sx - wideRight) <= 1 && wide.sx > 400,
+      `Wide odd photo is horizontally centered (left ${wide.sx}px, right ${wideRight}px)`
+    );
+
+    const matched = ImageProcessor.centeredCoverRect(1200, 900, 1200 / 900);
+    assert(
+      matched.sx === 0 && matched.sy === 0 && matched.sw === 1200 && matched.sh === 900,
+      'A photo that already matches the plate is not cropped'
+    );
+
+    const slidUp = ImageProcessor.resolveSourceRect(200, 400, 1, null, 0, 1);
+    assert(slidUp.sw === 200 && slidUp.sh === 200, 'Sliding keeps the frame size');
+    assert(slidUp.sy === 200, `Sliding fully up shows the bottom of a tall photo (sy ${slidUp.sy})`);
+    const slidDown = ImageProcessor.resolveSourceRect(200, 400, 1, null, 0, -1);
+    assert(slidDown.sy === 0, `Sliding fully down shows the top of a tall photo (sy ${slidDown.sy})`);
+    const centered = ImageProcessor.resolveSourceRect(200, 400, 1, null, 0, 0);
+    const halfway = ImageProcessor.resolveSourceRect(200, 400, 1, null, 0, 0.5);
+    const restored = ImageProcessor.offsetsForWindow(centered, 200, 400, halfway.sx, halfway.sy);
+    assert(Math.abs(restored.offsetY - 0.5) < 0.02, `Drag maps back to the vertical offset (got ${restored.offsetY})`);
+    const filled = ImageProcessor.resolveSourceRect(1200, 900, 1200 / 900, null, 0, 1);
+    assert(
+      filled.sx === 0 && filled.sy === 0 && filled.sw === 1200 && filled.sh === 900,
+      'A photo that fills the frame does not move'
+    );
+  }
 
   // TEST SUITE 1: Luminance Mapping & Thickness Formula
   console.log('[1] Testing Luminance & Thickness Calculations...');
@@ -206,23 +250,146 @@ async function runTestSuite() {
     assert(verification.parsedTriangleCount === geometry.indices.length / 3, `Parsed triangles match model (${verification.parsedTriangleCount})`);
     assert(verification.isValid, 'Universal 3MF package is 100% standards-compliant and slicer-ready');
 
-    // Test Bambu Studio Native Project Mode
+    // Test Bambu Studio Native Project Mode. The print profile is the saved
+    // blank-profile.3mf project, copied through so Studio accepts the config.
+    const { readFile } = await import('node:fs/promises');
+    const { fileURLToPath } = await import('node:url');
+    const templateZip = await JSZip.loadAsync(
+      await readFile(fileURLToPath(new URL('../../blank-profile.3mf', import.meta.url)))
+    );
+    const templateSettings = await templateZip.file('Metadata/project_settings.config')!.async('text');
+
     const bambuProjectResult = await ThreeMfExporter.export3MF(geometry, 'test_sample', {
       mode: 'bambu-project',
-      bambuPrinter: 'P1S',
     });
-    assert(bambuProjectResult.filename.includes('Bambu_P1S'), `Bambu filename contains printer model (${bambuProjectResult.filename})`);
+    assert(bambuProjectResult.filename.includes('Bambu_A2L'), `Bambu filename contains printer model (${bambuProjectResult.filename})`);
     assert(bambuProjectResult.isBambuProject === true, 'Flagged as Bambu Studio project archive');
 
     const zip = await JSZip.loadAsync(bambuProjectResult.blob);
     assert(zip.file('Metadata/model_settings.config') !== null, 'Contains valid Metadata/model_settings.config');
     assert(zip.file('Metadata/project_settings.config') !== null, 'Contains valid Metadata/project_settings.config');
     assert(zip.file('Metadata/plate_1.json') !== null, 'Contains valid Metadata/plate_1.json');
+    assert(zip.file('Metadata/slice_info.config') !== null, 'Contains Metadata/slice_info.config from the saved project');
+    assert(zip.file('[Content_Types].xml') !== null, 'Contains [Content_Types].xml');
 
-    const projJson = JSON.parse(await zip.file('Metadata/project_settings.config')!.async('text'));
-    assert(projJson.printer_model === 'Bambu Lab P1S', `Printer model matches P1S (got: ${projJson.printer_model})`);
+    const contentTypes = await zip.file('[Content_Types].xml')!.async('text');
+    assert(
+      contentTypes.includes('application/vnd.ms-package.3dmanufacturing-3dmodel+xml'),
+      'Model content type matches the Bambu Studio package'
+    );
+
+    const projText = await zip.file('Metadata/project_settings.config')!.async('text');
+    assert(projText === templateSettings, 'project_settings.config is the saved Bambu Studio profile, unchanged');
+    const projJson = JSON.parse(projText);
+    assert(projJson.printer_model === 'Bambu Lab A2L', `Printer model matches the saved profile (got: ${projJson.printer_model})`);
+    assert(projJson.version === '02.08.02.60', `Project version matches Bambu Studio 02.08.02.60 (got: ${projJson.version})`);
+    assert(projJson.print_settings_id === '0.12mm High Quality @BBL A2L', `Process profile is preserved (got: ${projJson.print_settings_id})`);
     assert(projJson.layer_height === '0.12', `Layer height pre-set to 0.12mm (got: ${projJson.layer_height})`);
     assert(projJson.sparse_infill_density === '100%', `Infill density pre-set to 100% (got: ${projJson.sparse_infill_density})`);
+    assert(Array.isArray(projJson.nozzle_diameter) && projJson.nozzle_diameter.length === projJson.extruder_type.length, 'Nozzle and extruder lists have the same length');
+    assert(Object.keys(projJson).length > 400, `Full slicer config is embedded (${Object.keys(projJson).length} keys)`);
+
+    const modelSettings = await zip.file('Metadata/model_settings.config')!.async('text');
+    assert(modelSettings.includes('id="2"'), 'Model object is registered in model_settings.config');
+    assert(modelSettings.includes('subtype="normal_part"'), 'Mesh part is a normal part');
+    assert(modelSettings.includes('<model_instance>'), 'Lithophane is assigned to a plate');
+    assert(modelSettings.includes('object_id" value="2"'), 'Plate instance points at the lithophane object');
+    assert((modelSettings.match(/<plate>/g) || []).length === 1, 'Project has a single build plate');
+    assert(zip.file('Metadata/plate_2.json') === null, 'Unused second plate metadata is omitted');
+    assert(zip.file('Metadata/plate_2.png') === null, 'Unused second plate thumbnail is omitted');
+    const filamentSequence = JSON.parse(await zip.file('Metadata/filament_sequence.json')!.async('text'));
+    assert(filamentSequence.plate_1 && !filamentSequence.plate_2, 'Filament sequence lists only plate 1');
+
+    const modelXml = await zip.file('3D/3dmodel.model')!.async('text');
+    assert(modelXml.includes('BambuStudio-02.08.02.60'), 'Model is stamped as a Bambu Studio project');
+    assert(modelXml.includes('BambuStudio:3mfVersion'), 'Model carries the Bambu 3MF version');
+    assert(modelXml.includes('objectid="2"'), 'Build item references the assembled object');
+    assert((modelXml.match(/<vertex\s/g) || []).length === geometry.vertices.length / 3, 'Bambu model vertex count matches the mesh');
+
+    const placed = [...modelXml.matchAll(/<vertex x="([^"]+)" y="([^"]+)" z="([^"]+)"/g)].map((match) =>
+      match.slice(1, 4).map(Number)
+    );
+    const xs = placed.map((p) => p[0]);
+    const ys = placed.map((p) => p[1]);
+    const zs = placed.map((p) => p[2]);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const minZ = Math.min(...zs);
+    const maxZ = Math.max(...zs);
+    assert(Math.abs(minZ) < 0.05, `Base sits on the bed at Z = 0 (got ${minZ.toFixed(3)})`);
+    assert(maxZ > 30, `Lithophane still stands upright (height ${maxZ.toFixed(1)} mm)`);
+    assert(Math.abs((minX + maxX) / 2 - 165) < 1, `Centered on the 330 mm bed in X (got ${((minX + maxX) / 2).toFixed(1)})`);
+    assert(Math.abs((minY + maxY) / 2 - 160) < 1, `Centered on the 320 mm bed in Y (got ${((minY + maxY) / 2).toFixed(1)})`);
+    assert(minX > 0 && maxX < 330 && minY > 0 && maxY < 320, 'Entire part is inside the build plate');
+
+    const flatGeometry = GeometryGenerator.generateMesh(dummyGrid, cols, rows, {
+      ...testSettings,
+      orientation: 'flat',
+    });
+    const flatBambu = await ThreeMfExporter.export3MF(flatGeometry, 'flat_sample', { mode: 'bambu-project' });
+    const flatXml = await (await JSZip.loadAsync(flatBambu.blob)).file('3D/3dmodel.model')!.async('text');
+    const flatZ = [...flatXml.matchAll(/z="([^"]+)"/g)].map((match) => Number(match[1]));
+    const flatHeight = Math.max(...flatZ) - Math.min(...flatZ);
+    assert(flatHeight > 30, `Face-down mesh is stood up for Bambu (height ${flatHeight.toFixed(1)} mm)`);
+    assert(Math.abs(Math.min(...flatZ)) < 0.05, 'Stood-up mesh base is on the bed');
+
+    const bambuVerification = await ThreeMfExporter.verify3MfPackage(bambuProjectResult.blob);
+    assert(bambuVerification.isValid, `Bambu 3MF package verifies (${bambuVerification.errors.join('; ')})`);
+    assert(bambuVerification.hasMetadataConfigs, 'Verifier finds the Bambu project config');
+
+    const placedCenter = async (
+      printerId: string
+    ): Promise<{ proj: Record<string, unknown>; cx: number; cy: number; minZ: number; maxZ: number; filename: string }> => {
+      const result = await ThreeMfExporter.export3MF(geometry, 'test_sample', {
+        mode: 'bambu-project',
+        bambuPrinterId: printerId,
+      });
+      const printerZip = await JSZip.loadAsync(result.blob);
+      const proj = JSON.parse(await printerZip.file('Metadata/project_settings.config')!.async('text')) as Record<string, unknown>;
+      const xml = await printerZip.file('3D/3dmodel.model')!.async('text');
+      const points = [...xml.matchAll(/<vertex x="([^"]+)" y="([^"]+)" z="([^"]+)"/g)].map((match) =>
+        match.slice(1, 4).map(Number)
+      );
+      const px = points.map((point) => point[0]);
+      const py = points.map((point) => point[1]);
+      const pz = points.map((point) => point[2]);
+      return {
+        proj,
+        cx: (Math.min(...px) + Math.max(...px)) / 2,
+        cy: (Math.min(...py) + Math.max(...py)) / 2,
+        minZ: Math.min(...pz),
+        maxZ: Math.max(...pz),
+        filename: result.filename,
+      };
+    };
+
+    const mini = await placedCenter('a1-mini');
+    assert(mini.filename.includes('Bambu_A1mini'), `A1 mini filename names the printer (${mini.filename})`);
+    assert(mini.proj.printer_model === 'Bambu Lab A1 mini', `A1 mini printer model is retargeted (got: ${mini.proj.printer_model})`);
+    assert(mini.proj.printer_settings_id === 'Bambu Lab A1 mini 0.4 nozzle', 'A1 mini uses its 0.4 nozzle machine preset');
+    assert(mini.proj.print_settings_id === '0.12mm High Quality @BBL A1M', 'A1 mini uses its 0.12 mm process preset');
+    assert(mini.proj.layer_height === '0.12' && mini.proj.sparse_infill_density === '100%', 'Lithophane layer height and infill survive a printer change');
+    assert(mini.proj.brim_width === projJson.brim_width, 'Brim width stays with the lithophane profile');
+    assert(JSON.stringify(mini.proj.printable_area) === JSON.stringify(['0x0', '180x0', '180x180', '0x180']), 'A1 mini bed is 180 mm square');
+    assert(!String(mini.proj.machine_end_gcode).includes('A2L end gcode'), 'A1 mini does not keep the A2L end G-code');
+    assert(Array.isArray(mini.proj.nozzle_diameter) && mini.proj.nozzle_diameter.length === (mini.proj.extruder_type as unknown[]).length, 'A1 mini nozzle and extruder lists match');
+    assert(mini.proj.version === '02.08.02.60', 'Retargeted project stays on Studio 02.08.02.60');
+    assert(Math.abs(mini.cx - 90) < 1 && Math.abs(mini.cy - 90) < 1, `A1 mini mesh is centered on its bed (${mini.cx.toFixed(1)}, ${mini.cy.toFixed(1)})`);
+    assert(Math.abs(mini.minZ) < 0.05 && mini.maxZ > 30, 'A1 mini mesh stands on the bed');
+
+    const p1s = await placedCenter('p1s');
+    assert(p1s.proj.printer_model === 'Bambu Lab P1S', `P1S printer model is retargeted (got: ${p1s.proj.printer_model})`);
+    assert(p1s.proj.print_settings_id === '0.12mm High Quality @BBL X1C', 'P1S uses the X1C 0.12 mm preset Studio ships for it');
+    assert(JSON.stringify(p1s.proj.filament_settings_id) === JSON.stringify(['Bambu PLA Basic @BBL P1S 0.4 nozzle']), 'P1S filament preset is installed for that machine');
+    assert(JSON.stringify(p1s.proj.printable_area) === JSON.stringify(['0x0', '256x0', '256x256', '0x256']), 'P1S bed is 256 mm square');
+    assert(!String(p1s.proj.machine_start_gcode).includes('A2L'), 'P1S start G-code is not the A2L script');
+    assert(Math.abs(p1s.cx - 128) < 1 && Math.abs(p1s.cy - 128) < 1, `P1S mesh is centered on its bed (${p1s.cx.toFixed(1)}, ${p1s.cy.toFixed(1)})`);
+    const p1sVerify = await ThreeMfExporter.verify3MfPackage(
+      (await ThreeMfExporter.export3MF(geometry, 'test_sample', { mode: 'bambu-project', bambuPrinterId: 'p1s' })).blob
+    );
+    assert(p1sVerify.isValid, `Retargeted P1S package verifies (${p1sVerify.errors.join('; ')})`);
   }
 
   // TEST SUITE 6: Robustness & Boundary Conditions
@@ -482,6 +649,195 @@ async function runTestSuite() {
     });
     const threeVal = MeshValidator.validate(threePanelGeom);
     assert(threeVal.isWatertight && threeVal.isManifold, '3-Photo cylinder is watertight and 2-manifold');
+  }
+
+  // TEST SUITE 12: Border width icons around the frame centerline
+  console.log('\n[12] Testing Border Width and Repeating Icons...');
+  {
+    assert(borderIconCoverage('heart', 0, 0, 4) > 0.8, 'Heart center is solid');
+    assert(borderIconCoverage('heart', 1.6, 2.6, 4) > 0.5, 'Heart lobes face out of the frame');
+    assert(borderIconCoverage('heart', 0, -3.2, 4) > 0.5, 'Heart tip points back toward the photo');
+    assert(borderIconCoverage('star', 0, 0, 4) > 0.8, 'Star center is solid');
+    assert(borderIconCoverage('bone', 0, 0, 4) > 0.8, 'Bone center is solid');
+    assert(borderIconCoverage('heart', 0, 6, 4) === 0, 'Heart does not extend past its reach');
+    assert(borderIconCoverage('star', 0, 3.5, 4) > 0.5, 'Star point faces outward');
+    assert(borderIconCoverage('bone', 3.4, 0, 4) > 0.5, 'Bone extends along the border');
+    assert(borderIconCoverage('bone', 0, 3.4, 4) < 0.15, 'Bone stays narrow across the border');
+
+    const frameW = 8;
+    const W = 120;
+    const H = 90;
+    const field = createBorderIconField({
+      kind: 'heart',
+      layout: 'rect',
+      widthMm: W,
+      heightMm: H,
+      frameWidthMm: frameW,
+    });
+    assert(field(W / 2, frameW / 2) > 0.5, 'A heart is centered on the top border');
+    assert(field(W / 2, frameW * 0.08) === 0, 'Padding remains outside the heart');
+    assert(field(W / 2, frameW * 0.92) === 0, 'Padding remains between the heart and the photo');
+    assert(field(W / 2, H / 2) === 0, 'Photo center is clear of border icons');
+
+    const edgeHit = (xs: number[], ys: number[]) => {
+      for (const x of xs) {
+        for (const y of ys) {
+          if (field(x, y) > 0.45) return true;
+        }
+      }
+      return false;
+    };
+    const xs = Array.from({ length: 121 }, (_, i) => i);
+    const ys = Array.from({ length: 91 }, (_, i) => i);
+    assert(edgeHit(xs, [frameW / 2]), 'Hearts repeat along the top border');
+    assert(edgeHit(xs, [H - frameW / 2]), 'Hearts repeat along the bottom border');
+    assert(edgeHit([frameW / 2], ys), 'Hearts repeat along the left border');
+    assert(edgeHit([W - frameW / 2], ys), 'Hearts repeat along the right border');
+
+    let topCount = 0;
+    let prev = false;
+    for (let x = 0; x <= W; x += 0.5) {
+      const on = field(x, frameW / 2) > 0.5;
+      if (on && !prev) topCount += 1;
+      prev = on;
+    }
+    assert(topCount >= 3 && topCount <= 8, `Hearts are spaced along the top edge (got ${topCount})`);
+
+    const cols = 97;
+    const rows = 73;
+    const grid = new Float32Array(cols * rows);
+    grid.fill(1);
+    const iconSettings: LithophaneSettings = {
+      ...DEFAULT_SETTINGS,
+      width: W,
+      height: H,
+      shape: 'flat',
+      orientation: 'standing',
+      supportType: 'none',
+      hasFrame: true,
+      frameWidth: frameW,
+      frameThickness: 2.4,
+      borderIcon: 'heart',
+      minThickness: 0.6,
+      maxThickness: 2.25,
+    };
+    const geometry = GeometryGenerator.generateMesh(grid, cols, rows, iconSettings);
+    const validation = MeshValidator.validate(geometry);
+    assert(validation.isWatertight, 'Heart border mesh is watertight');
+    assert(validation.isManifold, 'Heart border mesh is 2-manifold');
+    assert(validation.degenerateTriangles === 0, 'Heart border mesh has no degenerate triangles');
+
+    const near = (x0: number, y0: number, radius: number, pick: 'min' | 'max') => {
+      let value = pick === 'min' ? Infinity : 0;
+      for (let r = 0; r < rows; r++) {
+        const y = (r / (rows - 1)) * H;
+        if (Math.abs(y - y0) > radius) continue;
+        for (let c = 0; c < cols; c++) {
+          const x = (c / (cols - 1)) * W;
+          if (Math.abs(x - x0) > radius) continue;
+          const th = geometry.thicknesses![r * cols + c];
+          value = pick === 'min' ? Math.min(value, th) : Math.max(value, th);
+        }
+      }
+      return value;
+    };
+    const centerTh = near(W / 2, H / 2, 4, 'max');
+    const topTh = near(W / 2, frameW / 2, 1.2, 'min');
+    assert(Math.abs(centerTh - 0.6) < 0.05, `Photo center keeps highlight thickness (got ${centerTh.toFixed(2)}mm)`);
+    assert(topTh < 2.4 - 0.4, `Top-center heart is cut into the border (got ${topTh.toFixed(2)}mm)`);
+    assert(topTh > 1.0, `Heart recess stays a solid border (got ${topTh.toFixed(2)}mm)`);
+
+    let finite = true;
+    for (let i = 0; i < geometry.normals.length; i++) {
+      if (!Number.isFinite(geometry.normals[i])) {
+        finite = false;
+        break;
+      }
+    }
+    assert(finite, 'Border icon normals stay finite');
+
+    const curved = GeometryGenerator.generateMesh(grid, cols, rows, {
+      ...iconSettings,
+      shape: 'curved',
+      curveAngle: 80,
+      borderIcon: 'star',
+    });
+    const curvedVal = MeshValidator.validate(curved);
+    assert(curvedVal.isWatertight && curvedVal.isManifold, 'Curved star border stays watertight');
+
+    const cylCols = 96;
+    const cylRows = 48;
+    const cylH = 95;
+    const cylD = 90;
+    const cylGrid = new Float32Array(cylCols * cylRows);
+    cylGrid.fill(0.5);
+    const cylGeom = GeometryGenerator.generateMesh(cylGrid, cylCols, cylRows, {
+      ...DEFAULT_SETTINGS,
+      shape: 'cylinder',
+      cylinderDiameter: cylD,
+      cylinderPanelCount: 4,
+      height: cylH,
+      orientation: 'standing',
+      supportType: 'none',
+      hasFrame: true,
+      frameWidth: frameW,
+      frameThickness: 2.4,
+      borderIcon: 'bone',
+    });
+    const cylVal = MeshValidator.validate(cylGeom);
+    assert(cylVal.isWatertight && cylVal.isManifold, 'Cylinder bone border stays watertight');
+    const perimeter = Math.PI * cylD;
+    const frontArc = perimeter / 8;
+    const cylTh = cylGeom.thicknesses!;
+    let rimMin = Infinity;
+    let midMax = 0;
+    for (let c = 0; c < cylCols; c++) {
+      const x = (c / cylCols) * perimeter;
+      for (let r = 0; r < cylRows; r++) {
+        const y = (r / (cylRows - 1)) * cylH;
+        const th = cylTh[r * cylCols + c];
+        if (Math.abs(y - frameW / 2) < 2 && Math.abs(x - frontArc) < 3) rimMin = Math.min(rimMin, th);
+        if (Math.abs(y - cylH / 2) < 2) midMax = Math.max(midMax, th);
+      }
+    }
+    assert(rimMin < 2.4 - 0.4, `Cylinder top rim has a bone cut into it (got ${rimMin.toFixed(2)}mm)`);
+    const midPhoto = 0.6 + 0.5 * (2.25 - 0.6);
+    assert(Math.abs(midMax - midPhoto) < 0.08, `Cylinder mid-height stays free of a vertical border (got ${midMax.toFixed(2)}mm)`);
+
+    const cubeCols = 96;
+    const cubeRows = 48;
+    const cubeSide = 90;
+    const cubeGeom = GeometryGenerator.generateMesh(cylGrid, cubeCols, cubeRows, {
+      ...DEFAULT_SETTINGS,
+      shape: 'cube',
+      cubeWidth: cubeSide,
+      height: cubeSide,
+      orientation: 'standing',
+      supportType: 'none',
+      hasFrame: true,
+      frameWidth: frameW,
+      frameThickness: 2.4,
+      borderIcon: 'star',
+    });
+    const cubeVal = MeshValidator.validate(cubeGeom);
+    assert(cubeVal.isWatertight && cubeVal.isManifold, 'Cube star border stays watertight');
+    const cubeTh = cubeGeom.thicknesses!;
+    let faceMin = Infinity;
+    let cornerMin = Infinity;
+    const cubePer = cubeSide * 4;
+    for (let c = 0; c < cubeCols; c++) {
+      const x = (c / cubeCols) * cubePer;
+      const distCorner = Math.min(x % cubeSide, cubeSide - (x % cubeSide));
+      for (let r = 0; r < cubeRows; r++) {
+        const y = (r / (cubeRows - 1)) * cubeSide;
+        if (Math.abs(y - frameW / 2) > 1.5) continue;
+        const th = cubeTh[r * cubeCols + c];
+        if (Math.abs(x - cubeSide / 2) < 2.5) faceMin = Math.min(faceMin, th);
+        if (distCorner < 0.4) cornerMin = Math.min(cornerMin, th);
+      }
+    }
+    assert(faceMin < 2.4 - 0.4, `Cube front rim has a star cut into it (got ${faceMin.toFixed(2)}mm)`);
+    assert(cornerMin > 2.15, `Cube corners stay a plain border (got ${cornerMin.toFixed(2)}mm)`);
   }
 
   console.log('\n========================================');

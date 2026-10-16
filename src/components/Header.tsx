@@ -6,18 +6,16 @@ interface HeaderProps {
   currentStep: AppStep;
   onStepChange: (step: AppStep) => void;
   shape: LithophaneShape;
-  hasOwnPhoto: boolean;
+  canPreview: boolean;
   onExportClick: () => void;
-  onUploadClick: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   currentStep,
   onStepChange,
   shape,
-  hasOwnPhoto,
+  canPreview,
   onExportClick,
-  onUploadClick,
 }) => {
   const shapeLabel =
     shape === 'cylinder'
@@ -52,8 +50,8 @@ export const Header: React.FC<HeaderProps> = ({
               <defs>
                 <radialGradient id="lumiGoldGlow" cx="50%" cy="50%" r="50%">
                   <stop offset="0%" stopColor="#fef08a" stopOpacity="1" />
-                  <stop offset="60%" stopColor="#f59e0b" stopOpacity="0.85" />
-                  <stop offset="100%" stopColor="#d97706" stopOpacity="0.2" />
+                  <stop offset="60%" stopColor="#ffc21a" stopOpacity="0.85" />
+                  <stop offset="100%" stopColor="#e8aa00" stopOpacity="0.2" />
                 </radialGradient>
               </defs>
               {/* Outer Lithophane Frame */}
@@ -63,7 +61,7 @@ export const Header: React.FC<HeaderProps> = ({
                 width="22"
                 height="22"
                 rx="4"
-                stroke="#f59e0b"
+                stroke="#ffc21a"
                 strokeWidth="1.5"
                 className="opacity-90"
               />
@@ -72,7 +70,7 @@ export const Header: React.FC<HeaderProps> = ({
               {/* Stepped Lithophane Relief Layers */}
               <path
                 d="M7 19C9 17 11 18 14 16C17 14 19 15 21 13"
-                stroke="#fbbf24"
+                stroke="#ffc833"
                 strokeWidth="1.25"
                 strokeLinecap="round"
               />
@@ -107,32 +105,26 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Zone 3: 1 Primary Action */}
-      <div className="flex items-center gap-2.5 shrink-0">
+      <div className="flex items-center shrink-0">
         {currentStep === 'preview' ? (
-          <button
-            type="button"
-            onClick={onExportClick}
-            className="btn-primary text-xs py-1.5 px-3.5 min-h-[32px] font-bold"
-          >
+          <button type="button" onClick={onExportClick} className="nav-action">
             <Download className="w-3.5 h-3.5 shrink-0 stroke-[2.5]" />
-            <span className="whitespace-nowrap font-bold">Export</span>
+            <span>Export</span>
           </button>
         ) : currentStep === 'upload' ? (
           <button
             type="button"
             onClick={() => onStepChange('preview')}
-            className="btn-primary text-xs py-1.5 px-3.5 min-h-[32px] font-bold"
+            disabled={!canPreview}
+            title={canPreview ? 'Preview the lithophane' : 'Add a photo in every slot first'}
+            className="nav-action"
           >
             <Eye className="w-3.5 h-3.5 shrink-0 stroke-[2.5]" />
-            <span className="whitespace-nowrap font-bold">Preview</span>
+            <span>Preview</span>
           </button>
         ) : (
-          <button
-            type="button"
-            onClick={() => onStepChange('upload')}
-            className="btn-primary text-xs py-1.5 px-3.5 min-h-[32px] font-bold"
-          >
-            <span className="whitespace-nowrap font-bold">Next: Photos</span>
+          <button type="button" onClick={() => onStepChange('upload')} className="nav-action">
+            <span>Next: Photos</span>
             <ArrowRight className="w-3.5 h-3.5 shrink-0 stroke-[2.5]" />
           </button>
         )}

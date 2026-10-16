@@ -1,4 +1,5 @@
 import { LithophaneSettings, MeshGeometryData } from '../types/lithophane';
+import { clampBorderWidthMm, createBorderIconField } from './borderIcons';
 
 export class GeometryGenerator {
   /**
@@ -55,10 +56,36 @@ export class GeometryGenerator {
     const cubeWidth = Math.max(30, settings.cubeWidth || 90);
     const cubeHw = cubeWidth / 2;
 
-    // Frame parameters
+    // Frame parameters. Icons sit on the centerline of this band.
     const hasFrame = settings.hasFrame;
-    const frameW = Math.max(0.5, settings.frameWidth);
+    const frameW = clampBorderWidthMm(settings.shape, W, H, settings.frameWidth || 0);
     const frameTh = Math.max(minTh, settings.frameThickness || maxTh);
+    const borderIcon = settings.borderIcon ?? 'none';
+    const borderPerimeter = isCube ? cubeWidth * 4 : Math.PI * cylinderDiameter;
+    const iconRelief =
+      hasFrame && borderIcon !== 'none'
+        ? createBorderIconField(
+            isEnclosed
+              ? {
+                  kind: borderIcon,
+                  layout: 'loop',
+                  widthMm: borderPerimeter,
+                  heightMm: H,
+                  frameWidthMm: frameW,
+                  alignArcMm: isCube
+                    ? cubeWidth / 2
+                    : borderPerimeter / (2 * Math.max(1, Math.min(4, settings.cylinderPanelCount || 4))),
+                  cornerPeriodMm: isCube ? cubeWidth : 0,
+                }
+              : {
+                  kind: borderIcon,
+                  layout: 'rect',
+                  widthMm: W,
+                  heightMm: H,
+                  frameWidthMm: frameW,
+                }
+          )
+        : null;
 
     let minX = Infinity, minY = Infinity, minZ = Infinity;
     let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
@@ -86,6 +113,11 @@ export class GeometryGenerator {
           const distBorder = isEnclosed ? distY : Math.min(distX, distY);
           if (distBorder <= frameW) {
             th = Math.max(th, frameTh);
+            if (iconRelief) {
+              const borderX = isEnclosed ? (c / cols) * borderPerimeter : u * W;
+              const cut = iconRelief(borderX, v * H);
+              if (cut > 0) th = Math.max(minTh + 0.2, th - cut);
+            }
           }
         }
 

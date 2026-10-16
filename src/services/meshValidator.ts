@@ -139,7 +139,7 @@ export class MeshValidator {
     const estimatedWeightGrams = Math.round(volumeCm3 * 1.24 * 10) / 10;
 
     if (minThick < 0.6) {
-      warnings.push(`Minimum thickness (${minThick.toFixed(2)}mm) is thin. Recommended >= 0.8mm to prevent light blowouts or pinholes.`);
+      warnings.push(`Minimum thickness (${minThick.toFixed(2)}mm) is thin. Recommended >= 0.6mm to prevent light blowouts or pinholes.`);
     }
 
     if (degenerateTriangles > 0) {

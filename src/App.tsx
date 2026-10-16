@@ -4,62 +4,134 @@ import {
   MeshGeometryData,
   MeshValidationResult,
   ImageCropData,
-  SamplePresetImage,
   CylinderSlot,
   AppStep,
+  LithophaneShape,
+  PhotoUploadJob,
 } from './types/lithophane';
 import {
   DEFAULT_SETTINGS,
-  DEFAULT_CYLINDER_SLOTS,
-  SAMPLE_IMAGES,
   getAutoScaledThickness,
   getResolutionForTier,
   getCylinderResolutionForTier,
-  getCylinderSlotLabels,
-  getOptimalCylinderWrapRatio,
   getCubeResolutionForTier,
-  getCubeSlotLabels,
-  getOptimalCubeWrapRatio,
   getMultiPanelSlotLabels,
   getOptimalMultiPanelWrapRatio,
+  getStripCellAspect,
+  getStripCellWidthMm,
+  getStripHeightForPhotos,
+  resolveStripLayout,
 } from './constants/presets';
 import { ImageProcessor, ProcessedImageResult } from './services/imageProcessor';
 import { GeometryGenerator } from './services/geometryGenerator';
 import { MeshValidator } from './services/meshValidator';
 import { Header } from './components/Header';
-import { BottomNav } from './components/BottomNav';
 import { ModeSelector } from './components/ModeSelector';
 import { PhotoUploader } from './components/PhotoUploader';
 import { Viewport3D } from './components/Viewport3D';
+import { PhotoPlacementBoard } from './components/PhotoPlacement';
 import { ControlPanel } from './components/ControlPanel';
 import { ValidationModal } from './components/ValidationModal';
 import { CropModal } from './components/CropModal';
 import { SlicingModal } from './components/SlicingModal';
-import { Upload, AlertCircle } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
+
+async function readImageAsDataUrl(
+  file: File,
+  onProgress: (progress: number) => void
+): Promise<string> {
+  const total = Math.max(file.size, 1);
+
+  if (typeof file.stream === 'function') {
+    const streamReader = file.stream().getReader();
+    const chunks: Uint8Array[] = [];
+    let loaded = 0;
+
+    for (;;) {
+      const { done, value } = await streamReader.read();
+      if (done) break;
+      if (!value) continue;
+      chunks.push(value);
+      loaded += value.byteLength;
+      onProgress(Math.min(99, Math.round((loaded / total) * 100)));
+    }
+
+    const merged = new Uint8Array(loaded);
+    let offset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+
+    const blob = new Blob([merged], { type: file.type || 'application/octet-stream' });
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') resolve(reader.result);
+        else reject(new Error('Could not read image'));
+      };
+      reader.onerror = () => reject(reader.error ?? new Error('Could not read image'));
+      reader.readAsDataURL(blob);
+    });
+    onProgress(100);
+    return dataUrl;
+  }
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onprogress = (event) => {
+      if (event.lengthComputable && event.total > 0) {
+        onProgress(Math.min(99, Math.round((event.loaded / event.total) * 100)));
+      }
+    };
+    reader.onload = () => {
+      onProgress(100);
+      if (typeof reader.result === 'string') resolve(reader.result);
+      else reject(new Error('Could not read image'));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read image'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function mergeAutoThickness(
+  prev: LithophaneSettings,
+  auto: ReturnType<typeof getAutoScaledThickness>,
+  patch: Partial<LithophaneSettings>
+): LithophaneSettings {
+  return {
+    ...prev,
+    ...patch,
+    ...auto,
+    frameWidth: prev.frameWidth,
+  };
+}
 
 export default function App() {
   // Stepper Flow: 'mode' -> 'upload' -> 'preview'
   const [currentStep, setCurrentStep] = useState<AppStep>('mode');
+  const [placementOpen, setPlacementOpen] = useState(false);
 
   // Core Lithophane Settings
   const [settings, setSettings] = useState<LithophaneSettings>(DEFAULT_SETTINGS);
 
-  // Single Photo State (for Flat / Curved modes)
-  const [imageSrc, setImageSrc] = useState<string>(SAMPLE_IMAGES[0].url);
-  const [imageName, setImageName] = useState<string>('golden_retriever');
-  const [hasOwnPhoto, setHasOwnPhoto] = useState(false);
+  // Single Photo State (for Flat / Curved modes). Mirrors the first slot.
+  const [imageSrc, setImageSrc] = useState<string>('');
+  const [imageName, setImageName] = useState<string>('');
   const [loadedImage, setLoadedImage] = useState<HTMLImageElement | null>(null);
   const [cropData, setCropData] = useState<ImageCropData | null>(null);
 
-  // Cylinder 4-Photo Quadrants State
-  const [cylinderSlots, setCylinderSlots] = useState<CylinderSlot[]>(DEFAULT_CYLINDER_SLOTS);
+  // Shared photo slots. Every shape uses the same 1 to 4 photos and tiles them to fit.
+  const [cylinderSlots, setCylinderSlots] = useState<CylinderSlot[]>([]);
+  const [uploadJobs, setUploadJobs] = useState<PhotoUploadJob[]>([]);
+  const uploadSeqRef = useRef(0);
+  const slotSeqRef = useRef(0);
+  const targetUploadSlotIdRef = useRef<string | null>(null);
   const [loadedCylinderImages, setLoadedCylinderImages] = useState<Record<string, HTMLImageElement>>({});
 
   // Active Crop Target (null for single photo, or slotId string for cylinder slot)
   const [cropTargetSlotId, setCropTargetSlotId] = useState<string | null>(null);
 
-  // Active Upload Target (for slot replace click)
-  const [targetUploadSlotId, setTargetUploadSlotId] = useState<string | null>(null);
 
   // Generated Mesh & Diagnostics
   const [processedImage, setProcessedImage] = useState<ProcessedImageResult | null>(null);
@@ -73,8 +145,6 @@ export default function App() {
   const [showValidationModal, setShowValidationModal] = useState<boolean>(false);
   const [showCropModal, setShowCropModal] = useState<boolean>(false);
   const [showSlicingModal, setShowSlicingModal] = useState<boolean>(false);
-  const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
   const slotFileInputRef = useRef<HTMLInputElement>(null);
   const debounceTimerRef = useRef<number | null>(null);
@@ -85,20 +155,16 @@ export default function App() {
 
   // A. Single image load (flat / curved)
   useEffect(() => {
+    if (!imageSrc) {
+      setLoadedImage(null);
+      return;
+    }
     let isCancelled = false;
     ImageProcessor.loadImage(imageSrc)
       .then((img) => {
         if (!isCancelled) {
           setLoadedImage(img);
           setErrorMessage(null);
-          if (settings.shape !== 'cylinder' && settings.shape !== 'cube') {
-            const nw = img.naturalWidth || img.width;
-            const nh = img.naturalHeight || img.height;
-            const aspect = cropData ? cropData.width / cropData.height : nw / nh;
-            const autoHeight = Math.max(10, Math.round(settings.width / aspect));
-            const autoThickness = getAutoScaledThickness(settings.width, autoHeight);
-            setSettings((prev) => ({ ...prev, height: autoHeight, ...autoThickness }));
-          }
         }
       })
       .catch((err) => {
@@ -113,12 +179,26 @@ export default function App() {
     };
   }, [imageSrc]);
 
-  // B. Multi-panel (cylinder / cube) 1 to 4 images load
+  // Keep the legacy single-image fields aligned with the first slot.
   useEffect(() => {
-    if (settings.shape !== 'cylinder' && settings.shape !== 'cube') return;
+    const first = cylinderSlots[0];
+    const nextSrc = first?.imageSrc ?? '';
+    const nextName = first?.name ?? '';
+    setImageSrc((current) => (current === nextSrc ? current : nextSrc));
+    setImageName((current) => (current === nextName ? current : nextName));
+    setCropData(first?.cropData ?? null);
+  }, [cylinderSlots]);
+
+  // B. Load every photo slot (all shapes use 1 to 4 images)
+  useEffect(() => {
+    const readySlots = cylinderSlots.filter((slot) => slot.imageSrc);
+    if (readySlots.length === 0) {
+      setLoadedCylinderImages({});
+      return;
+    }
 
     let isCancelled = false;
-    const promises = cylinderSlots.map((slot) =>
+    const promises = readySlots.map((slot) =>
       ImageProcessor.loadImage(slot.imageSrc).then((img) => ({ id: slot.id, img }))
     );
 
@@ -142,7 +222,46 @@ export default function App() {
     return () => {
       isCancelled = true;
     };
-  }, [cylinderSlots, settings.shape]);
+  }, [cylinderSlots]);
+
+  // Flat and curved panels change height so each tiled photo keeps its proportions.
+  useEffect(() => {
+    if (settings.shape === 'cylinder' || settings.shape === 'cube') return;
+    const slot = cylinderSlots[0];
+    if (!slot) return;
+    const img = loadedCylinderImages[slot.id];
+    if (!img) return;
+
+    const nw = img.naturalWidth || img.width;
+    const nh = img.naturalHeight || img.height;
+    const aspect = slot.cropData ? slot.cropData.width / slot.cropData.height : nw / nh;
+    const autoHeight = getStripHeightForPhotos(
+      settings.width,
+      aspect,
+      cylinderSlots.length,
+      settings.stripLayout
+    );
+    const autoThickness = getAutoScaledThickness(settings.width, autoHeight);
+
+    setSettings((prev) => {
+      if (prev.shape === 'cylinder' || prev.shape === 'cube') return prev;
+      if (prev.height === autoHeight && prev.minThickness === autoThickness.minThickness) return prev;
+      return mergeAutoThickness(prev, autoThickness, { height: autoHeight });
+    });
+  }, [cylinderSlots, loadedCylinderImages, settings.shape, settings.width, settings.stripLayout]);
+
+  // Slot names follow the shape: faces on a lamp, positions on a panel.
+  useEffect(() => {
+    setCylinderSlots((prev) => {
+      const labels = getMultiPanelSlotLabels(settings.shape, prev.length, settings.stripLayout);
+      const next = prev.map((slot, index) => ({
+        ...slot,
+        label: labels[index] ? `${labels[index].label}${labels[index].deg ? ` (${labels[index].deg})` : ''}` : slot.label,
+      }));
+      if (next.every((slot, index) => slot.label === prev[index].label)) return prev;
+      return next;
+    });
+  }, [settings.shape, settings.stripLayout, cylinderSlots.length]);
 
   // =========================================================================
   // 2. Debounced Pipeline Trigger
@@ -160,6 +279,8 @@ export default function App() {
           const slotItems = cylinderSlots.map((slot) => ({
             img: loadedCylinderImages[slot.id] || loadedImage || new Image(),
             cropData: slot.cropData,
+            offsetX: slot.offsetX ?? 0,
+            offsetY: slot.offsetY ?? 0,
             label: slot.label,
             name: slot.name,
           }));
@@ -193,6 +314,8 @@ export default function App() {
           const slotItems = cylinderSlots.map((slot) => ({
             img: loadedCylinderImages[slot.id] || loadedImage || new Image(),
             cropData: slot.cropData,
+            offsetX: slot.offsetX ?? 0,
+            offsetY: slot.offsetY ?? 0,
             label: slot.label,
             name: slot.name,
           }));
@@ -223,13 +346,32 @@ export default function App() {
           const validation = MeshValidator.validate(geometry);
           setValidationResult(validation);
         } else {
-          // Process single image for Flat or Curved mode
-          if (!loadedImage) {
+          // Flat or curved: 1 photo fills the panel, 2–4 photos tile across it
+          const slotItems = cylinderSlots.map((slot) => ({
+            img: loadedCylinderImages[slot.id] || loadedImage || new Image(),
+            cropData: slot.cropData,
+            offsetX: slot.offsetX ?? 0,
+            offsetY: slot.offsetY ?? 0,
+            label: slot.label,
+            name: slot.name,
+          }));
+          const primary = slotItems[0];
+          if (!primary?.img || !(primary.img.naturalWidth || primary.img.width)) {
             setIsGenerating(false);
             return;
           }
           const cols = getResolutionForTier(settings.qualityTier || 'master', settings.width);
-          processed = ImageProcessor.processImage(loadedImage, settings, cols, cropData);
+          processed =
+            cylinderSlots.length <= 1
+              ? ImageProcessor.processImage(
+                  primary.img,
+                  settings,
+                  cols,
+                  primary.cropData,
+                  primary.offsetX,
+                  primary.offsetY
+                )
+              : ImageProcessor.processStripImages(slotItems, settings, cols);
           setProcessedImage(processed);
 
           // Step B: Generate Watertight Solid Geometry
@@ -258,13 +400,17 @@ export default function App() {
 
   // Trigger pipeline with 80ms debounce
   useEffect(() => {
-    const isMulti = settings.shape === 'cylinder' || settings.shape === 'cube';
-    if (!isMulti && !loadedImage) return;
-    if (isMulti) {
-      if (cylinderSlots.length === 0) return;
-      const allLoaded = cylinderSlots.every((s) => !!loadedCylinderImages[s.id]);
-      if (!allLoaded) return;
+    if (cylinderSlots.length === 0) return;
+    const missingPhoto = cylinderSlots.some((slot) => !slot.imageSrc);
+    if (missingPhoto) {
+      setGeometryData(null);
+      setProcessedImage(null);
+      setValidationResult(null);
+      setIsGenerating(false);
+      return;
     }
+    const allLoaded = cylinderSlots.every((s) => !!loadedCylinderImages[s.id]);
+    if (!allLoaded) return;
 
     if (debounceTimerRef.current) {
       window.clearTimeout(debounceTimerRef.current);
@@ -285,118 +431,150 @@ export default function App() {
   // 3. User Actions & Handlers
   // =========================================================================
 
-  // Single File Upload
-  const handleSingleFileUpload = (file: File) => {
-    if (!file.type.startsWith('image/')) {
+  const photosReady =
+    cylinderSlots.length > 0 && cylinderSlots.every((slot) => Boolean(slot.imageSrc));
+
+  const readFilesIntoIndexes = (files: File[], indexes: number[], slotIds?: string[]) => {
+    const jobs: PhotoUploadJob[] = files.map((file, fileIndex) => ({
+      id: `upload_${++uploadSeqRef.current}`,
+      fileName: file.name,
+      progress: 0,
+      status: 'reading',
+      slotId: slotIds?.[fileIndex],
+      slotIndex: slotIds?.[fileIndex] ? undefined : indexes[fileIndex],
+    }));
+    setUploadJobs((prev) => [...prev, ...jobs]);
+
+    files.forEach((file, fileIndex) => {
+      const job = jobs[fileIndex];
+      const slotIndex = indexes[fileIndex];
+      const slotId = slotIds?.[fileIndex];
+      let lastReported = -1;
+
+      readImageAsDataUrl(file, (progress) => {
+        if (progress !== 100 && progress < lastReported + 2) return;
+        lastReported = progress;
+        setUploadJobs((prev) =>
+          prev.map((item) => (item.id === job.id ? { ...item, progress } : item))
+        );
+      })
+        .then((dataUrl) => {
+          const name = file.name.replace(/\.[^/.]+$/, '');
+          setCylinderSlots((prev) =>
+            prev.map((slot, index) => {
+              const matches = slotId ? slot.id === slotId : index === slotIndex;
+              return matches
+                ? { ...slot, imageSrc: dataUrl, name, cropData: null, offsetX: 0, offsetY: 0 }
+                : slot;
+            })
+          );
+          setUploadJobs((prev) =>
+            prev.map((item) =>
+              item.id === job.id ? { ...item, progress: 100, status: 'done' } : item
+            )
+          );
+          window.setTimeout(() => {
+            setUploadJobs((prev) => prev.filter((item) => item.id !== job.id));
+          }, 900);
+        })
+        .catch((err: unknown) => {
+          console.error('Image read failed:', err);
+          setErrorMessage(`Could not read ${file.name}.`);
+          setUploadJobs((prev) =>
+            prev.map((item) => (item.id === job.id ? { ...item, status: 'error' } : item))
+          );
+          window.setTimeout(() => {
+            setUploadJobs((prev) => prev.filter((item) => item.id !== job.id));
+          }, 3200);
+        });
+    });
+  };
+
+  const placeUploadedFiles = (incoming: File[]) => {
+    const images = incoming.filter((file) => file.type.startsWith('image/'));
+    if (images.length === 0) {
       setErrorMessage('Please upload a valid image file (JPEG, PNG, WebP).');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      if (result) {
-        setImageSrc(result);
-        const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '');
-        setImageName(nameWithoutExt);
-        setHasOwnPhoto(true);
-        setCropData(null);
-      }
-    };
-    reader.readAsDataURL(file);
+    const filled = cylinderSlots.filter((slot) => slot.imageSrc);
+    const room = 4 - filled.length;
+    if (room <= 0) {
+      setErrorMessage('Four photos is the limit. Remove one to add another.');
+      return;
+    }
+
+    const take = Math.min(images.length, room);
+    const notes: string[] = [];
+    if (images.length < incoming.length) {
+      notes.push('Skipped files that are not images. Use JPEG, PNG, or WebP.');
+    }
+    if (images.length > take) {
+      notes.push('Only 4 photos fit, so the extra ones were left out.');
+    }
+    if (notes.length > 0) setErrorMessage(notes.join(' '));
+
+    const count = filled.length + take;
+    const labels = getMultiPanelSlotLabels(settings.shape, count, settings.stripLayout);
+    const labelFor = (index: number) =>
+      labels[index].deg ? `${labels[index].label} (${labels[index].deg})` : labels[index].label;
+    const nextSlots: CylinderSlot[] = filled.map((slot, index) => ({
+      ...slot,
+      label: labelFor(index),
+    }));
+    const newIds: string[] = [];
+    for (let index = filled.length; index < count; index += 1) {
+      slotSeqRef.current += 1;
+      const id = `slot_${slotSeqRef.current}`;
+      newIds.push(id);
+      nextSlots.push({
+        id,
+        label: labelFor(index),
+        name: '',
+        imageSrc: '',
+        cropData: null,
+        offsetX: 0,
+        offsetY: 0,
+      });
+    }
+
+    setSettings((prev) => ({
+      ...prev,
+      cylinderPanelCount: count,
+      cubePanelCount: count,
+    }));
+    setCylinderSlots(nextSlots);
+    readFilesIntoIndexes(images.slice(0, take), [], newIds);
   };
 
-  // Cylinder Slot Upload
   const handleUploadCylinderSlotFile = (slotId: string, file: File) => {
     if (!file.type.startsWith('image/')) {
       setErrorMessage('Please upload a valid image file (JPEG, PNG, WebP).');
       return;
     }
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      if (result) {
-        const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '');
-        setCylinderSlots((prev) =>
-          prev.map((s) =>
-            s.id === slotId ? { ...s, imageSrc: result, name: nameWithoutExt, cropData: null } : s
-          )
-        );
-        setHasOwnPhoto(true);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleSetCylinderSlotCount = (newCount: number) => {
-    const clampedCount = Math.max(1, Math.min(4, newCount));
-    setSettings((prev) => ({
-      ...prev,
-      cylinderPanelCount: clampedCount,
-      cubePanelCount: clampedCount,
-    }));
-
-    setCylinderSlots((prev) => {
-      const labels = getMultiPanelSlotLabels(settings.shape, clampedCount);
-      let updated: CylinderSlot[];
-
-      if (prev.length === clampedCount) {
-        updated = prev.map((s, i) => ({
-          ...s,
-          label: `${labels[i].label} (${labels[i].deg})`,
-        }));
-      } else if (prev.length < clampedCount) {
-        // Expand: keep existing, add default/sample images
-        const additional: CylinderSlot[] = [];
-        for (let i = prev.length; i < clampedCount; i++) {
-          const sample = SAMPLE_IMAGES[i % SAMPLE_IMAGES.length];
-          const defaultSlot = DEFAULT_CYLINDER_SLOTS[i] || {
-            id: `slot_${i + 1}`,
-            label: `${labels[i].label} (${labels[i].deg})`,
-            name: sample.name,
-            imageSrc: sample.url,
-            cropData: null,
-          };
-          additional.push({
-            ...defaultSlot,
-            id: `slot_${i + 1}`,
-            label: `${labels[i].label} (${labels[i].deg})`,
-          });
-        }
-        updated = [...prev, ...additional];
-      } else {
-        // Shrink: keep first clampedCount slots
-        updated = prev.slice(0, clampedCount).map((s, i) => ({
-          ...s,
-          label: `${labels[i].label} (${labels[i].deg})`,
-        }));
-      }
-      return updated;
-    });
-  };
-
-  const handleAddCylinderSlot = () => {
-    if (cylinderSlots.length < 4) {
-      handleSetCylinderSlotCount(cylinderSlots.length + 1);
-    }
+    if (!cylinderSlots.some((slot) => slot.id === slotId)) return;
+    readFilesIntoIndexes([file], [-1], [slotId]);
   };
 
   const handleRemoveCylinderSlot = (slotId: string) => {
-    if (cylinderSlots.length <= 1) return;
-    const remaining = cylinderSlots.filter((s) => s.id !== slotId);
+    const remaining = cylinderSlots.filter((slot) => slot.id !== slotId);
     const newCount = remaining.length;
     setSettings((prev) => ({
       ...prev,
-      cylinderPanelCount: newCount,
-      cubePanelCount: newCount,
+      cylinderPanelCount: Math.max(1, newCount),
+      cubePanelCount: Math.max(1, newCount),
     }));
-    const labels = getMultiPanelSlotLabels(settings.shape, newCount);
-    const updated = remaining.map((s, i) => ({
-      ...s,
-      label: `${labels[i].label} (${labels[i].deg})`,
-    }));
-    setCylinderSlots(updated);
+    if (newCount === 0) {
+      setCylinderSlots([]);
+      return;
+    }
+    const labels = getMultiPanelSlotLabels(settings.shape, newCount, settings.stripLayout);
+    setCylinderSlots(
+      remaining.map((slot, index) => ({
+        ...slot,
+        label: labels[index].deg ? `${labels[index].label} (${labels[index].deg})` : labels[index].label,
+      }))
+    );
   };
 
   const handleMatchCylinderHeightToPhoto = () => {
@@ -418,99 +596,78 @@ export default function App() {
     // panelWidth / newHeight = aspect => newHeight = panelWidth / aspect
     const autoHeight = Math.max(30, Math.min(220, Math.round(panelWidth / aspect)));
     const autoThickness = getAutoScaledThickness(panelWidth, autoHeight);
-    setSettings((prev) => ({ ...prev, height: autoHeight, ...autoThickness }));
-  };
-
-  // Multi-File Upload (supports 1 to 4 files, automatically sets slot count)
-  const handleUploadMultipleCylinderFiles = (files: FileList) => {
-    const count = Math.min(files.length, 4);
-    if (count === 0) return;
-
-    handleSetCylinderSlotCount(count);
-
-    for (let i = 0; i < count; i++) {
-      const file = files[i];
-      if (!file.type.startsWith('image/')) continue;
-
-      const slotId = `slot_${i + 1}`;
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const result = e.target?.result as string;
-        if (result) {
-          const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '');
-          setCylinderSlots((prev) =>
-            prev.map((s, idx) =>
-              idx === i ? { ...s, imageSrc: result, name: nameWithoutExt, cropData: null } : s
-            )
-          );
-        }
-      };
-      reader.readAsDataURL(file);
-    }
-    setHasOwnPhoto(true);
-  };
-
-  const handleUpdateCylinderSlot = (slotId: string, updates: Partial<CylinderSlot>) => {
-    setCylinderSlots((prev) =>
-      prev.map((s) => (s.id === slotId ? { ...s, ...updates } : s))
-    );
-  };
-
-  const handleResetCylinderSlots = () => {
-    setCylinderSlots(DEFAULT_CYLINDER_SLOTS);
-    setSettings((prev) => ({ ...prev, cylinderPanelCount: DEFAULT_CYLINDER_SLOTS.length }));
-  };
-
-  const handleSelectSample = (sample: SamplePresetImage) => {
-    setImageSrc(sample.url);
-    setImageName(sample.id);
-    setHasOwnPhoto(false);
-    setCropData(null);
+    setSettings((prev) => mergeAutoThickness(prev, autoThickness, { height: autoHeight }));
   };
 
   const handleApplyCrop = (newCrop: ImageCropData | null) => {
     if (cropTargetSlotId) {
-      // Apply crop to specific cylinder slot
       setCylinderSlots((prev) =>
-        prev.map((s) => (s.id === cropTargetSlotId ? { ...s, cropData: newCrop } : s))
+        prev.map((s) =>
+          s.id === cropTargetSlotId ? { ...s, cropData: newCrop, offsetX: 0, offsetY: 0 } : s
+        )
       );
+      if (cropTargetSlotId === cylinderSlots[0]?.id) {
+        setCropData(newCrop);
+      }
     } else {
-      // Apply crop to single photo
       setCropData(newCrop);
-      const aspect = newCrop
-        ? newCrop.width / newCrop.height
-        : loadedImage
-        ? (loadedImage.naturalWidth || loadedImage.width) / (loadedImage.naturalHeight || loadedImage.height)
-        : 1.33;
-      const autoHeight = Math.max(10, Math.round(settings.width / aspect));
-      const autoThickness = getAutoScaledThickness(settings.width, autoHeight);
-      setSettings((prev) => ({
-        ...prev,
-        height: autoHeight,
-        ...autoThickness,
-      }));
+      setCylinderSlots((prev) =>
+        prev.map((slot, index) =>
+          index === 0 ? { ...slot, cropData: newCrop, offsetX: 0, offsetY: 0 } : slot
+        )
+      );
     }
+  };
+
+  const handleUpdateSlotOffset = (
+    slotId: string,
+    offset: { offsetX: number; offsetY: number }
+  ) => {
+    const offsetX = Math.round(Math.max(-1, Math.min(1, offset.offsetX)) * 100) / 100;
+    const offsetY = Math.round(Math.max(-1, Math.min(1, offset.offsetY)) * 100) / 100;
+    setCylinderSlots((prev) => {
+      const current = prev.find((slot) => slot.id === slotId);
+      if (!current) return prev;
+      if ((current.offsetX ?? 0) === offsetX && (current.offsetY ?? 0) === offsetY) return prev;
+      return prev.map((slot) => (slot.id === slotId ? { ...slot, offsetX, offsetY } : slot));
+    });
   };
 
   const handleUpdateWidth = (newWidth: number) => {
     const clampedW = Math.max(40, Math.min(260, Math.round(newWidth)));
-    const aspect = cropData
+    const slot = cylinderSlots[0];
+    const img = slot ? loadedCylinderImages[slot.id] : loadedImage;
+    const photoAspect = slot?.cropData
+      ? slot.cropData.width / slot.cropData.height
+      : img
+      ? (img.naturalWidth || img.width) / (img.naturalHeight || img.height)
+      : cropData
       ? cropData.width / cropData.height
-      : loadedImage
-      ? (loadedImage.naturalWidth || loadedImage.width) / (loadedImage.naturalHeight || loadedImage.height)
-      : (processedImage?.aspectRatio || 1.33);
-    const newH = Math.max(10, Math.round(clampedW / aspect));
+      : processedImage?.aspectRatio || 1.33;
+    const newH = getStripHeightForPhotos(
+      clampedW,
+      photoAspect,
+      cylinderSlots.length,
+      settings.stripLayout
+    );
     const autoThickness = getAutoScaledThickness(clampedW, newH);
-    setSettings((prev) => ({
-      ...prev,
-      width: clampedW,
-      height: newH,
-      ...autoThickness,
-    }));
+    setSettings((prev) => mergeAutoThickness(prev, autoThickness, { width: clampedW, height: newH }));
   };
 
   const handleUpdateSettings = (newSettings: Partial<LithophaneSettings>) => {
     setSettings((prev) => ({ ...prev, ...newSettings }));
+  };
+
+  const handleSelectShape = (shape: LithophaneShape) => {
+    setSettings((prev) => ({
+      ...prev,
+      shape,
+      ...(shape === 'cylinder'
+        ? { cylinderDiameter: prev.cylinderDiameter || 90, height: 95 }
+        : shape === 'cube'
+        ? { cubeWidth: prev.cubeWidth || 90, height: 90 }
+        : {}),
+    }));
   };
 
   const handleResetSettings = () => {
@@ -527,26 +684,27 @@ export default function App() {
     setCropData(null);
   };
 
-  // Drag and drop file handling
+  // preventDefault is required for drops to land. Reorder drags are ignored in handleDrop.
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    setIsDraggingFile(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDraggingFile(false);
   };
 
   const handleDrop = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
     e.preventDefault();
-    setIsDraggingFile(false);
-    if (settings.shape === 'cylinder' && e.dataTransfer.files.length > 1) {
-      handleUploadMultipleCylinderFiles(e.dataTransfer.files);
-    } else {
-      const file = e.dataTransfer.files?.[0];
-      if (file) handleSingleFileUpload(file);
+    const dropTarget = e.target instanceof Element ? e.target : (e.target as Node).parentElement;
+    if (dropTarget?.closest('[data-photo-drop]')) return;
+    const files = Array.from(e.dataTransfer.files || []);
+    if (files.length > 0) placeUploadedFiles(files);
+  };
+
+  const handleStepChange = (step: AppStep) => {
+    if (step === 'preview' && !photosReady) {
+      setCurrentStep('upload');
+      setErrorMessage('Add at least one photo before opening the 3D preview.');
+      return;
     }
+    setCurrentStep(step);
   };
 
   // Active crop image data
@@ -557,11 +715,43 @@ export default function App() {
     ? cylinderSlots.find((s) => s.id === cropTargetSlotId)?.cropData || null
     : cropData;
 
+  const photoCount = Math.max(1, cylinderSlots.length);
+  const isCubeShape = settings.shape === 'cube';
+  const isCylinderShape = settings.shape === 'cylinder';
+  const isStripShape = !isCubeShape && !isCylinderShape;
+  const cropSlotIndex = Math.max(
+    0,
+    cropTargetSlotId ? cylinderSlots.findIndex((slot) => slot.id === cropTargetSlotId) : 0
+  );
+  const stripLayout = resolveStripLayout(settings.stripLayout, photoCount);
+  const cropCellLabel = stripLayout.cells[Math.min(cropSlotIndex, stripLayout.cells.length - 1)]?.label;
+  const cropSpanMm = isCubeShape
+    ? (4 * (settings.cubeWidth || 90)) / photoCount
+    : isCylinderShape
+    ? (Math.PI * (settings.cylinderDiameter || 90)) / photoCount
+    : isStripShape
+    ? getStripCellWidthMm(settings.width, photoCount, settings.stripLayout, cropSlotIndex)
+    : settings.width / photoCount;
+  const cropSizeMm = isCubeShape
+    ? settings.cubeWidth || 90
+    : isCylinderShape
+    ? settings.cylinderDiameter || 90
+    : settings.width;
+  const cropTileAspect = isStripShape
+    ? getStripCellAspect(
+        settings.width,
+        settings.height,
+        photoCount,
+        settings.stripLayout,
+        cropSlotIndex
+      )
+    : getOptimalMultiPanelWrapRatio(settings.shape, cropSizeMm, settings.height, photoCount);
+  const lockCropToTile = !isStripShape || photoCount > 1;
+
   return (
     <div
       className="app-shell"
       onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
       {/* Hidden file inputs */}
@@ -572,7 +762,8 @@ export default function App() {
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];
-          if (file) handleSingleFileUpload(file);
+          e.target.value = '';
+          if (file) placeUploadedFiles([file]);
         }}
       />
       <input
@@ -582,8 +773,10 @@ export default function App() {
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];
-          if (file && targetUploadSlotId) {
-            handleUploadCylinderSlotFile(targetUploadSlotId, file);
+          const slotId = targetUploadSlotIdRef.current;
+          e.target.value = '';
+          if (file && slotId) {
+            handleUploadCylinderSlotFile(slotId, file);
           }
         }}
       />
@@ -591,24 +784,11 @@ export default function App() {
       {/* Top Bar Header with 3-Step Navigation Stepper */}
       <Header
         currentStep={currentStep}
-        onStepChange={(st) => setCurrentStep(st)}
+        onStepChange={handleStepChange}
         shape={settings.shape}
-        hasOwnPhoto={hasOwnPhoto}
+        canPreview={photosReady}
         onExportClick={() => setShowValidationModal(true)}
-        onUploadClick={() => setCurrentStep('upload')}
       />
-
-      {/* Drag & Drop Overlay */}
-      {isDraggingFile && (
-        <div className="absolute inset-0 z-40 bg-black/60 backdrop-blur-xs border-2 border-dashed border-amber-400 flex items-center justify-center pointer-events-none px-6">
-          <div className="p-4 bg-[#10141d] border border-amber-400/50 rounded-lg shadow-xl flex items-center gap-3 text-slate-100">
-            <Upload className="w-5 h-5 text-amber-400 shrink-0" />
-            <div className="text-sm font-bold">
-              Drop photo file(s) to load into lithophane
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Error Banner */}
       {errorMessage && (
@@ -631,64 +811,49 @@ export default function App() {
           STEP 1: CHOOSE MODE
           ===================================================================== */}
       {currentStep === 'mode' && (
-        <div className="flex-1 overflow-y-auto pb-14">
+        <div className="flex-1 overflow-y-auto">
           <ModeSelector
             selectedShape={settings.shape}
-            onSelectShape={(shape) => {
-              setSettings((prev) => ({
-                ...prev,
-                shape,
-                ...(shape === 'cylinder'
-                  ? { cylinderDiameter: prev.cylinderDiameter || 90, height: 95 }
-                  : shape === 'cube'
-                  ? { cubeWidth: prev.cubeWidth || 90, height: 90 }
-                  : {}),
-              }));
-            }}
+            onSelectShape={handleSelectShape}
             onContinue={() => setCurrentStep('upload')}
           />
         </div>
       )}
 
       {/* =====================================================================
-          STEP 2: PROMPT IMAGE UPLOAD (1 or 4 images based on mode)
+          STEP 2: ADD UP TO 4 PHOTOS
           ===================================================================== */}
       {currentStep === 'upload' && (
-        <div className="flex-1 overflow-y-auto pb-14">
+        <div className="flex-1 overflow-y-auto">
           <PhotoUploader
-            shape={settings.shape}
-            singleImageSrc={imageSrc}
-            singleImageName={imageName}
-            hasOwnPhoto={hasOwnPhoto}
-            onUploadSingleFile={handleSingleFileUpload}
-            onSelectSample={handleSelectSample}
-            onOpenCropSingle={() => {
-              setCropTargetSlotId(null);
-              setShowCropModal(true);
-            }}
-            singleCropData={cropData}
-            singleAspectRatio={processedImage?.aspectRatio || 1.33}
-
             cylinderSlots={cylinderSlots}
-            cylinderDiameter={settings.cylinderDiameter || 90}
-            cubeWidth={settings.cubeWidth || 90}
-            cylinderHeight={settings.height || 95}
-            onUpdateCylinderSlot={handleUpdateCylinderSlot}
+            uploadJobs={uploadJobs}
             onUploadCylinderSlotFile={handleUploadCylinderSlotFile}
-            onUploadMultipleFiles={handleUploadMultipleCylinderFiles}
-            onResetCylinderToDefaults={handleResetCylinderSlots}
-            onReorderCylinderSlots={(newSlots) => setCylinderSlots(newSlots)}
-            onSetCylinderSlotCount={handleSetCylinderSlotCount}
-            onAddCylinderSlot={handleAddCylinderSlot}
+            onUploadMultipleFiles={placeUploadedFiles}
+            onReorderCylinderSlots={(newSlots) => {
+              const labels = getMultiPanelSlotLabels(
+                settings.shape,
+                newSlots.length,
+                settings.stripLayout
+              );
+              setCylinderSlots(
+                newSlots.map((slot, index) => ({
+                  ...slot,
+                  label: labels[index]
+                    ? labels[index].deg
+                      ? `${labels[index].label} (${labels[index].deg})`
+                      : labels[index].label
+                    : slot.label,
+                }))
+              );
+            }}
             onRemoveCylinderSlot={handleRemoveCylinderSlot}
-            onMatchCylinderHeightToPhoto={handleMatchCylinderHeightToPhoto}
             onOpenCropSlot={(slotId) => {
               setCropTargetSlotId(slotId);
               setShowCropModal(true);
             }}
-
             onBackToMode={() => setCurrentStep('mode')}
-            onContinueToPreview={() => setCurrentStep('preview')}
+            onContinueToPreview={() => handleStepChange('preview')}
           />
         </div>
       )}
@@ -697,8 +862,20 @@ export default function App() {
           STEP 3: 3D PREVIEW & FINE-TUNE ADJUSTMENTS
           ===================================================================== */}
       {currentStep === 'preview' && (
-        <main className="app-stage pb-13">
+        <main className="app-stage">
           <section className="viewport-stage">
+            <PhotoPlacementBoard
+              slots={cylinderSlots}
+              shape={settings.shape}
+              widthMm={settings.width}
+              heightMm={settings.height}
+              stripLayout={settings.stripLayout}
+              cylinderDiameter={settings.cylinderDiameter || 90}
+              cubeWidth={settings.cubeWidth || 90}
+              onOffsetChange={handleUpdateSlotOffset}
+              open={placementOpen}
+              onOpenChange={setPlacementOpen}
+            />
             <Viewport3D
               geometryData={geometryData}
               settings={settings}
@@ -711,40 +888,30 @@ export default function App() {
             onUpdateSettings={handleUpdateSettings}
             onUpdateWidth={handleUpdateWidth}
             onResetSettings={handleResetSettings}
-            onSelectSample={handleSelectSample}
             onOpenCrop={() => {
-              setCropTargetSlotId(null);
+              if (!cylinderSlots[0]?.imageSrc) return;
+              setCropTargetSlotId(cylinderSlots[0]?.id ?? null);
               setShowCropModal(true);
             }}
-            hasOwnPhoto={hasOwnPhoto}
             onUploadClick={() => fileInputRef.current?.click()}
-            onOpenExport={() => setShowValidationModal(true)}
             onOpenSlicingGuide={() => setShowSlicingModal(true)}
             aspectRatio={processedImage?.aspectRatio || 1.33}
             previewDataUrl={processedImage?.previewDataUrl || null}
-            activeSampleId={imageName}
             cylinderSlots={cylinderSlots}
             onOpenCropSlot={(slotId) => {
               setCropTargetSlotId(slotId);
               setShowCropModal(true);
             }}
             onUploadSlotClick={(slotId) => {
-              setTargetUploadSlotId(slotId);
+              targetUploadSlotIdRef.current = slotId;
               slotFileInputRef.current?.click();
             }}
-            onNavigateToUploadStep={() => setCurrentStep('upload')}
-            onSetCylinderSlotCount={handleSetCylinderSlotCount}
+            onReorderCylinderSlots={(newSlots) => setCylinderSlots(newSlots)}
             onMatchCylinderHeightToPhoto={handleMatchCylinderHeightToPhoto}
+            onPlacePhotos={() => setPlacementOpen(true)}
           />
         </main>
       )}
-
-      {/* Fixed Bottom Navigation Footer */}
-      <BottomNav
-        currentStep={currentStep}
-        onStepChange={(st) => setCurrentStep(st)}
-        shape={settings.shape}
-      />
 
       {/* Modals */}
       {showValidationModal && geometryData && validationResult && (
@@ -752,7 +919,9 @@ export default function App() {
           geometryData={geometryData}
           validationResult={validationResult}
           settings={settings}
-          imageName={settings.shape === 'cylinder' ? 'cylinder_lithophane_360' : imageName}
+          imageName={
+            photoCount > 1 ? `${settings.shape}_lithophane_${photoCount}photos` : imageName
+          }
           onClose={() => setShowValidationModal(false)}
         />
       )}
@@ -761,29 +930,19 @@ export default function App() {
         <CropModal
           imageSrc={activeCropImageSrc}
           initialCrop={activeCropInitial}
-          physicalWidthMm={
-            settings.shape === 'cylinder'
-              ? Math.round((Math.PI * (settings.cylinderDiameter || 90)) / (cylinderSlots.length || 1))
-              : settings.width
-          }
-          targetAspect={
-            settings.shape === 'cylinder'
-              ? getOptimalCylinderWrapRatio(
-                  settings.cylinderDiameter || 90,
-                  settings.height || 95,
-                  cylinderSlots.length || 1
-                )
-              : undefined
-          }
+          physicalWidthMm={Math.round(cropSpanMm)}
+          targetAspect={lockCropToTile ? cropTileAspect : undefined}
           targetAspectLabel={
-            settings.shape === 'cylinder'
-              ? cylinderSlots.length === 1
-                ? '360° Wrap'
-                : `Side (${getOptimalCylinderWrapRatio(
-                    settings.cylinderDiameter || 90,
-                    settings.height || 95,
-                    cylinderSlots.length || 1
-                  )}:1)`
+            lockCropToTile
+              ? photoCount === 1
+                ? isCubeShape
+                  ? '4-face wrap'
+                  : isCylinderShape
+                  ? '360° wrap'
+                  : 'Full panel'
+                : isStripShape
+                ? cropCellLabel || 'Tile'
+                : `Tile (${cropTileAspect}:1)`
               : undefined
           }
           onApplyCrop={handleApplyCrop}

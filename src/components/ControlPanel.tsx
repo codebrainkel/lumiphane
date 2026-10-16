@@ -1,27 +1,30 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  BorderIcon,
   LithophaneSettings,
-  SamplePresetImage,
   SupportType,
   CylinderSlot,
-  LithophaneShape,
 } from '../types/lithophane';
 import {
-  SAMPLE_IMAGES,
-  getCylinderSlotLabels,
-  getCubeSlotLabels,
   getMultiPanelSlotLabels,
-  getOptimalCylinderWrapRatio,
-  getOptimalCubeWrapRatio,
+  getStripLayoutsForCount,
+  resolveStripLayout,
+  StripLayoutPreset,
 } from '../constants/presets';
+import { BORDER_ICON_MIN_WIDTH_MM, maxBorderWidthMm } from '../services/borderIcons';
 import {
-  ChevronDown,
+  Contrast,
   Crop as CropIcon,
-  Download,
+  Frame,
+  GripVertical,
   HelpCircle,
-  Upload,
+  Images,
+  Move,
+  PanelBottom,
   RotateCcw,
+  Ruler,
   Sparkles,
+  Upload,
 } from 'lucide-react';
 
 interface ControlPanelProps {
@@ -29,32 +32,98 @@ interface ControlPanelProps {
   onUpdateSettings: (newSettings: Partial<LithophaneSettings>) => void;
   onUpdateWidth: (width: number) => void;
   onResetSettings: () => void;
-  onSelectSample: (sample: SamplePresetImage) => void;
   onOpenCrop: () => void;
-  hasOwnPhoto: boolean;
   onUploadClick: () => void;
-  onOpenExport: () => void;
   onOpenSlicingGuide: () => void;
   aspectRatio: number;
   previewDataUrl: string | null;
-  activeSampleId: string;
 
   cylinderSlots?: CylinderSlot[];
   onOpenCropSlot?: (slotId: string) => void;
   onUploadSlotClick?: (slotId: string) => void;
-  onNavigateToUploadStep?: () => void;
-  onSetCylinderSlotCount?: (count: number) => void;
+  onReorderCylinderSlots?: (newSlots: CylinderSlot[]) => void;
   onMatchCylinderHeightToPhoto?: () => void;
+  onPlacePhotos?: () => void;
 }
 
-type PanelTab = 'photo' | 'size' | 'stand' | 'tone';
+type PanelTab = 'photo' | 'size' | 'border' | 'stand' | 'tone';
 
-const TABS: { id: PanelTab; label: string }[] = [
-  { id: 'photo', label: 'Photos' },
-  { id: 'size', label: 'Dimensions' },
-  { id: 'stand', label: 'Base Stand' },
-  { id: 'tone', label: 'Image Adjust' },
+const TABS: { id: PanelTab; label: string; short: string; icon: typeof Images }[] = [
+  { id: 'photo', label: 'Photos', short: 'Photos', icon: Images },
+  { id: 'size', label: 'Dimensions', short: 'Size', icon: Ruler },
+  { id: 'border', label: 'Border', short: 'Border', icon: Frame },
+  { id: 'stand', label: 'Base stand', short: 'Stand', icon: PanelBottom },
+  { id: 'tone', label: 'Image adjust', short: 'Adjust', icon: Contrast },
 ];
+
+function LayoutGlyph({ preset }: { preset: StripLayoutPreset }) {
+  const size = 24;
+  const pad = 1;
+  const gap = 1.6;
+  const inner = size - pad * 2;
+  const unitW = inner / preset.gridCols;
+  const unitH = inner / preset.gridRows;
+
+  return (
+    <svg viewBox={`0 0 ${size} ${size}`} className="h-full w-full" aria-hidden="true">
+      {preset.cells.map((block, index) => {
+        const x = pad + block.col * unitW + gap / 2;
+        const y = pad + block.row * unitH + gap / 2;
+        const w = Math.max(1.5, block.colSpan * unitW - gap);
+        const h = Math.max(1.5, block.rowSpan * unitH - gap);
+        return <rect key={index} x={x} y={y} width={w} height={h} rx="1.15" fill="currentColor" />;
+      })}
+    </svg>
+  );
+}
+
+const BORDER_MOTIFS: { id: BorderIcon; label: string }[] = [
+  { id: 'none', label: 'None' },
+  { id: 'heart', label: 'Heart' },
+  { id: 'bone', label: 'Bone' },
+  { id: 'star', label: 'Star' },
+];
+
+function BorderMotifIcon({ motif }: { motif: BorderIcon }) {
+  if (motif === 'heart') {
+    return (
+      <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M8 13.4C4.2 10.7 2.6 8.6 2.6 6.5 2.6 4.8 3.8 3.6 5.4 3.6c1 0 1.8.5 2.6 1.5.8-1 1.6-1.5 2.6-1.5 1.6 0 2.8 1.2 2.8 2.9 0 2.1-1.6 4.2-5.4 6.9z"
+        />
+      </svg>
+    );
+  }
+  if (motif === 'bone') {
+    return (
+      <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden="true">
+        <g fill="currentColor">
+          <rect x="4.6" y="6.5" width="6.8" height="3" rx="0.6" />
+          <circle cx="4.5" cy="6.7" r="1.55" />
+          <circle cx="4.5" cy="9.3" r="1.55" />
+          <circle cx="11.5" cy="6.7" r="1.55" />
+          <circle cx="11.5" cy="9.3" r="1.55" />
+        </g>
+      </svg>
+    );
+  }
+  if (motif === 'star') {
+    return (
+      <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M8 1.6l1.55 3.55 3.85.4-2.9 2.55.85 3.8L8 10.1l-3.35 1.8.85-3.8-2.9-2.55 3.85-.4z"
+        />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden="true">
+      <rect x="2.4" y="2.4" width="11.2" height="11.2" rx="1.4" fill="none" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  );
+}
 
 function Slider({
   label,
@@ -100,25 +169,25 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onUpdateSettings,
   onUpdateWidth,
   onResetSettings,
-  onSelectSample,
   onOpenCrop,
-  hasOwnPhoto,
   onUploadClick,
-  onOpenExport,
   onOpenSlicingGuide,
   aspectRatio,
   previewDataUrl,
-  activeSampleId,
 
   cylinderSlots = [],
   onOpenCropSlot,
   onUploadSlotClick,
-  onNavigateToUploadStep,
-  onSetCylinderSlotCount,
+  onReorderCylinderSlots,
   onMatchCylinderHeightToPhoto,
+  onPlacePhotos,
 }) => {
   const [tab, setTab] = useState<PanelTab>('photo');
   const [open, setOpen] = useState(true);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+  const dragFrom = useRef<number | null>(null);
+  const dragTo = useRef<number | null>(null);
   const [isDesktop, setIsDesktop] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches
   );
@@ -126,7 +195,86 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
   const isCylinder = settings.shape === 'cylinder';
   const isCube = settings.shape === 'cube';
-  const isMultiPanel = isCylinder || isCube;
+  const isStrip = settings.shape === 'flat' || settings.shape === 'curved';
+  const borderMax = maxBorderWidthMm(settings.shape, settings.width, settings.height);
+  const borderIcon = settings.borderIcon ?? 'none';
+  const photoCount = cylinderSlots.length;
+  const stripLayout = isStrip ? resolveStripLayout(settings.stripLayout, photoCount) : null;
+  const layoutChoices = isStrip && photoCount > 1 ? getStripLayoutsForCount(photoCount) : [];
+  const photosMoved = cylinderSlots.some(
+    (slot) => Math.abs(slot.offsetX ?? 0) > 0.001 || Math.abs(slot.offsetY ?? 0) > 0.001
+  );
+  const placePhotosButton = onPlacePhotos ? (
+    <button
+      type="button"
+      className="ml-auto flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-[#090c12] px-2.5 text-xs font-medium text-slate-200 transition-colors hover:border-white/25 hover:text-white"
+      onClick={onPlacePhotos}
+    >
+      <Move className="h-3.5 w-3.5 text-amber-400" />
+      <span>Place photos</span>
+      {photosMoved && <span className="placement-dot" aria-hidden="true" />}
+    </button>
+  ) : null;
+
+  const handleReorderSlots = (fromIdx: number, toIdx: number) => {
+    if (
+      fromIdx === toIdx ||
+      fromIdx < 0 ||
+      toIdx < 0 ||
+      fromIdx >= cylinderSlots.length ||
+      toIdx >= cylinderSlots.length
+    ) {
+      return;
+    }
+    const next = [...cylinderSlots];
+    const [moved] = next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, moved);
+    const labels = getMultiPanelSlotLabels(settings.shape, next.length, settings.stripLayout);
+    onReorderCylinderSlots?.(
+      next.map((slot, index) => ({
+        ...slot,
+        label: labels[index]?.deg
+          ? `${labels[index].label} (${labels[index].deg})`
+          : labels[index]?.label || slot.label,
+      }))
+    );
+  };
+
+  const startPhotoDrag = (index: number, event: React.PointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return;
+    event.stopPropagation();
+    dragFrom.current = index;
+    dragTo.current = index;
+    setDragIndex(index);
+    setOverIndex(index);
+
+    const pointToIndex = (ev: PointerEvent) => {
+      const target = document.elementFromPoint(ev.clientX, ev.clientY);
+      const row = target?.closest('[data-photo-row]');
+      if (!row) return;
+      const next = Number((row as HTMLElement).dataset.photoRow);
+      if (Number.isNaN(next)) return;
+      dragTo.current = next;
+      setOverIndex(next);
+    };
+    const move = (ev: PointerEvent) => pointToIndex(ev);
+    const finish = (ev: PointerEvent) => {
+      pointToIndex(ev);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      const from = dragFrom.current;
+      const to = dragTo.current;
+      dragFrom.current = null;
+      dragTo.current = null;
+      setDragIndex(null);
+      setOverIndex(null);
+      if (from !== null && to !== null && from !== to) handleReorderSlots(from, to);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+  };
 
   useEffect(() => {
     const media = window.matchMedia('(min-width: 1024px)');
@@ -163,31 +311,29 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
       {/* Dock Header with Tabs */}
       <div className="dock-bar">
         <div className="dock-tabs" role="tablist" aria-label="Inspector Controls">
-          {TABS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              id={`tab-${item.id}`}
-              aria-selected={showBody && tab === item.id}
-              aria-controls="adjust-panel"
-              data-on={showBody && tab === item.id}
-              className="seg-btn"
-              onClick={() => selectTab(item.id)}
-            >
-              {item.label}
-            </button>
-          ))}
+          {TABS.map((item) => {
+            const Icon = item.icon;
+            const selected = showBody && tab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                role="tab"
+                id={`tab-${item.id}`}
+                aria-selected={selected}
+                aria-controls="adjust-panel"
+                aria-label={item.label}
+                title={item.label}
+                data-on={selected}
+                className="dock-tab"
+                onClick={() => selectTab(item.id)}
+              >
+                <Icon aria-hidden="true" />
+                <span>{item.short}</span>
+              </button>
+            );
+          })}
         </div>
-        <button
-          type="button"
-          className="dock-toggle"
-          aria-expanded={open}
-          aria-label={open ? 'Hide settings' : 'Show settings'}
-          onClick={() => setOpen((value) => !value)}
-        >
-          <ChevronDown className="w-4 h-4" />
-        </button>
       </div>
 
       <div className="dock-body" data-open={showBody}>
@@ -203,47 +349,94 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               ============================================================== */}
           {tab === 'photo' && (
             <>
-              {isMultiPanel ? (
-                /* Multi-Panel (Cylinder / Hollow Cube): 1 to 4 Photos */
+              <div className="space-y-3">
+                  {placePhotosButton && layoutChoices.length === 0 && (
+                    <div className="flex justify-end">{placePhotosButton}</div>
+                  )}
+                  {layoutChoices.length > 0 && stripLayout && (
+                    <div>
+                      <div className="mb-1.5 text-[11px] font-mono text-slate-400">Layout</div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="flex min-w-0 flex-wrap gap-1.5" role="group" aria-label="Photo layout">
+                          {layoutChoices.map((preset) => {
+                            const selected = preset.id === stripLayout.id;
+                            return (
+                              <button
+                                key={preset.id}
+                                type="button"
+                                aria-label={preset.label}
+                                aria-pressed={selected}
+                                onClick={() => onUpdateSettings({ stripLayout: preset.id })}
+                                className={`flex h-9 w-9 items-center justify-center rounded-md border p-1 transition-colors ${
+                                  selected
+                                    ? 'border-amber-400 bg-amber-400/15 text-amber-300'
+                                    : 'border-white/10 bg-[#090c12] text-slate-500 hover:border-white/25 hover:text-slate-200'
+                                }`}
+                              >
+                                <LayoutGlyph preset={preset} />
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {placePhotosButton}
+                      </div>
+                    </div>
+                  )}
+
+                  {isStrip && photoCount === 1 ? (
+                /* One photo on a flat or curved panel */
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between text-xs font-mono text-slate-400">
-                    <span className="font-bold text-slate-300">
-                      {isCube ? 'Cube Layout' : 'Cylinder Layout'}
-                    </span>
-                    <span className="text-amber-400 font-bold">
-                      {cylinderSlots.length === 1
-                        ? isCube ? '4-Face Wrap' : '360° Wrap'
-                        : isCube ? `${cylinderSlots.length} Faces` : `${cylinderSlots.length} Sides`}
-                    </span>
+                  <div className="inset-panel p-3">
+                    <div className="flex items-center gap-3">
+                      {cylinderSlots[0]?.imageSrc && previewDataUrl ? (
+                        <img
+                          src={previewDataUrl}
+                          alt=""
+                          className="w-12 h-12 rounded-md object-cover object-center bg-black shrink-0 border border-white/10"
+                        />
+                      ) : cylinderSlots[0]?.imageSrc ? (
+                        <img
+                          src={cylinderSlots[0].imageSrc}
+                          alt=""
+                          className="w-12 h-12 rounded-md object-cover object-center bg-black shrink-0 border border-white/10"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-md bg-black/40 shrink-0 border border-dashed border-white/15" />
+                      )}
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-white truncate">
+                          {cylinderSlots[0]?.name || 'No photo yet'}
+                        </div>
+                        <div className="text-xs text-slate-400 font-mono mt-0.5">
+                          {cylinderSlots[0]?.imageSrc ? aspectLabel : 'Add a photo to preview'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-white/10">
+                      <button
+                        type="button"
+                        onClick={onUploadClick}
+                        className="btn-secondary text-xs py-1.5"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>{cylinderSlots[0]?.imageSrc ? 'Replace' : 'Add photo'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onOpenCrop}
+                        disabled={!cylinderSlots[0]?.imageSrc}
+                        className="btn-secondary text-xs py-1.5 disabled:opacity-40"
+                      >
+                        <CropIcon className="w-3.5 h-3.5" />
+                        <span>Crop</span>
+                      </button>
+                    </div>
                   </div>
-
-                  {/* 1, 2, 3, 4 Slot Count Switcher */}
-                  {onSetCylinderSlotCount && (
-                    <div className="grid grid-cols-4 gap-1 bg-[#090c12] p-1 rounded-md border border-white/10">
-                      {[1, 2, 3, 4].map((count) => (
-                        <button
-                          key={count}
-                          type="button"
-                          onClick={() => onSetCylinderSlotCount(count)}
-                          className={`py-1 text-xs font-bold rounded-xs transition-colors ${
-                            cylinderSlots.length === count
-                              ? 'bg-amber-400 text-slate-950 font-semibold'
-                              : 'text-slate-400 hover:text-white hover:bg-white/5'
-                          }`}
-                        >
-                          {count} {count === 1 ? 'Wrap' : 'Sides'}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {previewDataUrl && (
-                    <div className="rounded-md overflow-hidden border border-white/10 bg-black">
-                      <img src={previewDataUrl} alt="Panorama preview" className="w-full h-12 object-cover opacity-90" />
-                    </div>
-                  )}
-
-                  {cylinderSlots.length === 1 && onMatchCylinderHeightToPhoto && (
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {!isStrip && photoCount === 1 && onMatchCylinderHeightToPhoto && (
                     <button
                       type="button"
                       onClick={onMatchCylinderHeightToPhoto}
@@ -257,25 +450,68 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
                   <div className="space-y-1.5">
                     {cylinderSlots.map((slot, idx) => {
-                      const labels = getMultiPanelSlotLabels(settings.shape, cylinderSlots.length);
+                      const labels = getMultiPanelSlotLabels(
+                        settings.shape,
+                        cylinderSlots.length,
+                        settings.stripLayout
+                      );
                       const labelInfo = labels[idx] || { label: `Side ${idx + 1}`, deg: '' };
+                      const isDragging = dragIndex === idx;
+                      const isOver = overIndex === idx && dragIndex !== null && dragIndex !== idx;
                       return (
                         <div
                           key={slot.id}
-                          className="flex items-center justify-between p-2 rounded-md bg-[#141924] border border-white/10 text-xs"
+                          data-photo-row={idx}
+                          className={`flex items-center justify-between p-2 rounded-md bg-[#141924] border text-xs ${
+                            isOver
+                              ? 'border-amber-400'
+                              : isDragging
+                              ? 'border-white/10 opacity-45'
+                              : 'border-white/10'
+                          }`}
                         >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <img
-                              src={slot.imageSrc}
-                              alt=""
-                              className="w-8 h-8 rounded-xs object-cover bg-black shrink-0 border border-white/10"
-                            />
+                          <div className="flex items-center gap-2 min-w-0">
+                            {photoCount > 1 && (
+                              <button
+                                type="button"
+                                className="shrink-0 cursor-grab touch-none rounded-xs p-0.5 text-slate-500 hover:text-slate-300 active:cursor-grabbing"
+                                aria-label={`Drag to reorder ${labelInfo.label}`}
+                                title="Drag to reorder"
+                                onPointerDown={(event) => startPhotoDrag(idx, event)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'ArrowUp' && idx > 0) {
+                                    event.preventDefault();
+                                    handleReorderSlots(idx, idx - 1);
+                                  }
+                                  if (event.key === 'ArrowDown' && idx < cylinderSlots.length - 1) {
+                                    event.preventDefault();
+                                    handleReorderSlots(idx, idx + 1);
+                                  }
+                                }}
+                              >
+                                <GripVertical className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {slot.imageSrc ? (
+                              <img
+                                src={slot.imageSrc}
+                                alt=""
+                                draggable={false}
+                                className="w-8 h-8 rounded-xs object-cover object-center bg-black shrink-0 border border-white/10"
+                              />
+                            ) : (
+                              <div className="w-8 h-8 rounded-xs bg-black/40 shrink-0 border border-dashed border-white/15" />
+                            )}
                             <div className="truncate">
                               <div className="font-medium text-white truncate flex items-center gap-1.5">
                                 <span>{labelInfo.label}</span>
-                                <span className="text-[10px] text-amber-400 font-mono font-bold">{labelInfo.deg}</span>
+                                {labelInfo.deg && (
+                                  <span className="text-[10px] text-amber-400 font-mono font-bold">{labelInfo.deg}</span>
+                                )}
                               </div>
-                              <div className="text-[11px] text-slate-400 font-mono truncate">{slot.name}</div>
+                              <div className="text-[11px] text-slate-400 font-mono truncate">
+                                {slot.name || 'No photo yet'}
+                              </div>
                             </div>
                           </div>
                           <div className="flex items-center gap-1 shrink-0">
@@ -291,7 +527,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                             <button
                               type="button"
                               onClick={() => onOpenCropSlot?.(slot.id)}
-                              className="btn-secondary text-xs px-2 py-1 min-h-[26px]"
+                              disabled={!slot.imageSrc}
+                              className="btn-secondary text-xs px-2 py-1 min-h-[26px] disabled:opacity-40"
                               title="Crop photo"
                               aria-label={`Crop photo for ${labelInfo.label}`}
                             >
@@ -302,83 +539,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                       );
                     })}
                   </div>
-
-                  {onNavigateToUploadStep && (
-                    <button
-                      type="button"
-                      onClick={onNavigateToUploadStep}
-                      className="btn-secondary text-xs w-full py-2 min-h-[32px] mt-2"
-                    >
-                      <span>Manage Photos in Studio</span>
-                    </button>
+                </div>
                   )}
                 </div>
-              ) : (
-                /* Flat / Curved: Single Photo */
-                <div className="space-y-3">
-                  <div className="inset-panel p-3">
-                    <div className="flex items-center gap-3">
-                      {previewDataUrl ? (
-                        <img
-                          src={previewDataUrl}
-                          alt=""
-                          className="w-12 h-12 rounded-md object-cover bg-black shrink-0 border border-white/10"
-                        />
-                      ) : (
-                        <div className="w-12 h-12 rounded-md bg-black/40 shrink-0 border border-white/10" />
-                      )}
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold text-white truncate">
-                          {hasOwnPhoto ? activeSampleId : 'Sample Photo'}
-                        </div>
-                        <div className="text-xs text-slate-400 font-mono mt-0.5">
-                          {aspectLabel}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-white/10">
-                      <button
-                        type="button"
-                        onClick={onUploadClick}
-                        className="btn-secondary text-xs py-1.5"
-                      >
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>{hasOwnPhoto ? 'Replace' : 'Upload'}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={onOpenCrop}
-                        className="btn-secondary text-xs py-1.5"
-                      >
-                        <CropIcon className="w-3.5 h-3.5" />
-                        <span>Crop</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="section-kicker">Sample Photos</div>
-                    <div className="grid grid-cols-4 gap-2">
-                      {SAMPLE_IMAGES.map((sample) => (
-                        <button
-                          key={sample.id}
-                          type="button"
-                          onClick={() => onSelectSample(sample)}
-                          className={`rounded-md overflow-hidden border p-0.5 text-center transition-colors ${
-                            activeSampleId === sample.id
-                              ? 'border-amber-400 bg-[#1e2432] ring-1 ring-amber-400'
-                              : 'border-white/10 bg-[#141924] opacity-70 hover:opacity-100'
-                          }`}
-                        >
-                          <img src={sample.url} alt={sample.name} className="w-full h-10 object-cover rounded-xs" />
-                          <span className="block text-[10px] text-slate-300 font-medium truncate mt-1">{sample.name}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
             </>
           )}
 
@@ -463,19 +626,6 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                         </button>
                       </div>
                     )}
-                    <div className="chip-row border-t border-white/10 pt-2">
-                      {[70, 80, 90, 100, 120, 150].map((dim) => (
-                        <button
-                          key={dim}
-                          type="button"
-                          data-on={Math.abs((settings.cubeWidth || 90) - dim) < 2}
-                          onClick={() => onUpdateSettings({ cubeWidth: dim, height: dim })}
-                          className="chip-btn"
-                        >
-                          {dim}mm
-                        </button>
-                      ))}
-                    </div>
                   </div>
                 </div>
               ) : isCylinder ? (
@@ -516,19 +666,6 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                         </button>
                       </div>
                     )}
-                    <div className="chip-row border-t border-white/10 pt-2">
-                      {[75, 90, 120, 180, 240, 300].map((diam) => (
-                        <button
-                          key={diam}
-                          type="button"
-                          data-on={Math.abs((settings.cylinderDiameter || 90) - diam) < 2}
-                          onClick={() => onUpdateSettings({ cylinderDiameter: diam })}
-                          className="chip-btn"
-                        >
-                          {diam}mm
-                        </button>
-                      ))}
-                    </div>
                   </div>
                 </div>
               ) : (
@@ -545,19 +682,6 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                       display={`${settings.width} × ${settings.height} mm`}
                       onChange={onUpdateWidth}
                     />
-                    <div className="chip-row border-t border-white/10 pt-2">
-                      {[80, 120, 160, 200].map((width) => (
-                        <button
-                          key={width}
-                          type="button"
-                          data-on={Math.abs(settings.width - width) < 4}
-                          onClick={() => onUpdateWidth(width)}
-                          className="chip-btn"
-                        >
-                          {width}mm
-                        </button>
-                      ))}
-                    </div>
 
                     {settings.shape === 'curved' && (
                       <div className="panel-row">
@@ -575,6 +699,57 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {tab === 'border' && (
+            <div className="space-y-4">
+              <div>
+                <div className="section-kicker">Border</div>
+                <div className="inset-panel">
+                  <Slider
+                    label="Width"
+                    min={1.5}
+                    max={borderMax}
+                    step={0.5}
+                    value={Math.min(borderMax, Math.max(1.5, settings.frameWidth))}
+                    display={`${Math.min(borderMax, Math.max(1.5, settings.frameWidth)).toFixed(1)} mm`}
+                    onChange={(val) => onUpdateSettings({ frameWidth: val, hasFrame: true })}
+                  />
+                  <div className="panel-row px-3 py-2.5">
+                    <div className="slider-meta">
+                      <span>Icon</span>
+                    </div>
+                    <div className="seg-grid grid-cols-4">
+                      {BORDER_MOTIFS.map((motif) => (
+                        <button
+                          key={motif.id}
+                          type="button"
+                          data-on={borderIcon === motif.id}
+                          aria-label={`${motif.label} border icon`}
+                          className="seg-btn flex-col gap-0.5 py-1.5 min-h-[46px]"
+                          onClick={() => {
+                            const patch: Partial<LithophaneSettings> = {
+                              borderIcon: motif.id,
+                              hasFrame: true,
+                            };
+                            if (motif.id !== 'none' && settings.frameWidth < BORDER_ICON_MIN_WIDTH_MM) {
+                              patch.frameWidth = Math.min(borderMax, BORDER_ICON_MIN_WIDTH_MM);
+                            }
+                            onUpdateSettings(patch);
+                          }}
+                        >
+                          <BorderMotifIcon motif={motif.id} />
+                          <span>{motif.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-[11px] leading-snug text-slate-400">
+                      Repeats one icon along the middle of the border.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -699,15 +874,6 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
         {/* Dock Footer Actions */}
         <div className="sheet-footer">
-          <button
-            type="button"
-            onClick={onOpenExport}
-            className="btn-primary w-full"
-          >
-            <Download className="w-4 h-4" />
-            <span>Export 3D Model</span>
-          </button>
-
           <div className="dock-links">
             <button
               type="button"

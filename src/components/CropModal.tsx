@@ -689,7 +689,7 @@ export const CropModal: React.FC<CropModalProps> = ({
           </button>
           <button
             onClick={handleApply}
-            className="btn-primary text-xs py-1.5 px-4 min-h-[32px]"
+            className="btn-primary"
           >
             <Check className="w-3.5 h-3.5" />
             <span>Save Crop</span>

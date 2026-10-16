@@ -1,4 +1,5 @@
 import { LithophaneSettings, ImageCropData } from '../types/lithophane';
+import { resolveStripLayout } from '../constants/presets';
 
 export interface ProcessedImageResult {
   luminanceGrid: Float32Array; // Flattened [row * cols + col], values in [0, 1]
@@ -15,6 +16,152 @@ export interface ProcessedImageResult {
 }
 
 export class ImageProcessor {
+  /**
+   * Cover-crop that keeps the middle of the photo.
+   * Wider photos lose equal left and right margins. Taller photos lose equal
+   * top and bottom margins, so an odd or mismatched frame still shows the
+   * vertical center — where the subject usually sits.
+   */
+  static centeredCoverRect(
+    sourceW: number,
+    sourceH: number,
+    targetAspect: number
+  ): { sx: number; sy: number; sw: number; sh: number } {
+    const w = Math.max(1, Math.round(sourceW));
+    const h = Math.max(1, Math.round(sourceH));
+    const aspect = Math.max(0.02, targetAspect);
+
+    let sx = 0;
+    let sy = 0;
+    let sw = w;
+    let sh = h;
+
+    if (w / h > aspect) {
+      sh = h;
+      sw = Math.max(1, Math.min(w, Math.round(h * aspect)));
+      sx = Math.round((w - sw) / 2);
+    } else {
+      sw = w;
+      sh = Math.max(1, Math.min(h, Math.round(w / aspect)));
+      sy = Math.round((h - sh) / 2);
+    }
+
+    sx = Math.max(0, Math.min(w - sw, sx));
+    sy = Math.max(0, Math.min(h - sh, sy));
+    return { sx, sy, sw, sh };
+  }
+
+  /**
+   * Window before any slide. A saved crop keeps its rectangle. Otherwise the
+   * frame is a centered cover crop of the target aspect.
+   */
+  static baseSourceRect(
+    sourceW: number,
+    sourceH: number,
+    targetAspect: number,
+    cropData?: ImageCropData | null
+  ): { sx: number; sy: number; sw: number; sh: number } {
+    const w = Math.max(1, Math.round(sourceW));
+    const h = Math.max(1, Math.round(sourceH));
+    if (cropData && cropData.width > 0 && cropData.height > 0) {
+      const sx = Math.max(0, Math.min(w - 1, Math.floor(cropData.x)));
+      const sy = Math.max(0, Math.min(h - 1, Math.floor(cropData.y)));
+      const sw = Math.max(1, Math.min(w - sx, Math.round(cropData.width)));
+      const sh = Math.max(1, Math.min(h - sy, Math.round(cropData.height)));
+      return { sx, sy, sw, sh };
+    }
+    return this.centeredCoverRect(w, h, targetAspect);
+  }
+
+  /**
+   * Slides a window inside the photo.
+   * Positive offsetY moves the photo up (the window travels down).
+   * Positive offsetX moves the photo right (the window travels left).
+   * Each axis is -1..1, as a fraction of the room remaining on that side.
+   */
+  static shiftSourceRect(
+    rect: { sx: number; sy: number; sw: number; sh: number },
+    sourceW: number,
+    sourceH: number,
+    offsetX = 0,
+    offsetY = 0
+  ): { sx: number; sy: number; sw: number; sh: number } {
+    const w = Math.max(1, Math.round(sourceW));
+    const h = Math.max(1, Math.round(sourceH));
+    const sw = Math.max(1, Math.min(w, rect.sw));
+    const sh = Math.max(1, Math.min(h, rect.sh));
+    const sx0 = Math.max(0, Math.min(w - sw, rect.sx));
+    const sy0 = Math.max(0, Math.min(h - sh, rect.sy));
+    const ox = Math.max(-1, Math.min(1, offsetX || 0));
+    const oy = Math.max(-1, Math.min(1, offsetY || 0));
+
+    const slackLeft = sx0;
+    const slackRight = Math.max(0, w - (sx0 + sw));
+    const slackTop = sy0;
+    const slackBottom = Math.max(0, h - (sy0 + sh));
+
+    let sx = sx0;
+    let sy = sy0;
+    if (oy >= 0) sy = sy0 + oy * slackBottom;
+    else sy = sy0 + oy * slackTop;
+    if (ox >= 0) sx = sx0 - ox * slackLeft;
+    else sx = sx0 - ox * slackRight;
+
+    sx = Math.max(0, Math.min(w - sw, Math.round(sx)));
+    sy = Math.max(0, Math.min(h - sh, Math.round(sy)));
+    return { sx, sy, sw, sh };
+  }
+
+  /** Cover or crop window after the photo has been slid inside its frame. */
+  static resolveSourceRect(
+    sourceW: number,
+    sourceH: number,
+    targetAspect: number,
+    cropData?: ImageCropData | null,
+    offsetX = 0,
+    offsetY = 0
+  ): { sx: number; sy: number; sw: number; sh: number } {
+    const base = this.baseSourceRect(sourceW, sourceH, targetAspect, cropData);
+    return this.shiftSourceRect(base, sourceW, sourceH, offsetX, offsetY);
+  }
+
+  /**
+   * Inverse of shiftSourceRect. Maps a dragged window back to -1..1 offsets
+   * relative to the unshifted base window.
+   */
+  static offsetsForWindow(
+    base: { sx: number; sy: number; sw: number; sh: number },
+    sourceW: number,
+    sourceH: number,
+    desiredSx: number,
+    desiredSy: number
+  ): { offsetX: number; offsetY: number } {
+    const w = Math.max(1, Math.round(sourceW));
+    const h = Math.max(1, Math.round(sourceH));
+    const maxX = Math.max(0, w - base.sw);
+    const maxY = Math.max(0, h - base.sh);
+    const sx = Math.max(0, Math.min(maxX, desiredSx));
+    const sy = Math.max(0, Math.min(maxY, desiredSy));
+
+    const slackLeft = base.sx;
+    const slackRight = Math.max(0, w - (base.sx + base.sw));
+    const slackTop = base.sy;
+    const slackBottom = Math.max(0, h - (base.sy + base.sh));
+
+    let offsetY = 0;
+    if (sy >= base.sy) offsetY = slackBottom > 0 ? (sy - base.sy) / slackBottom : 0;
+    else offsetY = slackTop > 0 ? (sy - base.sy) / slackTop : 0;
+
+    let offsetX = 0;
+    if (sx <= base.sx) offsetX = slackLeft > 0 ? (base.sx - sx) / slackLeft : 0;
+    else offsetX = slackRight > 0 ? -(sx - base.sx) / slackRight : 0;
+
+    return {
+      offsetX: Math.max(-1, Math.min(1, offsetX)),
+      offsetY: Math.max(-1, Math.min(1, offsetY)),
+    };
+  }
+
   /**
    * Loads an image from a URL or data URL and returns an HTMLImageElement
    */
@@ -37,23 +184,25 @@ export class ImageProcessor {
     img: HTMLImageElement,
     settings: LithophaneSettings,
     cols: number,
-    cropData?: ImageCropData | null
+    cropData?: ImageCropData | null,
+    offsetX = 0,
+    offsetY = 0
   ): ProcessedImageResult {
     // 1. Determine source bounds with integer clamping to prevent sub-pixel / odd-size artifacts
     const naturalW = img.naturalWidth || img.width;
     const naturalH = img.naturalHeight || img.height;
 
-    let sx = 0;
-    let sy = 0;
-    let sw = naturalW;
-    let sh = naturalH;
-
-    if (cropData) {
-      sx = Math.max(0, Math.min(naturalW - 1, Math.floor(cropData.x)));
-      sy = Math.max(0, Math.min(naturalH - 1, Math.floor(cropData.y)));
-      sw = Math.max(1, Math.min(naturalW - sx, Math.round(cropData.width)));
-      sh = Math.max(1, Math.min(naturalH - sy, Math.round(cropData.height)));
-    }
+    // Plate size can differ from the photo. Start from the crop or a centered
+    // cover, then slide that window when the photo has room to move.
+    const panelAspect = Math.max(10, settings.width) / Math.max(10, settings.height);
+    const { sx, sy, sw, sh } = this.resolveSourceRect(
+      naturalW,
+      naturalH,
+      panelAspect,
+      cropData,
+      offsetX,
+      offsetY
+    );
 
     // Source aspect ratio strictly dictates grid proportions
     const sourceAspect = sw / sh;
@@ -61,7 +210,14 @@ export class ImageProcessor {
     const rows = Math.max(4, Math.round(cols / sourceAspect));
 
     // 2. Process image buffer using high-precision optical pipeline
-    const luminanceGrid = this.processSingleImageBuffer(img, settings, cols, rows, cropData);
+    const fittedCrop: ImageCropData = {
+      x: sx,
+      y: sy,
+      width: sw,
+      height: sh,
+      aspectRatioMode: cropData?.aspectRatioMode ?? 'custom',
+    };
+    const luminanceGrid = this.processSingleImageBuffer(img, settings, cols, rows, fittedCrop);
 
     // 7. Generate Lossless PNG Visual Preview (zero compression artifacts)
     const previewCanvas = document.createElement('canvas');
@@ -114,7 +270,14 @@ export class ImageProcessor {
    * - 4 Images: 90° quadrants (Front, Right, Back, Left)
    */
   static processCylinderImages(
-    slots: { img: HTMLImageElement; cropData?: ImageCropData | null; label?: string; name?: string }[],
+    slots: {
+      img: HTMLImageElement;
+      cropData?: ImageCropData | null;
+      offsetX?: number;
+      offsetY?: number;
+      label?: string;
+      name?: string;
+    }[],
     settings: LithophaneSettings,
     targetCols: number
   ): ProcessedImageResult {
@@ -156,35 +319,15 @@ export class ImageProcessor {
       const naturalW = img.naturalWidth || img.width;
       const naturalH = img.naturalHeight || img.height;
 
-      let sx = 0;
-      let sy = 0;
-      let sw = naturalW;
-      let sh = naturalH;
-
       const panelAspect = panelCols / rows;
-
-      if (slot.cropData) {
-        sx = Math.max(0, Math.min(naturalW - 1, Math.floor(slot.cropData.x)));
-        sy = Math.max(0, Math.min(naturalH - 1, Math.floor(slot.cropData.y)));
-        sw = Math.max(1, Math.min(naturalW - sx, Math.round(slot.cropData.width)));
-        sh = Math.max(1, Math.min(naturalH - sy, Math.round(slot.cropData.height)));
-      } else {
-        // High quality cover fit: conform strictly to panelAspect (arc width / height)
-        const imgAspect = naturalW / naturalH;
-        if (imgAspect > panelAspect) {
-          // Source is wider than panel arc: crop left and right margins symmetrically
-          sh = naturalH;
-          sw = Math.round(sh * panelAspect);
-          sx = Math.max(0, Math.floor((naturalW - sw) / 2));
-          sy = 0;
-        } else {
-          // Source is taller than panel arc: crop top and bottom margins symmetrically
-          sw = naturalW;
-          sh = Math.round(sw / panelAspect);
-          sx = 0;
-          sy = Math.max(0, Math.floor((naturalH - sh) / 2));
-        }
-      }
+      const { sx, sy, sw, sh } = this.resolveSourceRect(
+        naturalW,
+        naturalH,
+        panelAspect,
+        slot.cropData,
+        slot.offsetX,
+        slot.offsetY
+      );
 
       // Step-downscale panel to exact pixel grid (panelCols x rows)
       const panelCanvas = this.renderSteppedDownscale(img, sx, sy, sw, sh, panelCols, rows);
@@ -271,7 +414,14 @@ export class ImageProcessor {
    * - 4 Images: 1 image per face (Front, Right, Back, Left)
    */
   static processCubeImages(
-    slots: { img: HTMLImageElement; cropData?: ImageCropData | null; label?: string; name?: string }[],
+    slots: {
+      img: HTMLImageElement;
+      cropData?: ImageCropData | null;
+      offsetX?: number;
+      offsetY?: number;
+      label?: string;
+      name?: string;
+    }[],
     settings: LithophaneSettings,
     targetCols: number
   ): ProcessedImageResult {
@@ -311,32 +461,15 @@ export class ImageProcessor {
       const naturalW = img.naturalWidth || img.width;
       const naturalH = img.naturalHeight || img.height;
 
-      let sx = 0;
-      let sy = 0;
-      let sw = naturalW;
-      let sh = naturalH;
-
       const panelAspect = panelCols / rows;
-
-      if (slot.cropData) {
-        sx = Math.max(0, Math.min(naturalW - 1, Math.floor(slot.cropData.x)));
-        sy = Math.max(0, Math.min(naturalH - 1, Math.floor(slot.cropData.y)));
-        sw = Math.max(1, Math.min(naturalW - sx, Math.round(slot.cropData.width)));
-        sh = Math.max(1, Math.min(naturalH - sy, Math.round(slot.cropData.height)));
-      } else {
-        const imgAspect = naturalW / naturalH;
-        if (imgAspect > panelAspect) {
-          sh = naturalH;
-          sw = Math.round(sh * panelAspect);
-          sx = Math.max(0, Math.floor((naturalW - sw) / 2));
-          sy = 0;
-        } else {
-          sw = naturalW;
-          sh = Math.round(sw / panelAspect);
-          sx = 0;
-          sy = Math.max(0, Math.floor((naturalH - sh) / 2));
-        }
-      }
+      const { sx, sy, sw, sh } = this.resolveSourceRect(
+        naturalW,
+        naturalH,
+        panelAspect,
+        slot.cropData,
+        slot.offsetX,
+        slot.offsetY
+      );
 
       const panelCanvas = this.renderSteppedDownscale(img, sx, sy, sw, sh, panelCols, rows);
       const panelCtx = panelCanvas.getContext('2d', { willReadFrequently: true });
@@ -403,6 +536,152 @@ export class ImageProcessor {
       previewDataUrl: previewCanvas.toDataURL('image/png'),
       sourceResolution: {
         width: numPanels * Math.round(panelCols),
+        height: rows,
+        megapixels: Math.round(((cols * rows) / 1000000) * 10) / 10,
+      },
+      physicalPitchMm,
+    };
+  }
+
+  /**
+   * Tiles 1 to 4 photos across a flat or curved panel using the selected collage.
+   * Each photo is cover-cropped from its center so a mismatched photo keeps its middle.
+   */
+  static processStripImages(
+    slots: {
+      img: HTMLImageElement;
+      cropData?: ImageCropData | null;
+      offsetX?: number;
+      offsetY?: number;
+      label?: string;
+      name?: string;
+    }[],
+    settings: LithophaneSettings,
+    targetCols: number
+  ): ProcessedImageResult {
+    const validSlots = slots.length > 0 ? slots : [{ img: new Image() }];
+    const numPanels = Math.max(1, Math.min(4, validSlots.length));
+    const layout = resolveStripLayout(settings.stripLayout, numPanels);
+    const { gridCols, gridRows, cells } = layout;
+
+    const width = Math.max(10, settings.width);
+    const height = Math.max(10, settings.height);
+    const totalAspect = width / height;
+
+    const unitCols = Math.max(8, Math.round(Math.max(48, targetCols) / gridCols));
+    const unitRows = Math.max(
+      8,
+      Math.round(Math.max(gridRows * 8, Math.round((unitCols * gridCols) / totalAspect)) / gridRows)
+    );
+    const cols = unitCols * gridCols;
+    const rows = unitRows * gridRows;
+
+    const N = cols * rows;
+    const luminanceGrid = new Float32Array(N);
+
+    const previewCanvas = document.createElement('canvas');
+    const pW = Math.max(800, cols);
+    const pH = Math.max(8, Math.round(pW / totalAspect));
+    previewCanvas.width = pW;
+    previewCanvas.height = pH;
+    const pCtx = previewCanvas.getContext('2d');
+
+    const bFactor = settings.brightness / 100;
+    const cFactor = 1 + settings.contrast / 50;
+    const gammaExp = 1 / Math.max(0.1, settings.gamma);
+
+    for (let s = 0; s < numPanels; s++) {
+      const slot = validSlots[s] || validSlots[0];
+      const block = cells[s] || cells[0];
+      if (!slot || !slot.img || !block) continue;
+
+      const img = slot.img;
+      const naturalW = img.naturalWidth || img.width;
+      const naturalH = img.naturalHeight || img.height;
+      const blockCols = block.colSpan * unitCols;
+      const blockRows = block.rowSpan * unitRows;
+      const panelAspect = blockCols / blockRows;
+
+      const { sx, sy, sw, sh } = this.resolveSourceRect(
+        naturalW,
+        naturalH,
+        panelAspect,
+        slot.cropData,
+        slot.offsetX,
+        slot.offsetY
+      );
+
+      const panelCanvas = this.renderSteppedDownscale(img, sx, sy, sw, sh, blockCols, blockRows);
+      const panelCtx = panelCanvas.getContext('2d', { willReadFrequently: true });
+      if (!panelCtx) continue;
+
+      const pImgData = panelCtx.getImageData(0, 0, blockCols, blockRows);
+      const pPixels = pImgData.data;
+      const destC0 = block.col * unitCols;
+      const destR0 = block.row * unitRows;
+
+      for (let r = 0; r < blockRows; r++) {
+        for (let c = 0; c < blockCols; c++) {
+          const pIdx = (r * blockCols + c) * 4;
+          const rVal = pPixels[pIdx];
+          const gVal = pPixels[pIdx + 1];
+          const bVal = pPixels[pIdx + 2];
+          const alpha = pPixels[pIdx + 3] / 255;
+
+          let lum = (0.2126 * rVal + 0.7152 * gVal + 0.0722 * bVal) / 255.0;
+          if (alpha < 1) {
+            lum = lum * alpha + 1.0 * (1 - alpha);
+          }
+
+          lum += bFactor;
+          lum = (lum - 0.5) * cFactor + 0.5;
+          lum = Math.max(0, Math.min(1, lum));
+          lum = Math.pow(lum, gammaExp);
+
+          if (settings.invert) {
+            lum = 1.0 - lum;
+          }
+
+          const destR = destR0 + r;
+          const destC = destC0 + c;
+          if (destR < rows && destC < cols) {
+            luminanceGrid[destR * cols + destC] = lum;
+          }
+        }
+      }
+
+      if (pCtx) {
+        const x = Math.round((block.col / gridCols) * pW);
+        const y = Math.round((block.row / gridRows) * pH);
+        const x2 = Math.round(((block.col + block.colSpan) / gridCols) * pW);
+        const y2 = Math.round(((block.row + block.rowSpan) / gridRows) * pH);
+        pCtx.imageSmoothingEnabled = true;
+        pCtx.imageSmoothingQuality = 'high';
+        pCtx.drawImage(panelCanvas, x, y, Math.max(1, x2 - x), Math.max(1, y2 - y));
+      }
+    }
+
+    if (settings.autoLevels) {
+      this.applyAutoLevels(luminanceGrid, N);
+    }
+    const sharpnessAmount = typeof settings.sharpness === 'number' ? settings.sharpness : 20;
+    if (sharpnessAmount > 0) {
+      this.applyUnsharpMask(luminanceGrid, cols, rows, sharpnessAmount, false);
+    }
+    if (settings.smoothing > 0) {
+      this.applySmoothing(luminanceGrid, cols, rows, settings.smoothing, false);
+    }
+
+    const physicalPitchMm = Math.round((width / cols) * 1000) / 1000;
+
+    return {
+      luminanceGrid,
+      cols,
+      rows,
+      aspectRatio: totalAspect,
+      previewDataUrl: previewCanvas.toDataURL('image/png'),
+      sourceResolution: {
+        width: cols,
         height: rows,
         megapixels: Math.round(((cols * rows) / 1000000) * 10) / 10,
       },
@@ -572,7 +851,7 @@ export class ImageProcessor {
 
   /**
    * Dynamic Range / Histogram Optimization:
-   * Maps image luminance to fully exploit white PLA's optical dynamic range (0.8mm to 3.0mm)
+   * Maps image luminance to fully exploit white PLA's optical dynamic range (0.6mm to 2.25mm)
    * without crushing subtle shadows or blowing highlights.
    */
   private static applyAutoLevels(grid: Float32Array, totalPixels: number): void {

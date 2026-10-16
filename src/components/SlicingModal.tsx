@@ -97,7 +97,7 @@ export const SlicingModal: React.FC<SlicingModalProps> = ({ onClose }) => {
           <button
             type="button"
             onClick={onClose}
-            className="btn-primary text-xs py-1.5 px-4 min-h-[32px]"
+            className="btn-primary"
           >
             <Check className="w-3.5 h-3.5" />
             <span>Got it</span>
