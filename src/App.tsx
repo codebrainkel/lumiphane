@@ -886,6 +886,7 @@ export default function App() {
               geometryData={geometryData}
               settings={settings}
               isGenerating={isGenerating}
+              renderPaused={showValidationModal}
             />
           </section>
 
