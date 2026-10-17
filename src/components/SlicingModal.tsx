@@ -1,21 +1,30 @@
 import React from 'react';
 import { X, Printer, Check } from 'lucide-react';
 import { SLICER_PRESETS } from '../constants/presets';
+import { useDialog } from './useDialog';
 
 interface SlicingModalProps {
   onClose: () => void;
 }
 
 export const SlicingModal: React.FC<SlicingModalProps> = ({ onClose }) => {
+  const { dialogRef, onScrimPointerDown } = useDialog(onClose);
   return (
-    <div className="modal-scrim">
-      <div className="modal-dialog">
+    <div className="modal-scrim" onPointerDown={onScrimPointerDown}>
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        className="modal-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="slicing-title"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/10">
           <div className="flex items-center gap-2.5">
             <Printer className="w-4 h-4 text-amber-400" />
             <div>
-              <h3 className="text-base font-bold text-white tracking-tight">
+              <h3 id="slicing-title" className="text-base font-bold text-white tracking-tight">
                 3D Printing Guide
               </h3>
               <p className="text-xs text-amber-400/90 font-mono font-bold mt-0.5">
@@ -53,25 +62,25 @@ export const SlicingModal: React.FC<SlicingModalProps> = ({ onClose }) => {
               <div className="p-3 rounded-md bg-[#141924] border border-white/10">
                 <span className="text-slate-400 text-[11px] font-mono">Infill</span>
                 <div className="text-xs font-semibold text-white font-mono mt-0.5">100% Solid</div>
-                <p className="text-[10px] text-slate-500 font-mono mt-0.5">10 walls, concentric infill, no grid in the light</p>
+                <p className="text-xs text-slate-400 font-mono mt-0.5">10 walls, concentric infill, no grid in the light</p>
               </div>
 
               <div className="p-3 rounded-md bg-[#141924] border border-white/10">
                 <span className="text-slate-400 text-[11px] font-mono">Layer Height</span>
                 <div className="text-xs font-semibold text-white font-mono mt-0.5">0.10 mm</div>
-                <p className="text-[10px] text-slate-500 font-mono mt-0.5">0.08–0.12 mm works. The 3MF uses 0.10 mm</p>
+                <p className="text-xs text-slate-400 font-mono mt-0.5">0.08–0.12 mm works. The 3MF uses 0.10 mm</p>
               </div>
 
               <div className="p-3 rounded-md bg-[#141924] border border-white/10">
                 <span className="text-slate-400 text-[11px] font-mono">Print Speed</span>
                 <div className="text-xs font-semibold text-white font-mono mt-0.5">30 mm/s</div>
-                <p className="text-[10px] text-slate-500 font-mono mt-0.5">Outer walls. Inner walls stay near 60 mm/s</p>
+                <p className="text-xs text-slate-400 font-mono mt-0.5">Outer walls. Inner walls stay near 60 mm/s</p>
               </div>
 
               <div className="p-3 rounded-md bg-[#141924] border border-white/10">
                 <span className="text-slate-400 text-[11px] font-mono">Bed Adhesion</span>
                 <div className="text-xs font-semibold text-white font-mono mt-0.5">6 mm Brim</div>
-                <p className="text-[10px] text-slate-500 font-mono mt-0.5">Supports off. The brim holds a tall print down</p>
+                <p className="text-xs text-slate-400 font-mono mt-0.5">Supports off. The brim holds a tall print down</p>
               </div>
             </div>
           </div>

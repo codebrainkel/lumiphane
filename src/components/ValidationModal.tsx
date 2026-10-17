@@ -26,6 +26,7 @@ import {
   AlertTriangle,
   Mail,
 } from 'lucide-react';
+import { useDialog } from './useDialog';
 
 interface ValidationModalProps {
   geometryData: MeshGeometryData;
@@ -81,6 +82,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   const [pendingFile, setPendingFile] = useState(false);
   const pendingBlobRef = useRef<{ blob: Blob; filename: string } | null>(null);
   const emailAbortRef = useRef<AbortController | null>(null);
+  const { dialogRef, onScrimPointerDown } = useDialog(onClose);
 
   useEffect(() => {
     let cancelled = false;
@@ -328,7 +330,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
       ? 'text-amber-400'
       : 'text-emerald-400';
 
-  const printerBlock = exportFormat === 'bambu-project' ? (
+  const printerBlock = (
     <div className="p-3 rounded-md bg-[#141924] border border-white/10 space-y-2.5">
       <label className="block">
         <span className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
@@ -342,7 +344,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
             setExportError(null);
             clearPendingFile();
           }}
-          className="mt-1.5 w-full rounded-md border border-white/10 bg-[#10141d] px-2.5 py-2 text-base sm:text-xs text-slate-200 outline-none focus:border-amber-400"
+          className="mt-1.5 w-full rounded-md border border-white/10 bg-[#10141d] px-2.5 py-2 text-base text-slate-200 outline-none focus:border-amber-400"
           style={{ colorScheme: 'dark' }}
         >
           {BAMBU_PRINTERS.map((printer) => (
@@ -358,11 +360,15 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
           : 'Loading the saved Bambu Studio profile…'}
       </div>
     </div>
-  ) : null;
+  );
+
+  const showPrinter = exportFormat === 'bambu-project';
 
   return (
-    <div className="modal-scrim">
+    <div className="modal-scrim" onPointerDown={onScrimPointerDown}>
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className="modal-dialog relative"
         role="dialog"
         aria-modal="true"
@@ -453,7 +459,14 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
               </button>
             </div>
 
-            {printerBlock}
+            <div
+              className="export-slot"
+              data-active={showPrinter ? 'true' : 'false'}
+              inert={showPrinter ? undefined : true}
+              aria-hidden={showPrinter ? undefined : true}
+            >
+              {printerBlock}
+            </div>
 
             {showEmail && (
               <div className="export-tabs" role="tablist" aria-label="How to get the file">
@@ -481,57 +494,74 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
               </div>
             )}
 
-            {path === 'download' && showOrder && (
-              <button
-                type="button"
-                onClick={onOrderPrint}
-                disabled={!orderReady || isExporting || isEmailing}
-                className="w-full p-3 text-left rounded-md border border-white/10 bg-[#141924] hover:border-white/20 disabled:opacity-45"
-              >
-                <div className="flex items-center gap-2 text-xs font-bold text-white">
-                  <Printer className="w-3.5 h-3.5 text-amber-400" />
-                  Order a print
+            {(showEmail || showOrder) && (
+              <div className="export-swap">
+                <div
+                  data-active={path === 'download' ? 'true' : 'false'}
+                  inert={path === 'download' ? undefined : true}
+                  aria-hidden={path === 'download' ? undefined : true}
+                >
+                  {showOrder && (
+                    <button
+                      type="button"
+                      onClick={onOrderPrint}
+                      disabled={!orderReady || isExporting || isEmailing}
+                      className="w-full p-3 text-left rounded-md border border-white/10 bg-[#141924] hover:border-white/20 disabled:opacity-45"
+                    >
+                      <div className="flex items-center gap-2 text-xs font-bold text-white">
+                        <Printer className="w-3.5 h-3.5 text-amber-400" />
+                        Order a print
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1 leading-snug">
+                        Treatstock prints this lithophane and ships it to you. You pay Treatstock, not Lumiphane.
+                      </p>
+                    </button>
+                  )}
                 </div>
-                <p className="text-[11px] text-slate-400 mt-1 leading-snug">
-                  Treatstock prints this lithophane and ships it to you. You pay Treatstock, not Lumiphane.
-                </p>
-              </button>
-            )}
-
-            {path === 'email' && (
-              <div id="export-panel-email" role="tabpanel" aria-labelledby="export-tab-email" className="space-y-3">
-                <p className="text-[11px] text-slate-400 leading-snug">
-                  One email, with the file attached. Lumiphane does not keep a copy.
-                </p>
-                <label className="block">
-                  <span className="text-[11px] font-medium text-slate-300">Email address</span>
-                  <input
-                    type="email"
-                    inputMode="email"
-                    autoComplete="email"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    enterKeyHint="send"
-                    maxLength={254}
-                    value={emailAddress}
-                    placeholder="you@example.com"
-                    aria-invalid={emailError ? true : undefined}
-                    onChange={(event) => {
-                      setEmailAddress(event.target.value);
-                      setEmailError(null);
-                      setEmailNotice(null);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault();
-                        void handleEmail();
-                      }
-                    }}
-                    className="mt-1.5 w-full rounded-md border border-white/10 bg-[#10141d] px-3 py-2.5 text-base text-slate-100 outline-none focus:border-amber-400"
-                  />
-                </label>
-                <p className="text-[11px] text-slate-500 leading-snug">{emailFormatHint}</p>
+                {showEmail && (
+                  <div
+                    id="export-panel-email"
+                    role="tabpanel"
+                    aria-labelledby="export-tab-email"
+                    data-active={path === 'email' ? 'true' : 'false'}
+                    inert={path === 'email' ? undefined : true}
+                    aria-hidden={path === 'email' ? undefined : true}
+                    className="space-y-3"
+                  >
+                    <p className="text-xs text-slate-400 leading-snug">
+                      One email, with the file attached. Lumiphane does not keep a copy.
+                    </p>
+                    <label className="block">
+                      <span className="text-xs font-medium text-slate-300">Email address</span>
+                      <input
+                        type="email"
+                        inputMode="email"
+                        autoComplete="email"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        enterKeyHint="send"
+                        maxLength={254}
+                        value={emailAddress}
+                        placeholder="you@example.com"
+                        aria-invalid={emailError ? true : undefined}
+                        onChange={(event) => {
+                          setEmailAddress(event.target.value);
+                          setEmailError(null);
+                          setEmailNotice(null);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            void handleEmail();
+                          }
+                        }}
+                        className="mt-1.5 w-full rounded-md border border-white/10 bg-[#10141d] px-3 py-2.5 text-base text-slate-100 outline-none focus:border-amber-400"
+                      />
+                    </label>
+                    <p className="text-xs leading-snug text-slate-400">{emailFormatHint}</p>
+                  </div>
+                )}
               </div>
             )}
           </div>

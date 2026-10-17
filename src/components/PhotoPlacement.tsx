@@ -358,14 +358,14 @@ export function PhotoPlacementBoard({
                     />
                   ) : null}
                   <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-1.5 py-1">
-                    <span className="block truncate text-[10px] font-bold text-white">
+                    <span className="block truncate text-xs font-bold text-white">
                       {label?.label || `Photo ${cell.index + 1}`}
                     </span>
                   </div>
                   {moved && count > 1 && (
                     <button
                       type="button"
-                      className="absolute top-1 right-1 z-10 min-h-8 rounded-xs bg-black/75 px-2 py-1 font-mono text-[10px] font-bold text-amber-300"
+                      className="coarse-target absolute top-1 right-1 z-10 min-h-8 rounded-xs bg-black/75 px-2 py-1 font-mono text-xs font-bold text-amber-300"
                       onClick={() => onOffsetChange(slot.id, { offsetX: 0, offsetY: 0 })}
                     >
                       Center

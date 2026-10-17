@@ -208,7 +208,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   const placePhotosButton = onPlacePhotos ? (
     <button
       type="button"
-      className="ml-auto flex h-11 shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-[#090c12] px-3 text-sm font-medium text-slate-200 transition-colors hover:border-white/25 hover:text-white sm:h-9 sm:px-2.5 sm:text-xs"
+      className="coarse-target ml-auto flex h-11 shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-[#090c12] px-3 text-sm font-medium text-slate-200 transition-colors hover:border-white/25 hover:text-white sm:h-9 sm:px-2.5 sm:text-xs"
       onClick={onPlacePhotos}
     >
       <Move className="h-3.5 w-3.5 text-amber-400" />
@@ -377,7 +377,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                                 aria-label={preset.label}
                                 aria-pressed={selected}
                                 onClick={() => onUpdateSettings({ stripLayout: preset.id })}
-                                className={`flex h-11 w-11 items-center justify-center rounded-md border p-1 transition-colors sm:h-9 sm:w-9 ${
+                                className={`coarse-square flex h-11 w-11 items-center justify-center rounded-md border p-1 transition-colors sm:h-9 sm:w-9 ${
                                   selected
                                     ? 'border-amber-400 bg-amber-400/15 text-amber-300'
                                     : 'border-white/10 bg-[#090c12] text-slate-500 hover:border-white/25 hover:text-slate-200'
@@ -492,7 +492,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                             {photoCount > 1 && (
                               <button
                                 type="button"
-                                className="inline-flex h-11 w-11 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-slate-500 hover:text-slate-300 active:cursor-grabbing sm:h-8 sm:w-8"
+                                className="coarse-square inline-flex h-11 w-11 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-slate-500 hover:text-slate-300 active:cursor-grabbing sm:h-8 sm:w-8"
                                 aria-label={`Drag to reorder ${labelInfo.label}`}
                                 title="Drag to reorder"
                                 onPointerDown={(event) => startPhotoDrag(idx, event)}
@@ -528,7 +528,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                               <div className="font-medium text-white truncate flex items-center gap-1.5">
                                 <span>{labelInfo.label}</span>
                                 {labelInfo.deg && (
-                                  <span className="text-[10px] text-amber-400 font-mono font-bold">{labelInfo.deg}</span>
+                                  <span className="text-xs text-amber-400 font-mono font-bold">{labelInfo.deg}</span>
                                 )}
                               </div>
                               <div className="text-[11px] text-slate-400 font-mono truncate">

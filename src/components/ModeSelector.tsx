@@ -1,6 +1,8 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { LithophaneShape } from '../types/lithophane';
 import { Check } from 'lucide-react';
+
+const SHAPES: LithophaneShape[] = ['cylinder', 'cube', 'flat', 'curved'];
 
 interface ModeSelectorProps {
   selectedShape: LithophaneShape | null;
@@ -12,6 +14,56 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
   onSelectShape,
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [visibleIndex, setVisibleIndex] = useState(() => {
+    if (!selectedShape) return 0;
+    const index = SHAPES.indexOf(selectedShape);
+    return index >= 0 ? index : 0;
+  });
+
+  const scrollToCard = (index: number, behavior: ScrollBehavior) => {
+    const root = scrollContainerRef.current;
+    const card = root?.children[index] as HTMLElement | undefined;
+    const first = root?.children[0] as HTMLElement | undefined;
+    if (!root || !card || !first) return;
+    const overflowX = getComputedStyle(root).overflowX;
+    if (overflowX !== 'auto' && overflowX !== 'scroll') return;
+    root.scrollTo({ left: card.offsetLeft - first.offsetLeft, behavior });
+  };
+
+  useLayoutEffect(() => {
+    if (!selectedShape) return;
+    const index = SHAPES.indexOf(selectedShape);
+    if (index < 0) return;
+    scrollToCard(index, 'auto');
+    const frame = requestAnimationFrame(() => scrollToCard(index, 'auto'));
+    return () => cancelAnimationFrame(frame);
+  }, [selectedShape]);
+
+  useEffect(() => {
+    const root = scrollContainerRef.current;
+    if (!root) return;
+    const update = () => {
+      const cards = [...root.children] as HTMLElement[];
+      const rootLeft = root.getBoundingClientRect().left;
+      let best = 0;
+      let bestDist = Infinity;
+      cards.forEach((card, index) => {
+        const dist = Math.abs(card.getBoundingClientRect().left - rootLeft);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = index;
+        }
+      });
+      setVisibleIndex(best);
+    };
+    update();
+    root.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    return () => {
+      root.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, []);
 
   const modes = [
     {
@@ -244,19 +296,19 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
       </div>
 
       {/* Subtle Mobile Pagination Indicator Dots */}
-      <div className="sm:hidden flex items-center justify-center mt-1 mb-2">
-        {modes.map((mode) => (
+      <div className="sm:hidden flex items-center justify-center mt-1 mb-2" role="tablist" aria-label="Shapes">
+        {modes.map((mode, index) => (
           <button
             key={mode.id}
             type="button"
-            onClick={() => onSelectShape(mode.id)}
-            className="inline-flex h-11 w-8 items-center justify-center"
-            aria-label={`Select ${mode.title}`}
-            aria-pressed={selectedShape === mode.id}
+            onClick={() => scrollToCard(index, 'smooth')}
+            className="inline-flex h-11 w-11 items-center justify-center"
+            aria-label={`Show ${mode.title}`}
+            aria-current={visibleIndex === index ? 'true' : undefined}
           >
             <span
               className={`h-1.5 rounded-full transition-all ${
-                selectedShape === mode.id ? 'w-5 bg-amber-400' : 'w-1.5 bg-white/20'
+                visibleIndex === index ? 'w-5 bg-amber-400' : 'w-1.5 bg-white/20'
               }`}
             />
           </button>

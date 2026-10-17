@@ -534,6 +534,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
             data-on={activeView === 'front'}
             className="hud-btn"
             title="Front view"
+            aria-pressed={activeView === 'front'}
           >
             Front
           </button>
@@ -543,6 +544,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
             data-on={activeView === 'iso'}
             className="hud-btn"
             title="3D angle view"
+            aria-pressed={activeView === 'iso'}
           >
             Angle
           </button>
@@ -581,6 +583,12 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
             <RotateCcw className={`w-3.5 h-3.5 ${autoRotate ? 'animate-spin' : ''}`} />
           </button>
         </div>
+        {isGenerating && (
+          <div className="viewport-updating" role="status">
+            <div className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin shrink-0" />
+            <span className="font-bold text-amber-300">Updating</span>
+          </div>
+        )}
       </div>
 
       {/* Model Dimensions Badge */}
@@ -599,13 +607,6 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
           className="w-full h-full cursor-grab active:cursor-grabbing"
         />
 
-        {/* Loading Spinner */}
-        {isGenerating && (
-          <div className="absolute top-14 right-3 z-20 pointer-events-none flex items-center gap-2 rounded-md border border-white/10 bg-[#10141d]/90 px-2.5 py-1.5 text-[11px] font-mono text-slate-200 shadow-lg">
-            <div className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin shrink-0" />
-            <span className="font-bold text-amber-300">Updating</span>
-          </div>
-        )}
       </div>
     </div>
   );

@@ -29,7 +29,7 @@ export const Header: React.FC<HeaderProps> = ({ currentStep, onStepChange, shape
             e.preventDefault();
             onStepChange('mode');
           }}
-          className="flex items-center gap-2.5 group min-w-0"
+          className="nav-home group min-w-0 gap-2.5"
           title="Home"
         >
           <div className="w-8 h-8 rounded-md bg-gradient-to-br from-[#1a1710] to-[#121620] border border-amber-400/40 p-1 flex items-center justify-center shadow-md shadow-amber-500/10 group-hover:border-amber-400 transition-colors shrink-0">

@@ -8,6 +8,7 @@ import {
   Maximize,
   Move,
 } from 'lucide-react';
+import { useDialog } from './useDialog';
 
 interface CropModalProps {
   imageSrc: string;
@@ -73,6 +74,10 @@ export const CropModal: React.FC<CropModalProps> = ({
   });
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const chipRowRef = useRef<HTMLDivElement>(null);
+  const captureRef = useRef<{ el: HTMLElement; id: number } | null>(null);
+  const [chipsFade, setChipsFade] = useState(false);
+  const { dialogRef, onScrimPointerDown } = useDialog(onClose);
   const dragStartRef = useRef<{
     mode: DragMode;
     startX: number;
@@ -136,7 +141,7 @@ export const CropModal: React.FC<CropModalProps> = ({
       return { x: 0, y: 0, width: 0, height: 0, scale: 1 };
     }
 
-    const pad = 16;
+    const pad = 28;
     const availW = Math.max(50, containerSize.width - pad * 2);
     const availH = Math.max(50, containerSize.height - pad * 2);
 
@@ -251,7 +256,9 @@ export const CropModal: React.FC<CropModalProps> = ({
     e.preventDefault();
     e.stopPropagation();
 
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    captureRef.current = { el, id: e.pointerId };
 
     dragStartRef.current = {
       mode,
@@ -381,16 +388,38 @@ export const CropModal: React.FC<CropModalProps> = ({
     });
   };
 
-  const handlePointerUp = (e: React.PointerEvent) => {
-    if (dragStartRef.current.mode !== 'none') {
+  const endDrag = (e: React.PointerEvent) => {
+    if (dragStartRef.current.mode === 'none') return;
+    const cap = captureRef.current;
+    if (cap) {
       try {
-        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+        cap.el.releasePointerCapture(cap.id);
       } catch {
-        // ignore
+        // The pointer is already gone.
       }
-      dragStartRef.current.mode = 'none';
     }
+    captureRef.current = null;
+    dragStartRef.current.mode = 'none';
+    e.stopPropagation();
   };
+
+  useEffect(() => {
+    const row = chipRowRef.current;
+    if (!row) return;
+    const update = () => {
+      const overflow = row.scrollWidth - row.clientWidth > 4;
+      const atEnd = row.scrollLeft + row.clientWidth >= row.scrollWidth - 4;
+      setChipsFade(overflow && !atEnd);
+    };
+    update();
+    row.addEventListener('scroll', update, { passive: true });
+    const observer = new ResizeObserver(update);
+    observer.observe(row);
+    return () => {
+      row.removeEventListener('scroll', update);
+      observer.disconnect();
+    };
+  }, [targetAspect]);
 
   const handleApply = () => {
     const isFullImage =
@@ -424,12 +453,19 @@ export const CropModal: React.FC<CropModalProps> = ({
   const projectedHeightMm = Math.max(10, Math.round(physicalWidthMm / currentRatioVal));
 
   return (
-    <div className="modal-scrim select-none">
-      <div className="modal-dialog wide">
+    <div className="modal-scrim select-none" onPointerDown={onScrimPointerDown}>
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        className="modal-dialog wide"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="crop-title"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/10">
           <div>
-            <h3 className="text-base font-semibold text-white tracking-tight">
+            <h3 id="crop-title" className="text-base font-semibold text-white tracking-tight">
               Crop Photo
             </h3>
             <p className="text-xs text-slate-400 font-mono mt-0.5">
@@ -448,42 +484,45 @@ export const CropModal: React.FC<CropModalProps> = ({
         {/* Modal Body */}
         <div className="modal-body p-5 flex flex-col gap-4">
           {/* Preset Buttons Bar */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
-            {targetAspect && (
-              <button
-                type="button"
-                onClick={() => applySpecificRatio(targetAspect, 'custom')}
-                className="px-3 py-1.5 rounded-sm text-xs font-semibold whitespace-nowrap transition-colors shrink-0 bg-amber-400 text-slate-950 hover:bg-amber-300 border border-amber-300 shadow-xs flex items-center gap-1.5"
-                title={`Fit crop exactly to ${targetAspectLabel || 'cylinder sector'} (${targetAspect.toFixed(2)}:1)`}
-              >
-                <CropIcon className="w-3.5 h-3.5" />
-                <span>{targetAspectLabel || `Fit Ratio (${targetAspect.toFixed(2)}:1)`}</span>
-              </button>
-            )}
-            {PRESETS.map((p) => {
-              const isActive = aspectMode === p.id;
-              return (
+          <div className="chip-scroller" data-fade={chipsFade ? 'true' : 'false'}>
+            <div ref={chipRowRef} className="chip-row" role="group" aria-label="Crop proportions">
+              {targetAspect && (
                 <button
-                  key={p.id}
-                  onClick={() => setPresetRatio(p.id)}
-                  className={`px-3 py-1.5 rounded-sm text-xs font-medium whitespace-nowrap transition-colors shrink-0 ${
-                    isActive
-                      ? 'bg-[#1e2535] text-white border border-white/20 font-semibold'
-                      : 'bg-[#141924] text-slate-400 hover:text-slate-200 border border-white/5'
-                  }`}
+                  type="button"
+                  onClick={() => applySpecificRatio(targetAspect, 'custom')}
+                  className="chip-btn"
+                  data-accent="true"
+                  title={`Fit crop exactly to ${targetAspectLabel || 'cylinder sector'} (${targetAspect.toFixed(2)}:1)`}
                 >
-                  {p.label}
+                  <CropIcon className="w-3.5 h-3.5" />
+                  <span>{targetAspectLabel || `Fit Ratio (${targetAspect.toFixed(2)}:1)`}</span>
                 </button>
-              );
-            })}
+              )}
+              {PRESETS.map((p) => {
+                const isActive = aspectMode === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setPresetRatio(p.id)}
+                    className="chip-btn"
+                    data-on={isActive ? 'true' : 'false'}
+                    aria-pressed={isActive}
+                  >
+                    {p.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Interactive Visual Canvas / Crop Viewport */}
           <div
             ref={containerRef}
-            className="relative bg-[#080a0e] border border-white/10 rounded-md h-[40dvh] min-h-56 sm:h-96 flex items-center justify-center overflow-hidden touch-none"
+            className="crop-stage bg-[#080a0e] border border-white/10 rounded-md flex items-center justify-center overflow-hidden touch-none"
             onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
           >
             {/* Background Image */}
             {bounds.width > 0 && (
@@ -579,24 +618,28 @@ export const CropModal: React.FC<CropModalProps> = ({
 
                 {/* Corner Resize Handles */}
                 <div
-                  className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-amber-400 border border-white cursor-nwse-resize"
+                  className="crop-handle crop-handle-nw"
+                  aria-hidden="true"
                   onPointerDown={(e) => handlePointerDown('nw', e)}
                 />
                 <div
-                  className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-amber-400 border border-white cursor-nesw-resize"
+                  className="crop-handle crop-handle-ne"
+                  aria-hidden="true"
                   onPointerDown={(e) => handlePointerDown('ne', e)}
                 />
                 <div
-                  className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-amber-400 border border-white cursor-nwse-resize"
+                  className="crop-handle crop-handle-se"
+                  aria-hidden="true"
                   onPointerDown={(e) => handlePointerDown('se', e)}
                 />
                 <div
-                  className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-amber-400 border border-white cursor-nesw-resize"
+                  className="crop-handle crop-handle-sw"
+                  aria-hidden="true"
                   onPointerDown={(e) => handlePointerDown('sw', e)}
                 />
 
                 {/* Dimension Tooltip */}
-                <div className="absolute bottom-1.5 right-1.5 bg-black/80 px-1.5 py-0.5 rounded-xs text-[10px] font-mono text-amber-400 font-bold border border-white/10 pointer-events-none">
+                <div className="absolute bottom-1.5 right-1.5 bg-black/80 px-1.5 py-0.5 rounded-xs text-xs font-mono text-amber-400 font-bold border border-white/10 pointer-events-none">
                   {cropRect.width} × {cropRect.height} px
                 </div>
               </div>
@@ -607,7 +650,7 @@ export const CropModal: React.FC<CropModalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             <div className="p-2.5 rounded-md bg-[#141924] border border-white/10 flex items-center justify-between">
               <div>
-                <span className="text-[10px] uppercase font-bold text-slate-400 font-mono block">
+                <span className="text-xs uppercase font-bold text-slate-400 font-mono block">
                   Crop Size
                 </span>
                 <span className="text-xs font-mono font-bold text-white">
@@ -621,7 +664,7 @@ export const CropModal: React.FC<CropModalProps> = ({
 
             <div className="p-2.5 rounded-md bg-[#141924] border border-white/10 flex items-center justify-between">
               <div>
-                <span className="text-[10px] uppercase font-bold text-slate-400 font-mono block">
+                <span className="text-xs uppercase font-bold text-slate-400 font-mono block">
                   Proportions
                 </span>
                 <span className="text-xs font-mono font-bold text-amber-400">
@@ -635,14 +678,14 @@ export const CropModal: React.FC<CropModalProps> = ({
 
             <div className="p-2.5 rounded-md bg-[#141924] border border-white/10 flex items-center justify-between">
               <div>
-                <span className="text-[10px] uppercase font-semibold text-slate-500 font-mono block">
+                <span className="text-xs uppercase font-semibold text-slate-400 font-mono block">
                   3D Dimensions
                 </span>
                 <span className="text-xs font-mono font-semibold text-white">
                   {physicalWidthMm} × {projectedHeightMm} mm
                 </span>
               </div>
-              <span className="text-[10px] text-slate-400 font-mono">
+              <span className="text-xs text-slate-400 font-mono">
                 Auto scaled
               </span>
             </div>
@@ -673,7 +716,7 @@ export const CropModal: React.FC<CropModalProps> = ({
                 <span>Reset</span>
               </button>
             </div>
-            <span className="text-[11px] text-slate-500 font-mono hidden sm:inline">
+            <span className="text-xs text-slate-400 font-mono hidden sm:inline">
               Drag frame to move · Drag corners to resize
             </span>
           </div>

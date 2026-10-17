@@ -908,7 +908,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setErrorMessage(null)}
-            className="inline-flex min-h-11 shrink-0 items-center px-3 text-sm font-medium text-red-300 hover:text-red-100 sm:min-h-0 sm:px-2 sm:text-xs"
+            className="coarse-target inline-flex min-h-11 shrink-0 items-center px-3 text-sm font-medium text-red-300 hover:text-red-100 sm:min-h-0 sm:px-2 sm:text-xs"
           >
             Dismiss
           </button>

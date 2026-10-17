@@ -3,6 +3,7 @@ import { MeshGeometryData } from '../types/lithophane';
 import { StlExporter } from '../services/stlExporter';
 import { isTreatstockHttpsUrl, MAX_STL_BYTES } from '../services/printOrder';
 import { AlertCircle, ExternalLink, Printer, X } from 'lucide-react';
+import { useDialog } from './useDialog';
 
 interface OrderPrintModalProps {
   geometryData: MeshGeometryData;
@@ -81,13 +82,21 @@ export const OrderPrintModal: React.FC<OrderPrintModalProps> = ({
     };
   }, [geometryData, imageName]);
 
+  const { dialogRef, onScrimPointerDown } = useDialog(onClose);
   const materialLine = checkout?.material
     ? `${checkout.color ? `${checkout.color} ` : ''}${checkout.material}`
     : null;
 
   return (
-    <div className="modal-scrim">
-      <div className="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="order-print-title">
+    <div className="modal-scrim" onPointerDown={onScrimPointerDown}>
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        className="modal-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="order-print-title"
+      >
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/10">
           <div>
             <h2 id="order-print-title" className="text-base font-semibold text-white tracking-tight">
