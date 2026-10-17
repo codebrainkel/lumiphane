@@ -1,18 +1,16 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import dotenv from 'dotenv';
-import express from 'express';
 import path from 'path';
 import {defineConfig, type Plugin} from 'vite';
-import {createPrintOrderRouter} from './server/printOrderRouter';
+import {createApp} from './server/app';
 
 dotenv.config();
 
-function printOrderApi(): Plugin {
-  const app = express();
-  app.use(createPrintOrderRouter());
+function apiMiddleware(): Plugin {
+  const app = createApp();
   return {
-    name: 'lumiphane-print-order',
+    name: 'lumiphane-api',
     configureServer(server) {
       server.middlewares.use(app);
     },
@@ -21,7 +19,7 @@ function printOrderApi(): Plugin {
 
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss(), printOrderApi()],
+    plugins: [react(), tailwindcss(), apiMiddleware()],
     resolve: {
       alias: {
         '@': path.resolve(import.meta.dirname, '.'),

@@ -29,6 +29,7 @@ import {
 import { DEFAULT_SETTINGS, ULTRA_FINE_RESOLUTION } from '../constants/presets';
 import { LithophaneSettings } from '../types/lithophane';
 import { borderIconCoverage, createBorderIconField } from '../services/borderIcons';
+import { runEmailExportTests } from './emailExportTests';
 import JSZip from 'jszip';
 
 let totalTests = 0;
@@ -951,6 +952,8 @@ async function runTestSuite() {
     });
     assert(rejected.ok === false, 'A non-Treatstock redirect is refused');
   }
+
+  await runEmailExportTests(assert);
 
   console.log('\n========================================');
   console.log(`TEST SUMMARY: ${passedTests}/${totalTests} PASSED (${failedTests} FAILED)`);
