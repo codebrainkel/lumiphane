@@ -13,7 +13,16 @@
  * 10. Robustness & error handling with extreme inputs (e.g. minThickness >= maxThickness, tiny sizes)
  */
 
-import { ImageProcessor } from '../services/imageProcessor';
+import {
+  ImageProcessor,
+  STORED_LONG_EDGE,
+  cachedLuminanceResize,
+  cappedSize,
+  lanczosResize,
+  lanczosResizeLuminance,
+  orientRgba,
+  readExifOrientation,
+} from '../services/imageProcessor';
 import { GeometryGenerator, standingBaseExtension } from '../services/geometryGenerator';
 import { MeshValidator } from '../services/meshValidator';
 import { ThreeMfExporter } from '../services/threeMfExporter';
@@ -26,7 +35,7 @@ import {
   sanitizeModelFilename,
   selectTreatstockCheckout,
 } from '../services/printOrder';
-import { DEFAULT_SETTINGS, ULTRA_FINE_RESOLUTION, getAutoScaledThickness } from '../constants/presets';
+import { DEFAULT_SETTINGS, ULTRA_FINE_RESOLUTION, getAutoScaledThickness, getResolutionForTier } from '../constants/presets';
 import { thicknessForLuminance, transmissionToSrgb } from '../constants/optics';
 import { LithophaneSettings, MeshGeometryData } from '../types/lithophane';
 import { borderIconCoverage, createBorderIconField, maxBorderWidthMm } from '../services/borderIcons';
@@ -462,8 +471,12 @@ async function runTestSuite() {
     );
 
     const projText = await zip.file('Metadata/project_settings.config')!.async('text');
-    assert(projText === templateSettings, 'project_settings.config is the saved Bambu Studio profile, unchanged');
+    const supportsOff = templateSettings.replace(/"enable_support"\s*:\s*"1"/g, '"enable_support": "0"');
+    assert(supportsOff !== templateSettings, 'Saved Bambu profile ships with supports on, so the patch is observable');
+    assert(projText === supportsOff, 'A2L project_settings is the saved profile with only enable_support turned off');
     const projJson = JSON.parse(projText);
+    assert(projJson.enable_support === '0', 'A2L enable_support is 0');
+    assert(projJson.wall_generator === 'classic', 'A2L wall_generator stays classic');
     assert(projJson.printer_model === 'Bambu Lab A2L', `Printer model matches the saved profile (got: ${projJson.printer_model})`);
     assert(projJson.version === '02.08.02.60', `Project version matches Bambu Studio 02.08.02.60 (got: ${projJson.version})`);
     assert(projJson.print_settings_id === '0.12mm High Quality @BBL A2L', `Process profile is preserved (got: ${projJson.print_settings_id})`);
@@ -557,6 +570,8 @@ async function runTestSuite() {
     assert(mini.proj.printer_model === 'Bambu Lab A1 mini', `A1 mini printer model is retargeted (got: ${mini.proj.printer_model})`);
     assert(mini.proj.printer_settings_id === 'Bambu Lab A1 mini 0.4 nozzle', 'A1 mini uses its 0.4 nozzle machine preset');
     assert(mini.proj.print_settings_id === '0.12mm High Quality @BBL A1M', 'A1 mini uses its 0.12 mm process preset');
+    assert(mini.proj.enable_support === '0', 'A1 mini enable_support is 0');
+    assert(mini.proj.wall_generator === 'classic', 'A1 mini wall_generator stays classic');
     assert(mini.proj.layer_height === '0.12' && mini.proj.sparse_infill_density === '100%', 'Lithophane layer height and infill survive a printer change');
     assert(mini.proj.brim_width === projJson.brim_width, 'Brim width stays with the lithophane profile');
     assert(JSON.stringify(mini.proj.printable_area) === JSON.stringify(['0x0', '180x0', '180x180', '0x180']), 'A1 mini bed is 180 mm square');
@@ -567,6 +582,7 @@ async function runTestSuite() {
     assert(Math.abs(mini.minZ) < 0.05 && mini.maxZ > 30, 'A1 mini mesh stands on the bed');
 
     const p1s = await placedCenter('p1s');
+    assert(p1s.proj.enable_support === '0' && p1s.proj.wall_generator === 'classic', 'P1S supports are off and walls stay classic');
     assert(p1s.proj.printer_model === 'Bambu Lab P1S', `P1S printer model is retargeted (got: ${p1s.proj.printer_model})`);
     assert(p1s.proj.print_settings_id === '0.12mm High Quality @BBL X1C', 'P1S uses the X1C 0.12 mm preset Studio ships for it');
     assert(JSON.stringify(p1s.proj.filament_settings_id) === JSON.stringify(['Bambu PLA Basic @BBL P1S 0.4 nozzle']), 'P1S filament preset is installed for that machine');
@@ -1430,6 +1446,595 @@ async function runTestSuite() {
       assert(after < before, `${spec.shape} triangle count ${after} is below the unreduced grid ${before}`);
       assert(geom.vertices.length / 3 < spec.cols * meshRows * 2, `${spec.shape} drops interior vertices`);
     }
+  }
+
+  console.log('\n[16] Testing chamfer, Lanczos, merge tolerance, bed faces, slivers, and validator counts...');
+  {
+    const imageLum = 1;
+    const imageTh = thicknessForLuminance(imageLum, DEFAULT_SETTINGS.minThickness, DEFAULT_SETTINGS.maxThickness);
+    const bandThickness = (dist: number, frameW: number, frameTh: number, minTh: number) => {
+      const drop = Math.max(0, frameTh - minTh);
+      const chamferW = Math.min(drop, 0.6 * frameW);
+      let band = frameTh;
+      if (chamferW > 1e-9 && dist > frameW - chamferW) {
+        const along = (dist - (frameW - chamferW)) / chamferW;
+        band = frameTh - drop * along;
+      }
+      return Math.max(imageTh, band);
+    };
+
+    const shapes: Array<LithophaneSettings['shape']> = ['flat', 'curved', 'cylinder', 'cube'];
+    for (const shape of shapes) {
+      for (const frameWidth of [5, 1.5]) {
+        const cols = frameWidth < 2 ? 241 : 81;
+        const rows = 61;
+        const width = shape === 'cube' || shape === 'cylinder' ? 90 : 120;
+        const height = shape === 'cube' || shape === 'cylinder' ? 90 : 90;
+        const grid = new Float32Array(cols * rows);
+        grid.fill(imageLum);
+        const settings: LithophaneSettings = {
+          ...DEFAULT_SETTINGS,
+          shape,
+          width,
+          height,
+          cylinderDiameter: 90,
+          cubeWidth: 90,
+          orientation: 'standing',
+          supportType: 'none',
+          hasFrame: true,
+          frameWidth,
+          borderIcon: 'none',
+        };
+        const geom = GeometryGenerator.generateMesh(grid, cols, rows, settings);
+        const enclosed = shape === 'cylinder' || shape === 'cube';
+        let imageChecked = 0;
+        let rampChecked = 0;
+        let worst = 0;
+        for (let r = 0; r < rows; r++) {
+          const v = r / (rows - 1);
+          const distY = Math.min(v, 1 - v) * height;
+          for (let c = 0; c < cols; c++) {
+            const u = c / (cols - 1);
+            const distX = Math.min(u, 1 - u) * width;
+            const dist = enclosed ? distY : Math.min(distX, distY);
+            const th = geom.thicknessGrid![r * cols + c];
+            if (dist > frameWidth) {
+              imageChecked++;
+              if (th !== imageTh) worst = Math.max(worst, Math.abs(th - imageTh));
+            } else {
+              rampChecked++;
+              const expected = bandThickness(dist, frameWidth, settings.frameThickness, settings.minThickness);
+              worst = Math.max(worst, Math.abs(th - expected));
+            }
+          }
+        }
+        const label = `${shape} frame ${frameWidth}mm`;
+        assert(imageChecked > 0 && rampChecked > 0, `${label} has both image pixels and frame-band pixels`);
+        assert(worst < 1e-6, `${label} ramp matches the band and leaves the image untouched (max ${worst})`);
+        assert(
+          Math.abs(geom.thicknessGrid![0] - settings.frameThickness) < 1e-6,
+          `${label} outer band stays ${settings.frameThickness}mm`,
+        );
+      }
+    }
+
+    const referenceLanczos = (src: Uint8ClampedArray, sw: number, sh: number, dw: number, dh: number) => {
+      const a = 3;
+      const kern = (x: number) => {
+        if (x === 0) return 1;
+        if (Math.abs(x) >= a) return 0;
+        const p = Math.PI * x;
+        return (a * Math.sin(p) * Math.sin(p / a)) / (p * p);
+      };
+      const weights = (sn: number, dn: number) => {
+        const scale = sn / dn;
+        const support = a * Math.max(1, scale);
+        const out: Array<{ lo: number; w: number[] }> = [];
+        for (let i = 0; i < dn; i++) {
+          const c = (i + 0.5) * scale - 0.5;
+          const lo = Math.max(0, Math.floor(c - support));
+          const hi = Math.min(sn - 1, Math.ceil(c + support));
+          const w: number[] = [];
+          let sum = 0;
+          for (let j = lo; j <= hi; j++) {
+            const v = kern((j - c) / Math.max(1, scale));
+            w.push(v);
+            sum += v;
+          }
+          out.push({ lo, w: w.map((v) => v / sum) });
+        }
+        return out;
+      };
+      const wx = weights(sw, dw);
+      const wy = weights(sh, dh);
+      const tmp = new Float32Array(dw * sh * 3);
+      for (let y = 0; y < sh; y++) {
+        for (let x = 0; x < dw; x++) {
+          const { lo, w } = wx[x];
+          let r = 0;
+          let g = 0;
+          let b = 0;
+          for (let k = 0; k < w.length; k++) {
+            const i = (y * sw + lo + k) * 4;
+            r += src[i] * w[k];
+            g += src[i + 1] * w[k];
+            b += src[i + 2] * w[k];
+          }
+          const o = (y * dw + x) * 3;
+          tmp[o] = r;
+          tmp[o + 1] = g;
+          tmp[o + 2] = b;
+        }
+      }
+      const out = new Uint8ClampedArray(dw * dh * 4);
+      for (let y = 0; y < dh; y++) {
+        const { lo, w } = wy[y];
+        for (let x = 0; x < dw; x++) {
+          let r = 0;
+          let g = 0;
+          let b = 0;
+          for (let k = 0; k < w.length; k++) {
+            const i = ((lo + k) * dw + x) * 3;
+            r += tmp[i] * w[k];
+            g += tmp[i + 1] * w[k];
+            b += tmp[i + 2] * w[k];
+          }
+          const o = (y * dw + x) * 4;
+          out[o] = r;
+          out[o + 1] = g;
+          out[o + 2] = b;
+          out[o + 3] = 255;
+        }
+      }
+      return out;
+    };
+
+    const zw = 72;
+    const zh = 54;
+    const zone = new Uint8ClampedArray(zw * zh * 4);
+    const cx = (zw - 1) / 2;
+    const cy = (zh - 1) / 2;
+    for (let y = 0; y < zh; y++) {
+      for (let x = 0; x < zw; x++) {
+        const r2 = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+        const v = Math.round(127.5 + 127.5 * Math.cos(r2 * 0.18));
+        const i = (y * zw + x) * 4;
+        zone[i] = v;
+        zone[i + 1] = v;
+        zone[i + 2] = 255 - v;
+        zone[i + 3] = 255;
+      }
+    }
+    const dw = 24;
+    const dh = 18;
+    const resized = lanczosResize(zone, zw, zh, dw, dh);
+    const reference = referenceLanczos(zone, zw, zh, dw, dh);
+    let zoneDiff = 0;
+    let outOfRange = 0;
+    for (let i = 0; i < resized.length; i += 4) {
+      zoneDiff = Math.max(zoneDiff, Math.abs(resized[i] - reference[i]), Math.abs(resized[i + 1] - reference[i + 1]), Math.abs(resized[i + 2] - reference[i + 2]));
+      if (resized[i] > 255 || resized[i + 1] > 255 || resized[i + 2] > 255) outOfRange++;
+    }
+    assert(outOfRange === 0, 'Lanczos channels stay in 0..255');
+    assert(zoneDiff <= 1, `Lanczos zone plate matches the reference (max channel delta ${zoneDiff})`);
+    const lumGrid = lanczosResizeLuminance(zone, zw, zh, dw, dh);
+    let lumRange = 0;
+    for (let i = 0; i < lumGrid.length; i++) {
+      if (lumGrid[i] < 0 || lumGrid[i] > 1) lumRange++;
+    }
+    assert(lumRange === 0, 'Luminance resample stays in [0, 1]');
+    const smooth = new Uint8ClampedArray(zw * zh * 4);
+    for (let y = 0; y < zh; y++) {
+      for (let x = 0; x < zw; x++) {
+        const v = 40 + Math.round(180 * (x / (zw - 1)));
+        const i = (y * zw + x) * 4;
+        smooth[i] = v;
+        smooth[i + 1] = 255 - v;
+        smooth[i + 2] = 128;
+        smooth[i + 3] = 255;
+      }
+    }
+    const smoothRgb = lanczosResize(smooth, zw, zh, dw, dh);
+    const smoothLum = lanczosResizeLuminance(smooth, zw, zh, dw, dh);
+    let lumDiff = 0;
+    for (let i = 0; i < dw * dh; i++) {
+      const o = i * 4;
+      const fromRgb = (0.2126 * smoothRgb[o] + 0.7152 * smoothRgb[o + 1] + 0.0722 * smoothRgb[o + 2]) / 255;
+      lumDiff = Math.max(lumDiff, Math.abs(fromRgb - smoothLum[i]));
+    }
+    assert(lumDiff < 1.5 / 255, `Luminance Lanczos matches sRGB Rec.709 of the RGB resample (max ${lumDiff})`);
+
+    const owner = {};
+    const again = cachedLuminanceResize(owner, zone, zw, 4, 2, 40, 30, dw, dh);
+    const same = cachedLuminanceResize(owner, zone, zw, 4, 2, 40, 30, dw, dh);
+    const other = cachedLuminanceResize(owner, zone, zw, 4, 2, 40, 30, dw, dh + 1);
+    assert(again === same, 'A repeated crop and grid reuses the cached resample');
+    assert(other !== same, 'A different grid size is not served from the same cache entry');
+
+    const orientBytes = new Uint8Array(38);
+    orientBytes[0] = 0xff;
+    orientBytes[1] = 0xd8;
+    orientBytes[2] = 0xff;
+    orientBytes[3] = 0xe1;
+    orientBytes[4] = 0;
+    orientBytes[5] = 34;
+    orientBytes.set([0x45, 0x78, 0x69, 0x66, 0, 0], 6);
+    orientBytes[12] = 0x49;
+    orientBytes[13] = 0x49;
+    orientBytes[14] = 0x2a;
+    orientBytes[16] = 8;
+    orientBytes[20] = 1;
+    orientBytes[22] = 0x12;
+    orientBytes[23] = 0x01;
+    orientBytes[24] = 3;
+    orientBytes[26] = 1;
+    orientBytes[30] = 6;
+    assert(readExifOrientation(orientBytes) === 6, 'EXIF orientation 6 is read from APP1');
+    assert(readExifOrientation(new Uint8Array([0xff, 0xd8, 0xff, 0xd9])) === 1, 'A JPEG without EXIF stays orientation 1');
+    const pixW = 2;
+    const pixH = 3;
+    const pix = new Uint8ClampedArray(pixW * pixH * 4);
+    pix[0] = 10;
+    pix[1] = 20;
+    pix[2] = 30;
+    pix[3] = 255;
+    const turned = orientRgba(pix, pixW, pixH, 6);
+    assert(turned.width === 3 && turned.height === 2, 'Orientation 6 swaps to 3×2');
+    const dest = (0 * turned.width + (pixH - 1)) * 4;
+    assert(turned.rgba[dest] === 10 && turned.rgba[dest + 1] === 20 && turned.rgba[dest + 2] === 30, 'Orientation 6 moves the top-left pixel to the top-right');
+
+    assert(STORED_LONG_EDGE === 4096, 'Stored photos are capped at a 4096 px long edge');
+    const capped = cappedSize(5000, 3000);
+    assert(capped.width === 4096 && Math.max(capped.width, capped.height) === 4096, `5000×3000 caps the long edge (got ${capped.width}×${capped.height})`);
+    const kept = cappedSize(4000, 3000);
+    assert(kept.width === 4000 && kept.height === 3000, 'A 12 MP photo under 4096 is not resized');
+
+    const triStats = (geom: MeshGeometryData) => {
+      const { vertices, indices } = geom;
+      let skinny = 0;
+      let minArea = Infinity;
+      let minAngle = Infinity;
+      let upBed = 0;
+      for (let i = 0; i < indices.length; i += 3) {
+        const ia = indices[i] * 3;
+        const ib = indices[i + 1] * 3;
+        const ic = indices[i + 2] * 3;
+        const ax = vertices[ia];
+        const ay = vertices[ia + 1];
+        const az = vertices[ia + 2];
+        const bx = vertices[ib];
+        const by = vertices[ib + 1];
+        const bz = vertices[ib + 2];
+        const cx = vertices[ic];
+        const cy = vertices[ic + 1];
+        const cz = vertices[ic + 2];
+        const ab = Math.hypot(bx - ax, by - ay, bz - az);
+        const bc = Math.hypot(cx - bx, cy - by, cz - bz);
+        const ca = Math.hypot(ax - cx, ay - cy, az - cz);
+        const abx = bx - ax;
+        const aby = by - ay;
+        const abz = bz - az;
+        const acx = cx - ax;
+        const acy = cy - ay;
+        const acz = cz - az;
+        const cross = Math.hypot(aby * acz - abz * acy, abz * acx - abx * acz, abx * acy - aby * acx);
+        const area = cross * 0.5;
+        const ang = (u: number, v: number, opp: number) => {
+          if (u < 1e-12 || v < 1e-12) return 0;
+          const cosine = (u * u + v * v - opp * opp) / (2 * u * v);
+          return Math.acos(Math.max(-1, Math.min(1, cosine)));
+        };
+        const angle = Math.min(ang(ab, ca, bc), ang(ab, bc, ca), ang(bc, ca, ab));
+        minArea = Math.min(minArea, area);
+        minAngle = Math.min(minAngle, angle);
+        if (area < 1e-6 || angle < (0.5 * Math.PI) / 180) skinny++;
+        if (Math.abs(az) < 1e-4 && Math.abs(bz) < 1e-4 && Math.abs(cz) < 1e-4) {
+          const nz = abx * acy - aby * acx;
+          if (nz > 1e-8) upBed++;
+        }
+      }
+      return { skinny, minArea, minAngle: (minAngle * 180) / Math.PI, upBed, tris: indices.length / 3 };
+    };
+
+    const bedCases: Array<{ supportType: LithophaneSettings['supportType']; hasFrame: boolean }> = [
+      { supportType: 'full', hasFrame: true },
+      { supportType: 'full', hasFrame: false },
+      { supportType: 'none', hasFrame: false },
+      { supportType: 'flange', hasFrame: true },
+    ];
+    for (const spec of bedCases) {
+      const cols = 72;
+      const rows = 48;
+      const grid = new Float32Array(cols * rows);
+      for (let i = 0; i < grid.length; i++) grid[i] = ((i * 17) % 97) / 96;
+      const settings: LithophaneSettings = {
+        ...DEFAULT_SETTINGS,
+        shape: 'flat',
+        width: 120,
+        height: 90,
+        orientation: 'standing',
+        supportType: spec.supportType,
+        hasFrame: spec.hasFrame,
+      };
+      const geom = GeometryGenerator.generateMesh(grid, cols, rows, settings);
+      const stats = triStats(geom);
+      const label = `${spec.supportType}${spec.hasFrame ? '' : ' no-frame'}`;
+      assert(stats.upBed === 0, `${label} has no upward-facing bed triangles (got ${stats.upBed})`);
+      assert(stats.skinny === 0, `${label} has no sliver triangles (got ${stats.skinny}, min area ${stats.minArea}, min angle ${stats.minAngle.toFixed(3)}°)`);
+      const validation = MeshValidator.validate(geom);
+      assert(validation.isWatertight && validation.openBoundaryEdges === 0, `${label} stays watertight`);
+    }
+
+    const tube = GeometryGenerator.generateMesh(
+      Float32Array.from({ length: 48 * 24 }, (_, i) => ((i * 13) % 89) / 88),
+      48,
+      24,
+      { ...DEFAULT_SETTINGS, shape: 'cylinder', width: 90, height: 70, cylinderDiameter: 90, supportType: 'flange', hasFrame: true },
+    );
+    const tubeStats = triStats(tube);
+    assert(tubeStats.upBed === 0 && tubeStats.skinny === 0, `Cylinder has no bed folds or slivers (up ${tubeStats.upBed}, skinny ${tubeStats.skinny})`);
+
+    const indexYRays = (geom: MeshGeometryData) => {
+      const cell = 2;
+      const buckets = new Map<number, number[]>();
+      const { vertices, indices } = geom;
+      const key = (ix: number, iz: number) => ix * 100003 + iz;
+      for (let i = 0; i < indices.length; i += 3) {
+        const ia = indices[i] * 3;
+        const ib = indices[i + 1] * 3;
+        const ic = indices[i + 2] * 3;
+        const minX = Math.min(vertices[ia], vertices[ib], vertices[ic]);
+        const maxX = Math.max(vertices[ia], vertices[ib], vertices[ic]);
+        const minZ = Math.min(vertices[ia + 2], vertices[ib + 2], vertices[ic + 2]);
+        const maxZ = Math.max(vertices[ia + 2], vertices[ib + 2], vertices[ic + 2]);
+        for (let iz = Math.floor(minZ / cell); iz <= Math.floor(maxZ / cell); iz++) {
+          for (let ix = Math.floor(minX / cell); ix <= Math.floor(maxX / cell); ix++) {
+            const bucket = buckets.get(key(ix, iz));
+            if (bucket) bucket.push(i);
+            else buckets.set(key(ix, iz), [i]);
+          }
+        }
+      }
+      return (x: number, z: number, expected: number): number | null => {
+        const list = buckets.get(key(Math.floor(x / cell), Math.floor(z / cell)));
+        if (!list) return null;
+        const hits: number[] = [];
+        const eps = 1e-8;
+        for (let n = 0; n < list.length; n++) {
+          const i = list[n];
+          const ia = indices[i] * 3;
+          const ib = indices[i + 1] * 3;
+          const ic = indices[i + 2] * 3;
+          const ax = vertices[ia];
+          const ay = vertices[ia + 1];
+          const az = vertices[ia + 2];
+          const bx = vertices[ib];
+          const by = vertices[ib + 1];
+          const bz = vertices[ib + 2];
+          const cx = vertices[ic];
+          const cy = vertices[ic + 1];
+          const cz = vertices[ic + 2];
+          const abx = bx - ax;
+          const aby = by - ay;
+          const abz = bz - az;
+          const acx = cx - ax;
+          const acy = cy - ay;
+          const acz = cz - az;
+          const px = acz;
+          const py = 0;
+          const pz = -acx;
+          const det = abx * px + aby * py + abz * pz;
+          if (det > -eps && det < eps) continue;
+          const inv = 1 / det;
+          const tx = x - ax;
+          const ty = -40 - ay;
+          const tz = z - az;
+          const u = (tx * px + ty * py + tz * pz) * inv;
+          if (u < -1e-5 || u > 1 + 1e-5) continue;
+          const qx = ty * abz - tz * aby;
+          const qy = tz * abx - tx * abz;
+          const qz = tx * aby - ty * abx;
+          const v = qy * inv;
+          if (v < -1e-5 || u + v > 1 + 1e-5) continue;
+          const t = (acx * qx + acy * qy + acz * qz) * inv;
+          if (t > 1e-4) hits.push(-40 + t);
+        }
+        return closestWall(hits, expected);
+      };
+    };
+
+    const closestWall = (hits: number[], expected: number): number | null => {
+      hits.sort((a, b) => a - b);
+      const uniq: number[] = [];
+      for (const t of hits) {
+        if (!uniq.length || t - uniq[uniq.length - 1] > 1e-3) uniq.push(t);
+      }
+      let best: number | null = null;
+      for (let i = 0; i < uniq.length; i++) {
+        for (let j = i + 1; j < uniq.length; j++) {
+          const span = uniq[j] - uniq[i];
+          if (span > expected + 2) break;
+          const gap = Math.abs(span - expected);
+          if (best === null || gap < best) best = gap;
+        }
+      }
+      return best;
+    };
+
+    const rayWallGap = (
+      geom: MeshGeometryData,
+      ox: number,
+      oy: number,
+      oz: number,
+      dx: number,
+      dy: number,
+      dz: number,
+      expected: number,
+    ): number | null => {
+      const { vertices, indices } = geom;
+      const hits: number[] = [];
+      const eps = 1e-8;
+      for (let i = 0; i < indices.length; i += 3) {
+        const ia = indices[i] * 3;
+        const ib = indices[i + 1] * 3;
+        const ic = indices[i + 2] * 3;
+        const ax = vertices[ia];
+        const ay = vertices[ia + 1];
+        const az = vertices[ia + 2];
+        const bx = vertices[ib];
+        const by = vertices[ib + 1];
+        const bz = vertices[ib + 2];
+        const cx = vertices[ic];
+        const cy = vertices[ic + 1];
+        const cz = vertices[ic + 2];
+        const abx = bx - ax;
+        const aby = by - ay;
+        const abz = bz - az;
+        const acx = cx - ax;
+        const acy = cy - ay;
+        const acz = cz - az;
+        const px = dy * acz - dz * acy;
+        const py = dz * acx - dx * acz;
+        const pz = dx * acy - dy * acx;
+        const det = abx * px + aby * py + abz * pz;
+        if (det > -eps && det < eps) continue;
+        const inv = 1 / det;
+        const tx = ox - ax;
+        const ty = oy - ay;
+        const tz = oz - az;
+        const u = (tx * px + ty * py + tz * pz) * inv;
+        if (u < -1e-5 || u > 1 + 1e-5) continue;
+        const qx = ty * abz - tz * aby;
+        const qy = tz * abx - tx * abz;
+        const qz = tx * aby - ty * abx;
+        const v = (dx * qx + dy * qy + dz * qz) * inv;
+        if (v < -1e-5 || u + v > 1 + 1e-5) continue;
+        const t = (acx * qx + acy * qy + acz * qz) * inv;
+        if (t > 1e-4) hits.push(t);
+      }
+      return closestWall(hits, expected);
+    };
+
+    const gapAt = (width: number, shape: LithophaneSettings['shape']) => {
+      const cols = shape === 'flat' ? getResolutionForTier('master', width) : shape === 'curved' ? 180 : 120;
+      const height = shape === 'flat' ? width * 0.75 : 70;
+      const rows = shape === 'flat' ? Math.max(48, Math.round(cols * height / width)) : 80;
+      const grid = new Float32Array(cols * rows);
+      for (let i = 0; i < grid.length; i++) grid[i] = ((i * 17) % 97) / 96;
+      const settings: LithophaneSettings = {
+        ...DEFAULT_SETTINGS,
+        shape,
+        width: shape === 'cylinder' || shape === 'cube' ? 90 : width,
+        height,
+        cylinderDiameter: 90,
+        cubeWidth: 90,
+        orientation: 'standing',
+        supportType: 'flange',
+        hasFrame: true,
+      };
+      const geom = GeometryGenerator.generateMesh(grid, cols, rows, settings);
+      const ext = standingBaseExtension(settings);
+      const yIndex = shape === 'flat' ? indexYRays(geom) : null;
+      let maxGap = 0;
+      let samples = 0;
+      const stride = 4;
+      const columns: number[] = [];
+      for (let c = 0; c < cols; c += stride) columns.push(c);
+      if (shape === 'cube') {
+        const sideCols = cols / 4;
+        for (let side = 0; side < 4; side++) columns.push(side * sideCols + Math.floor(sideCols / 2));
+      }
+      for (let r = 0; r < rows; r += stride) {
+        const vRow = r / (rows - 1);
+        const distY = Math.min(vRow, 1 - vRow) * settings.height;
+        for (const c of columns) {
+          const uCol = c / (cols - 1);
+          const distX = Math.min(uCol, 1 - uCol) * settings.width;
+          const nearFrame = shape === 'cylinder' || shape === 'cube' ? distY < 8 : Math.min(distX, distY) < 8;
+          if (!nearFrame && (r + c) % (stride * 3) !== 0) continue;
+          if (shape === 'cube') {
+            const sideCols = cols / 4;
+            const uSide = (c - Math.floor(c / sideCols) * sideCols) / sideCols;
+            if (Math.abs(uSide - 0.5) > 1e-6) continue;
+          }
+          const u = c / (cols - 1);
+          const v = r / (rows - 1);
+          const z = ext.heightMm + (1 - v) * settings.height;
+          const expected = geom.thicknessGrid![r * cols + c];
+          let gap: number | null = null;
+          if (shape === 'flat') {
+            const x = -settings.width / 2 + u * settings.width;
+            gap = yIndex ? yIndex(x, z, expected) : null;
+          } else if (shape === 'curved') {
+            const curveRad = ((settings.curveAngle || 75) * Math.PI) / 180;
+            const arcRadius = settings.width / curveRad;
+            const phi = (u - 0.5) * curveRad;
+            gap = rayWallGap(geom, arcRadius * Math.sin(phi) - Math.sin(phi) * 8, -arcRadius * (1 - Math.cos(phi)) - Math.cos(phi) * 8, z, Math.sin(phi), Math.cos(phi), 0, expected);
+          } else if (shape === 'cylinder') {
+            const panels = settings.cylinderPanelCount || 4;
+            const phi = (c / cols) * Math.PI * 2 - Math.PI / panels;
+            gap = rayWallGap(geom, 0, 0, z, Math.sin(phi), Math.cos(phi), 0, expected);
+          } else {
+            const sideCols = cols / 4;
+            const sideIdx = Math.min(3, Math.floor(c / sideCols));
+            const uSide = (c - sideIdx * sideCols) / sideCols;
+            const hw = (settings.cubeWidth || 90) / 2;
+            const along = hw * (2 * uSide - 1);
+            const origin =
+              sideIdx === 0 ? [along, 0, 0, 1]
+              : sideIdx === 1 ? [0, -along, 1, 0]
+              : sideIdx === 2 ? [-along, 0, 0, -1]
+              : [0, along, -1, 0];
+            gap = rayWallGap(geom, origin[0], origin[1], z, origin[2], origin[3], 0, expected);
+          }
+          if (gap === null) continue;
+          samples++;
+          maxGap = Math.max(maxGap, gap);
+        }
+      }
+      return { maxGap, samples, tris: geom.indices.length / 3, cols, rows };
+    };
+
+    for (const width of [60, 80, 120]) {
+      const gap = gapAt(width, 'flat');
+      assert(gap.samples > 20, `Flat ${width} mm sampled the front surface (${gap.samples})`);
+      assert(gap.maxGap <= 0.005, `Flat ${width} mm thickness stays within 0.005 mm (max ${gap.maxGap.toFixed(4)} mm, ${gap.tris} tris)`);
+      if (width === 120) {
+        const rowsFull = gap.rows;
+        const skirt = standingBaseExtension({ shape: 'flat', orientation: 'standing', supportType: 'flange' }).rows;
+        const unreduced = 4 * (gap.cols * (rowsFull + skirt) - 1);
+        assert(gap.tris < unreduced * 0.5, `Noisy flat stays under half the unreduced grid (${gap.tris} of ${unreduced})`);
+      }
+    }
+    for (const shape of ['curved', 'cylinder', 'cube'] as const) {
+      const gap = gapAt(120, shape);
+      assert(gap.samples > 10, `${shape} sampled the front surface (${gap.samples})`);
+      assert(gap.maxGap <= 0.005, `${shape} thickness stays within 0.005 mm (max ${gap.maxGap.toFixed(4)} mm)`);
+    }
+
+    const brokenVertices = new Float32Array([
+      0, 0, 0,
+      2, 0, 0,
+      0, 2, 0,
+      2, 2, 0,
+      Number.NaN, 0, 1,
+    ]);
+    const broken: MeshGeometryData = {
+      vertices: brokenVertices,
+      indices: new Uint32Array([
+        0, 1, 2,
+        0, 1, 3,
+        0, 1, 2,
+      ]),
+      normals: new Float32Array(brokenVertices.length),
+      boundingBox: { min: [0, 0, 0], max: [2, 2, 1], size: [2, 2, 1] },
+      gridResolution: { cols: 2, rows: 2 },
+    };
+    const brokenVal = MeshValidator.validate(broken);
+    assert(brokenVal.triangleCount === 3, `Validator counts triangles (got ${brokenVal.triangleCount})`);
+    assert(brokenVal.nonFiniteVertexCount === 1, `Validator counts NaN vertices (got ${brokenVal.nonFiniteVertexCount})`);
+    assert(brokenVal.openBoundaryEdges === 2, `Validator counts open edges (got ${brokenVal.openBoundaryEdges})`);
+    assert(brokenVal.nonManifoldEdges === 1, `Validator counts edges shared by more than two triangles (got ${brokenVal.nonManifoldEdges})`);
   }
 
   await runEmailExportTests(assert);

@@ -37,10 +37,7 @@ import { SlicingModal } from './components/SlicingModal';
 import { OrderPrintModal } from './components/OrderPrintModal';
 import { AlertCircle, ArrowLeft, ArrowRight, Download } from 'lucide-react';
 
-async function readImageAsDataUrl(
-  file: File,
-  onProgress: (progress: number) => void
-): Promise<string> {
+async function readFileBytes(file: File, onProgress: (progress: number) => void): Promise<Uint8Array> {
   const total = Math.max(file.size, 1);
 
   if (typeof file.stream === 'function') {
@@ -63,36 +60,22 @@ async function readImageAsDataUrl(
       merged.set(chunk, offset);
       offset += chunk.byteLength;
     }
-
-    const blob = new Blob([merged], { type: file.type || 'application/octet-stream' });
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === 'string') resolve(reader.result);
-        else reject(new Error('Could not read image'));
-      };
-      reader.onerror = () => reject(reader.error ?? new Error('Could not read image'));
-      reader.readAsDataURL(blob);
-    });
-    onProgress(100);
-    return dataUrl;
+    return merged;
   }
 
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onprogress = (event) => {
-      if (event.lengthComputable && event.total > 0) {
-        onProgress(Math.min(99, Math.round((event.loaded / event.total) * 100)));
-      }
-    };
-    reader.onload = () => {
-      onProgress(100);
-      if (typeof reader.result === 'string') resolve(reader.result);
-      else reject(new Error('Could not read image'));
-    };
-    reader.onerror = () => reject(reader.error ?? new Error('Could not read image'));
-    reader.readAsDataURL(file);
-  });
+  const buffer = await file.arrayBuffer();
+  onProgress(99);
+  return new Uint8Array(buffer);
+}
+
+async function readImageAsDataUrl(
+  file: File,
+  onProgress: (progress: number) => void
+): Promise<string> {
+  const bytes = await readFileBytes(file, onProgress);
+  const dataUrl = await ImageProcessor.prepareStoredPhoto(bytes, file.type || 'image/jpeg');
+  onProgress(100);
+  return dataUrl;
 }
 
 function mergeAutoThickness(
