@@ -401,13 +401,21 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                       {cylinderSlots[0]?.imageSrc && previewDataUrl ? (
                         <img
                           src={previewDataUrl}
-                          alt=""
+                          alt={
+                            cylinderSlots[0]?.name
+                              ? `Lithophane preview of ${cylinderSlots[0].name}`
+                              : 'Lithophane preview'
+                          }
                           className="w-12 h-12 rounded-md object-cover object-center bg-black shrink-0 border border-white/10"
                         />
                       ) : cylinderSlots[0]?.imageSrc ? (
                         <img
                           src={cylinderSlots[0].imageSrc}
-                          alt=""
+                          alt={
+                            cylinderSlots[0]?.name
+                              ? `Uploaded photo: ${cylinderSlots[0].name}`
+                              : 'Uploaded photo'
+                          }
                           className="w-12 h-12 rounded-md object-cover object-center bg-black shrink-0 border border-white/10"
                         />
                       ) : (
@@ -505,7 +513,11 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                             {slot.imageSrc ? (
                               <img
                                 src={slot.imageSrc}
-                                alt=""
+                                alt={
+                                  slot.name
+                                    ? `${labelInfo.label}: ${slot.name}`
+                                    : `${labelInfo.label} photo`
+                                }
                                 draggable={false}
                                 className="w-8 h-8 rounded-xs object-cover object-center bg-black shrink-0 border border-white/10"
                               />

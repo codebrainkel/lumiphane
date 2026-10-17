@@ -223,9 +223,9 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
                   {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
                 </div>
 
-                <h3 className="text-base font-bold text-white tracking-tight px-6">
+                <h2 className="text-base font-bold text-white tracking-tight px-6">
                   {mode.title}
-                </h3>
+                </h2>
                 <div className="text-xs text-amber-400 font-bold font-mono mt-0.5">
                   {mode.badge}
                 </div>
@@ -235,7 +235,7 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
               </div>
 
               {/* Wireframe bleeds to the card edges */}
-              <div className="mt-auto bg-[#090b10] border-t border-white/10">
+              <div className="mt-auto bg-[#090b10] border-t border-white/10" aria-hidden="true">
                 {mode.diagram}
               </div>
             </div>
@@ -262,6 +262,22 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
           </button>
         ))}
       </div>
+
+      <section className="w-full max-w-2xl mt-6 mb-2 text-center" aria-labelledby="how-it-works">
+        <h2 id="how-it-works" className="text-sm font-semibold tracking-tight text-white">
+          How it works
+        </h2>
+        <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+          Turn your photos into 3D-printable lithophanes right in your browser. Pick a shape, add 1 to 4 photos,
+          preview it backlit in 3D, then export an STL or 3MF file, send it to your email, or order a finished print.
+        </p>
+        <ol className="mt-3 mx-auto max-w-md space-y-1 text-left text-xs text-slate-400 leading-relaxed list-decimal pl-5">
+          <li>Choose a shape.</li>
+          <li>Upload and crop your photos.</li>
+          <li>Preview the lithophane with simulated backlight.</li>
+          <li>Download STL or 3MF for your slicer, email it to yourself, or order a print through Treatstock.</li>
+        </ol>
+      </section>
     </div>
   );
 };

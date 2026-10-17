@@ -6,19 +6,169 @@
     <meta name="theme-color" content="#0b0d11" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <title>Lumiphane 3D — Lithophane Generator</title>
-    <meta name="description" content="Precision 3D lithophane generator for FDM 3D printing. Interactive WebGL preview, optical backlight simulation, and print-ready 3MF export." />
-    <meta property="og:title" content="Lumiphane 3D — Lithophane Generator" />
-    <meta property="og:description" content="Precision 3D lithophane generator for FDM 3D printing. Interactive WebGL preview, optical backlight simulation, and print-ready 3MF export." />
+    <title>Photo to Lithophane Generator – STL &amp; 3MF Export | Lumiphane 3D</title>
+    <meta name="description" content="Turn photos into 3D-printable lithophanes in your browser: lampshades, cube lanterns, flat panels and arcs. Live backlit preview, STL/3MF export, or order a print." />
+    <link rel="canonical" href="https://lumiphane.com/" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Lumiphane 3D" />
+    <meta property="og:url" content="https://lumiphane.com/" />
+    <meta property="og:title" content="Photo to Lithophane Generator – Lumiphane 3D" />
+    <meta property="og:description" content="Turn photos into 3D-printable lithophanes. Live backlit 3D preview, STL/3MF export, email-to-self, or order a print." />
+    <meta property="og:image" content="https://lumiphane.com/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Lumiphane 3D, a photo to lithophane generator with cylinder, cube, flat panel, and curved arc shapes" />
+    <meta property="og:locale" content="en_US" />
+
     <meta name="twitter:card" content="summary_large_image" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+    <meta name="twitter:title" content="Photo to Lithophane Generator – Lumiphane 3D" />
+    <meta name="twitter:description" content="Turn photos into 3D-printable lithophanes. Live backlit 3D preview, STL/3MF export, or order a print." />
+    <meta name="twitter:image" content="https://lumiphane.com/og-image.png" />
+    <meta name="twitter:image:alt" content="Lumiphane 3D, a photo to lithophane generator with cylinder, cube, flat panel, and curved arc shapes" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      media="print"
+      onload="this.media='all'"
+    />
+    <noscript>
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      />
+    </noscript>
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://lumiphane.com/#website",
+            "url": "https://lumiphane.com/",
+            "name": "Lumiphane 3D",
+            "description": "Turn photos into 3D-printable lithophanes in the browser, with backlit preview and STL/3MF export.",
+            "inLanguage": "en"
+          },
+          {
+            "@type": "Organization",
+            "@id": "https://lumiphane.com/#org",
+            "name": "Lumiphane 3D",
+            "url": "https://lumiphane.com/",
+            "logo": "https://lumiphane.com/icon-512.png"
+          },
+          {
+            "@type": "WebApplication",
+            "@id": "https://lumiphane.com/#app",
+            "name": "Lumiphane 3D Lithophane Generator",
+            "url": "https://lumiphane.com/",
+            "applicationCategory": "DesignApplication",
+            "operatingSystem": "Any (modern browser with WebGL)",
+            "browserRequirements": "Requires JavaScript and WebGL",
+            "description": "Turn photos into 3D-printable lithophanes (cylinder lampshade, hollow cube lantern, flat panel, curved arc) with backlit 3D preview and STL/3MF export.",
+            "featureList": [
+              "Photo to lithophane conversion",
+              "Cylinder, cube, flat panel and arc shapes",
+              "1 to 4 photos per model",
+              "Backlight simulation preview",
+              "STL and 3MF export",
+              "Send the model file to your email",
+              "Order a 3D print via Treatstock"
+            ],
+            "publisher": { "@id": "https://lumiphane.com/#org" }
+          }
+        ]
+      }
+    </script>
+    <style>
+      .seo-shell {
+        box-sizing: border-box;
+        max-width: 42rem;
+        margin: 0 auto;
+        padding: 2.5rem 1.25rem 3rem;
+        font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        line-height: 1.5;
+      }
+      .seo-shell h1 {
+        font-size: 1.75rem;
+        line-height: 1.2;
+        letter-spacing: -0.02em;
+        margin: 0 0 0.75rem;
+      }
+      .seo-shell h2 {
+        font-size: 1.05rem;
+        margin: 1.75rem 0 0.5rem;
+      }
+      .seo-shell h3 {
+        font-size: 1rem;
+        margin: 0;
+      }
+      .seo-shell p,
+      .seo-shell li {
+        color: #94a3b8;
+      }
+      .seo-shell ul,
+      .seo-shell ol {
+        margin: 0.25rem 0 0;
+        padding-left: 1.25rem;
+      }
+      .seo-shell li {
+        margin: 0.55rem 0;
+      }
+      .seo-shell li p {
+        margin: 0.15rem 0 0;
+      }
+    </style>
   </head>
-  <body class="bg-[#0b0d11] text-[#f1f5f9] antialiased">
-    <div id="root"></div>
+  <body class="bg-[#0b0d11] text-[#f1f5f9] antialiased" style="margin: 0; background: #0b0d11; color: #f1f5f9">
+    <div id="root">
+      <main class="seo-shell">
+        <h1>Photo to Lithophane Generator</h1>
+        <p>
+          Turn your photos into 3D-printable lithophanes right in your browser. Pick a shape, add 1 to 4 photos,
+          preview it backlit in 3D, then export an STL or 3MF file, send it to your email, or order a finished print.
+        </p>
+        <h2>Choose a shape</h2>
+        <ul>
+          <li>
+            <h3>Round Cylinder</h3>
+            <p>Wraps 1 to 4 photos into a continuous circular lantern, perfect for nightlights and lamps.</p>
+          </li>
+          <li>
+            <h3>Hollow Cube</h3>
+            <p>A 4-sided square lantern with open top and bottom, displaying 1 to 4 photos around the perimeter.</p>
+          </li>
+          <li>
+            <h3>Flat Panel</h3>
+            <p>Tiles 1 to 4 photos across a flat panel for frames, lightboxes, or windows.</p>
+          </li>
+          <li>
+            <h3>Curved Arc</h3>
+            <p>Tiles 1 to 4 photos along a curve that stands upright on its own.</p>
+          </li>
+        </ul>
+        <h2>How it works</h2>
+        <ol>
+          <li>Choose a shape.</li>
+          <li>Upload and crop your photos.</li>
+          <li>Preview the lithophane with simulated backlight.</li>
+          <li>Download STL or 3MF for your slicer, email it to yourself, or order a print through Treatstock.</li>
+        </ol>
+        <noscript>
+          <p>Lumiphane 3D needs JavaScript and WebGL to generate lithophanes.</p>
+        </noscript>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

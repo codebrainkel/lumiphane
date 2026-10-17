@@ -56,6 +56,14 @@ body {
   font-family: var(--font-sans);
 }
 
+/* The static shell in index.html is replaced when React mounts. Let it scroll until then. */
+body:has(.seo-shell),
+#root:has(.seo-shell) {
+  height: auto;
+  min-height: 100%;
+  overflow: auto;
+}
+
 button,
 a,
 input,
