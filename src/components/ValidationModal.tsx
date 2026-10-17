@@ -8,6 +8,7 @@ import {
   loadEmbeddedBambuProfile,
 } from '../services/threeMfExporter';
 import { StlExporter } from '../services/stlExporter';
+import { downloadBlob, makeShareFile, saveBlob, sharePreparedFile } from '../services/saveFile';
 import {
   Check,
   Download,
@@ -42,6 +43,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   const [bambuProfile, setBambuProfile] = useState<EmbeddedBambuProfile | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [pendingFile, setPendingFile] = useState<{ blob: Blob; filename: string } | null>(null);
   const [verified3Mf, setVerified3Mf] = useState<{
     hasRun: boolean;
     isValid: boolean;
@@ -66,25 +68,46 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
     };
   }, []);
 
+  const deliverFile = async (blob: Blob, filename: string) => {
+    const outcome = await saveBlob(blob, filename);
+    if (outcome === 'needs-tap') {
+      setPendingFile({ blob, filename });
+      return;
+    }
+    setPendingFile(null);
+  };
+
+  const handleSavePending = async () => {
+    if (!pendingFile) return;
+    const file = makeShareFile(pendingFile.blob, pendingFile.filename);
+    try {
+      setExportError(null);
+      if (typeof navigator.share === 'function') {
+        await sharePreparedFile(file);
+        setPendingFile(null);
+        return;
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      setExportError('The share sheet could not open. Tap Save to Files and try again.');
+      return;
+    }
+    downloadBlob(pendingFile.blob, pendingFile.filename);
+    setPendingFile(null);
+  };
+
   const handleExport = async () => {
     try {
       setIsExporting(true);
+      setPendingFile(null);
+      setExportError(null);
 
       if (exportFormat === 'stl') {
         const result = StlExporter.exportBinaryStl(geometryData, imageName);
-        const url = URL.createObjectURL(result.blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = result.filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        await deliverFile(result.blob, result.filename);
         return;
       }
 
-      // 3MF Export (Bambu Project or Universal)
-      setExportError(null);
       const isBambu = exportFormat === 'bambu-project';
       const result: ThreeMfExportResult = await ThreeMfExporter.export3MF(
         geometryData,
@@ -95,32 +118,24 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
         }
       );
 
-      // Verify the generated 3MF package independently
       const verification = await ThreeMfExporter.verify3MfPackage(result.blob);
       if (!verification.isValid) {
         setVerified3Mf(null);
         setExportError(verification.errors[0] || 'The 3MF package failed verification.');
-      } else {
-        setVerified3Mf({
-          hasRun: true,
-          isValid: verification.isValid,
-          sizeKb: Math.round(result.filesizeBytes / 1024),
-          unit: verification.unit,
-          parsedVertices: verification.parsedVertexCount,
-          parsedTriangles: verification.parsedTriangleCount,
-          isBambuProject: result.isBambuProject,
-        });
+        return;
       }
 
-      // Standard browser download
-      const url = URL.createObjectURL(result.blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = result.filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setVerified3Mf({
+        hasRun: true,
+        isValid: verification.isValid,
+        sizeKb: Math.round(result.filesizeBytes / 1024),
+        unit: verification.unit,
+        parsedVertices: verification.parsedVertexCount,
+        parsedTriangles: verification.parsedTriangleCount,
+        isBambuProject: result.isBambuProject,
+      });
+
+      await deliverFile(result.blob, result.filename);
     } catch (err) {
       console.error('Export failed:', err);
       setExportError(err instanceof Error ? err.message : 'Export failed.');
@@ -216,7 +231,10 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
               {/* Option 1: Bambu Studio Project */}
               <button
                 type="button"
-                onClick={() => setExportFormat('bambu-project')}
+                onClick={() => {
+                  setExportFormat('bambu-project');
+                  setPendingFile(null);
+                }}
                 className={`p-3 text-left rounded-md border transition-colors ${
                   exportFormat === 'bambu-project'
                     ? 'bg-[#181e28] border-amber-400 ring-1 ring-amber-400'
@@ -238,7 +256,10 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
               {/* Option 2: Universal 3MF */}
               <button
                 type="button"
-                onClick={() => setExportFormat('universal')}
+                onClick={() => {
+                  setExportFormat('universal');
+                  setPendingFile(null);
+                }}
                 className={`p-3 text-left rounded-md border transition-colors ${
                   exportFormat === 'universal'
                     ? 'bg-[#181e28] border-amber-400 ring-1 ring-amber-400'
@@ -260,7 +281,10 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
               {/* Option 3: Binary STL */}
               <button
                 type="button"
-                onClick={() => setExportFormat('stl')}
+                onClick={() => {
+                  setExportFormat('stl');
+                  setPendingFile(null);
+                }}
                 className={`p-3 text-left rounded-md border transition-colors ${
                   exportFormat === 'stl'
                     ? 'bg-[#181e28] border-amber-400 ring-1 ring-amber-400'
@@ -293,6 +317,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
                       setBambuPrinterId(event.target.value);
                       setVerified3Mf(null);
                       setExportError(null);
+                      setPendingFile(null);
                     }}
                     className="mt-1.5 w-full rounded-md border border-white/10 bg-[#10141d] px-2.5 py-2 text-xs text-slate-200 outline-none focus:border-amber-400"
                     style={{ colorScheme: 'dark' }}
@@ -357,6 +382,12 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
             </div>
           )}
 
+          {pendingFile && (
+            <div className="p-3 rounded-md bg-[#141924] border border-amber-400/40 text-xs text-slate-200">
+              The file is ready. Tap <span className="font-semibold text-white">Save to Files</span>, then choose Save to Files in the iPhone share sheet.
+            </div>
+          )}
+
           {verified3Mf && (
             <div className="p-3 rounded-md bg-emerald-950/40 border border-emerald-500/30 flex items-center justify-between text-xs text-emerald-300">
               <div className="flex items-center gap-2">
@@ -381,7 +412,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
           </button>
           <button
             type="button"
-            onClick={handleExport}
+            onClick={pendingFile ? handleSavePending : handleExport}
             disabled={isExporting}
             className="btn-primary"
           >
@@ -389,6 +420,8 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
             <span>
               {isExporting
                 ? 'Preparing file…'
+                : pendingFile
+                ? 'Save to Files'
                 : exportFormat === 'bambu-project'
                 ? 'Download Bambu Studio File (.3mf)'
                 : exportFormat === 'universal'
