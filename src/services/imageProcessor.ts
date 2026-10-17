@@ -851,7 +851,7 @@ export class ImageProcessor {
 
   /**
    * Dynamic Range / Histogram Optimization:
-   * Maps image luminance to fully exploit white PLA's optical dynamic range (0.6mm to 2.25mm)
+   * Maps image luminance to fully exploit white PLA's optical dynamic range (0.8mm to 3.0mm)
    * without crushing subtle shadows or blowing highlights.
    */
   private static applyAutoLevels(grid: Float32Array, totalPixels: number): void {

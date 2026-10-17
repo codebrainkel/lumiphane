@@ -14,7 +14,7 @@
  */
 
 import { ImageProcessor } from '../services/imageProcessor';
-import { GeometryGenerator } from '../services/geometryGenerator';
+import { GeometryGenerator, standingBaseExtension } from '../services/geometryGenerator';
 import { MeshValidator } from '../services/meshValidator';
 import { ThreeMfExporter } from '../services/threeMfExporter';
 import { StlExporter } from '../services/stlExporter';
@@ -26,9 +26,10 @@ import {
   sanitizeModelFilename,
   selectTreatstockCheckout,
 } from '../services/printOrder';
-import { DEFAULT_SETTINGS, ULTRA_FINE_RESOLUTION } from '../constants/presets';
+import { DEFAULT_SETTINGS, ULTRA_FINE_RESOLUTION, getAutoScaledThickness } from '../constants/presets';
+import { thicknessForLuminance, transmissionToSrgb } from '../constants/optics';
 import { LithophaneSettings } from '../types/lithophane';
-import { borderIconCoverage, createBorderIconField } from '../services/borderIcons';
+import { borderIconCoverage, createBorderIconField, maxBorderWidthMm } from '../services/borderIcons';
 import { runEmailExportTests } from './emailExportTests';
 import JSZip from 'jszip';
 
@@ -108,17 +109,36 @@ async function runTestSuite() {
     const lumBlack = (0.2126 * 0 + 0.7152 * 0 + 0.0722 * 0) / 255;
     assert(lumBlack === 0.0, 'Black luminance computes to 0.0');
 
-    // Standard mapping: Black => maxThickness, White => minThickness
-    const thickBlack = minTh + (1.0 - 0.0) * (maxTh - minTh);
-    const thickWhite = minTh + (1.0 - 1.0) * (maxTh - minTh);
+    // Physical mapping: black is the thick wall, white is the thin wall.
+    const thickBlack = thicknessForLuminance(0, minTh, maxTh);
+    const thickWhite = thicknessForLuminance(1, minTh, maxTh);
     assert(Math.abs(thickBlack - maxTh) < 1e-4, 'Black region maps to maxThickness (3.2mm)');
     assert(Math.abs(thickWhite - minTh) < 1e-4, 'White region maps to minThickness (0.8mm)');
 
-    // Invert mapping: Black => minThickness, White => maxThickness
-    const thickBlackInv = minTh + 0.0 * (maxTh - minTh);
-    const thickWhiteInv = minTh + 1.0 * (maxTh - minTh);
+    // Invert is applied to luminance before meshing, so an inverted black pixel arrives as 1.
+    const thickBlackInv = thicknessForLuminance(1, minTh, maxTh);
+    const thickWhiteInv = thicknessForLuminance(0, minTh, maxTh);
     assert(Math.abs(thickBlackInv - minTh) < 1e-4, 'Inverted black maps to minThickness');
     assert(Math.abs(thickWhiteInv - maxTh) < 1e-4, 'Inverted white maps to maxThickness');
+
+    assert(DEFAULT_SETTINGS.contrast === 0, 'Default contrast is 0 so highlights are not hard-clamped');
+    const cFactor = 1 + DEFAULT_SETTINGS.contrast / 50;
+    for (const lum of [0.93, 0.95, 0.97]) {
+      const clamped = Math.max(0, Math.min(1, (lum - 0.5) * cFactor + 0.5));
+      assert(Math.abs(clamped - lum) < 1e-6, `Highlight ${lum} stays ${lum} at default contrast (got ${clamped})`);
+    }
+
+    const autoBase = getAutoScaledThickness(120, 90);
+    assert(autoBase.minThickness === 0.8 && DEFAULT_SETTINGS.minThickness === 0.8, `Baseline highlight thickness is 0.8mm (got ${autoBase.minThickness})`);
+    assert(autoBase.maxThickness === 3 && DEFAULT_SETTINGS.maxThickness === 3, `Baseline shadow thickness is 3.0mm (got ${autoBase.maxThickness})`);
+    assert(autoBase.frameThickness === 3.4 && DEFAULT_SETTINGS.frameThickness === 3.4, `Baseline frame is max + 0.4mm (got ${autoBase.frameThickness})`);
+    const auto160 = getAutoScaledThickness(160, 120);
+    assert(auto160.minThickness === 0.84, `160mm highlight thickness scales to 0.84mm (got ${auto160.minThickness})`);
+    assert(auto160.maxThickness === 3.08, `160mm shadow thickness scales to 3.08mm (got ${auto160.maxThickness})`);
+    assert(Math.abs(auto160.frameThickness - (auto160.maxThickness + 0.4)) < 1e-6, `160mm frame stays 0.4mm past the shadow (got ${auto160.frameThickness})`);
+    const auto240 = getAutoScaledThickness(240, 180);
+    assert(auto240.minThickness === 0.92 && auto240.maxThickness === 3.25, `240mm thickness scales to 0.92–3.25mm (got ${auto240.minThickness}–${auto240.maxThickness})`);
+    assert(Math.abs(auto240.frameThickness - 3.65) < 1e-6, `240mm frame is 3.65mm (got ${auto240.frameThickness})`);
   }
 
   // TEST SUITE 2: Mesh Generation, Watertight Closure & 2-Manifold Topology
@@ -150,8 +170,10 @@ async function runTestSuite() {
     };
 
     const geometry = GeometryGenerator.generateMesh(dummyGrid, cols, rows, testSettings);
-    assert(geometry.vertices.length === cols * rows * 2 * 3, 'Vertex buffer length matches 2 * cols * rows * 3');
-    assert(geometry.indices.length === 4 * (cols * rows - 1) * 3, 'Index buffer length matches 4 * (cols * rows - 1) * 3');
+    const flatExt = standingBaseExtension(testSettings);
+    const flatMeshRows = rows + flatExt.rows;
+    assert(geometry.vertices.length === cols * flatMeshRows * 2 * 3, 'Vertex buffer length matches the image grid plus the stand below it');
+    assert(geometry.indices.length === 4 * (cols * flatMeshRows - 1) * 3, 'Index buffer length matches the image grid plus the stand below it');
 
     const validation = MeshValidator.validate(geometry);
     assert(validation.isWatertight, 'Mesh is strictly watertight (zero open boundaries)');
@@ -161,7 +183,7 @@ async function runTestSuite() {
     assert(validation.volumeCm3 > 0, `Positive physical volume (${validation.volumeCm3} cm³)`);
     assert(validation.estimatedWeightGrams > 0, `Positive estimated filament weight (${validation.estimatedWeightGrams} g)`);
     assert(Math.abs(geometry.boundingBox.min[2] - 0) < 1e-3, 'Bottom edge rests strictly at Z = 0 on the build plate');
-    assert(Math.abs(geometry.boundingBox.max[2] - 75) < 1e-3, 'Top edge stands tall at Z = 75mm print height');
+    assert(Math.abs(geometry.boundingBox.max[2] - (75 + flatExt.heightMm)) < 1e-3, `Top edge stands at image height plus the ${flatExt.heightMm}mm stand (got ${geometry.boundingBox.max[2]})`);
     assert(geometry.boundingBox.min[1] <= -5, 'Stabilizing base flange expands in Y for bed contact');
     assert(Math.abs(validation.dimensionsMm.width - 100) < 0.5, 'Width matches physical 100mm');
   }
@@ -194,7 +216,8 @@ async function runTestSuite() {
     assert(validationConvex.eulerCharacteristic === 2, 'Convex arc mesh has Euler characteristic chi = 2');
     assert(validationConvex.degenerateTriangles === 0, 'Zero degenerate triangles on convex arc');
     assert(Math.abs(geometryConvex.boundingBox.min[2] - 0) < 1e-3, 'Curved arc stands directly at Z = 0 build plane');
-    assert(Math.abs(geometryConvex.boundingBox.max[2] - 90) < 1e-3, 'Curved arc stands to Z = 90mm print height');
+    const curvedExt = standingBaseExtension(curvedConvexSettings);
+    assert(Math.abs(geometryConvex.boundingBox.max[2] - (90 + curvedExt.heightMm)) < 1e-3, `Curved arc stands at image height plus the ${curvedExt.heightMm}mm brim (got ${geometryConvex.boundingBox.max[2]})`);
     assert(geometryConvex.boundingBox.min[1] < -10, 'Convex arc arch footprint extends backward in Y');
   }
 
@@ -511,7 +534,13 @@ async function runTestSuite() {
     });
     const squareVal = MeshValidator.validate(squareGeom);
     assert(Math.abs(squareVal.dimensionsMm.width - 100) < 0.5, 'Square mesh width is 100mm');
-    assert(Math.abs(squareVal.dimensionsMm.height - 100) < 0.5, `Square mesh height is 100mm (got ${squareVal.dimensionsMm.height}mm)`);
+    const squareExt = standingBaseExtension({
+      shape: 'flat',
+      orientation: 'standing',
+      supportType: DEFAULT_SETTINGS.supportType,
+      supportHeight: DEFAULT_SETTINGS.supportHeight,
+    });
+    assert(Math.abs(squareVal.dimensionsMm.height - (100 + squareExt.heightMm)) < 0.5, `Square mesh height is the 100mm photo plus the stand (got ${squareVal.dimensionsMm.height}mm)`);
     assert(squareVal.isWatertight && squareVal.isManifold, 'Square cropped mesh is watertight and 2-manifold');
 
     // Test C: Cropped to 3:4 Portrait
@@ -531,7 +560,13 @@ async function runTestSuite() {
     });
     const portraitVal = MeshValidator.validate(portraitGeom);
     assert(Math.abs(portraitVal.dimensionsMm.width - 120) < 0.5, 'Portrait mesh width is 120mm');
-    assert(Math.abs(portraitVal.dimensionsMm.height - 160) < 0.5, `Portrait mesh height is 160mm (got ${portraitVal.dimensionsMm.height}mm)`);
+    const portraitExt = standingBaseExtension({
+      shape: 'flat',
+      orientation: 'standing',
+      supportType: DEFAULT_SETTINGS.supportType,
+      supportHeight: DEFAULT_SETTINGS.supportHeight,
+    });
+    assert(Math.abs(portraitVal.dimensionsMm.height - (160 + portraitExt.heightMm)) < 0.5, `Portrait mesh height is the 160mm photo plus the stand (got ${portraitVal.dimensionsMm.height}mm)`);
     assert(portraitVal.isWatertight && portraitVal.isManifold, 'Portrait cropped mesh is watertight and 2-manifold');
   }
 
@@ -569,16 +604,23 @@ async function runTestSuite() {
     assert(cylVal.isWatertight, 'Round hollow cylinder mesh is strictly watertight');
     assert(cylVal.isManifold, 'Round hollow cylinder mesh is strictly 2-manifold');
     assert(cylVal.degenerateTriangles === 0, 'Zero degenerate triangles on hollow cylinder');
-    assert(Math.abs(cylVal.dimensionsMm.height - cylHeight) < 0.5, `Cylinder height matches 95mm (got ${cylVal.dimensionsMm.height}mm)`);
+    const cylExt = standingBaseExtension({
+      shape: 'cylinder',
+      orientation: 'standing',
+      supportType: 'flange',
+      supportHeight: DEFAULT_SETTINGS.supportHeight,
+    });
+    assert(Math.abs(cylVal.dimensionsMm.height - (cylHeight + cylExt.heightMm)) < 0.5, `Cylinder height is 95mm plus the ${cylExt.heightMm}mm brim (got ${cylVal.dimensionsMm.height}mm)`);
     // Outer diameter includes base cylinder radius + thickness
     const outerDiamExpected = cylDiameter + 3.0 * 2; // ~96mm
     assert(cylGeom.boundingBox.min[2] === 0, 'Cylinder bottom rim rests flat at Z=0 on print bed');
-    assert(cylGeom.indices.length === 4 * testCols * testRows * 3, `Cylinder index count matches 4 * cols * rows * 3 (got ${cylGeom.indices.length})`);
+    assert(cylGeom.indices.length === 4 * testCols * (testRows + cylExt.rows) * 3, `Cylinder index count includes the brim rows (got ${cylGeom.indices.length})`);
 
     // Verify outward vs inward normal directions for proper lithophane lighting
     const midRow = Math.floor(testRows / 2);
+    const frontCount = cylGeom.vertices.length / 6;
     const midOuterIdx = (midRow * testCols + Math.floor(testCols / 8)) * 3;
-    const midInnerIdx = (testCols * testRows + midRow * testCols + Math.floor(testCols / 8)) * 3;
+    const midInnerIdx = (frontCount + midRow * testCols + Math.floor(testCols / 8)) * 3;
 
     const outerDot = cylGeom.normals[midOuterIdx] * cylGeom.vertices[midOuterIdx] +
                      cylGeom.normals[midOuterIdx + 1] * cylGeom.vertices[midOuterIdx + 1];
@@ -588,7 +630,8 @@ async function runTestSuite() {
     assert(outerDot > 20, `Cylinder outer face normals point strictly outward away from center (dot: ${outerDot.toFixed(1)})`);
     assert(innerDot < -20, `Cylinder inner bore normals point strictly inward toward center light (dot: ${innerDot.toFixed(1)})`);
     assert(cylGeom.normals[2] > 0.1, 'Cylinder top rim normals point +Z (upward)');
-    const botIdx = (testRows - 1) * testCols * 3;
+    const botIdx = (testRows + cylExt.rows - 1) * testCols * 3;
+    assert(Math.abs(cylGeom.vertices[botIdx + 2]) < 1e-4, 'Cylinder brim rests on the bed at Z = 0');
     assert(cylGeom.normals[botIdx + 2] < -0.1, 'Cylinder bottom rim normals point -Z (downward flush with bed)');
 
     // Verify zero vertical frame seam gap between last image (c = testCols - 1) and first image (c = 0)
@@ -597,8 +640,8 @@ async function runTestSuite() {
     const ths = cylGeom.thicknesses!;
     const firstColTh = ths[midRow * testCols + 0];
     const lastColTh = ths[midRow * testCols + (testCols - 1)];
-    const expectedFirstTh = DEFAULT_SETTINGS.minThickness + (1.0 - 0.2) * (DEFAULT_SETTINGS.maxThickness - DEFAULT_SETTINGS.minThickness);
-    const expectedLastTh = DEFAULT_SETTINGS.minThickness + (1.0 - 0.8) * (DEFAULT_SETTINGS.maxThickness - DEFAULT_SETTINGS.minThickness);
+    const expectedFirstTh = thicknessForLuminance(0.2, DEFAULT_SETTINGS.minThickness, DEFAULT_SETTINGS.maxThickness);
+    const expectedLastTh = thicknessForLuminance(0.8, DEFAULT_SETTINGS.minThickness, DEFAULT_SETTINGS.maxThickness);
     assert(Math.abs(firstColTh - expectedFirstTh) < 0.05, `First column thickness accurately reflects photo luminance without frame bar (got ${firstColTh.toFixed(2)}mm, expected ${expectedFirstTh.toFixed(2)}mm)`);
     assert(Math.abs(lastColTh - expectedLastTh) < 0.05, `Last column thickness accurately reflects photo luminance without frame bar (got ${lastColTh.toFixed(2)}mm, expected ${expectedLastTh.toFixed(2)}mm)`);
   }
@@ -811,7 +854,7 @@ async function runTestSuite() {
       }
     }
     assert(rimMin < 2.4 - 0.4, `Cylinder top rim has a bone cut into it (got ${rimMin.toFixed(2)}mm)`);
-    const midPhoto = 0.6 + 0.5 * (2.25 - 0.6);
+    const midPhoto = thicknessForLuminance(0.5, DEFAULT_SETTINGS.minThickness, DEFAULT_SETTINGS.maxThickness);
     assert(Math.abs(midMax - midPhoto) < 0.08, `Cylinder mid-height stays free of a vertical border (got ${midMax.toFixed(2)}mm)`);
 
     const cubeCols = 96;
@@ -951,6 +994,166 @@ async function runTestSuite() {
       wait: async () => {},
     });
     assert(rejected.ok === false, 'A non-Treatstock redirect is refused');
+  }
+
+  console.log('\n[14] Testing physical tone curve and stand clearance...');
+  {
+    const wedge = [0, 0.1, 0.2, 0.5, 0.9];
+    const wedgeShapes: LithophaneSettings['shape'][] = ['flat', 'curved', 'cylinder', 'cube'];
+    for (const shape of wedgeShapes) {
+      const cols = shape === 'cube' || shape === 'cylinder' ? 48 : 20;
+      const rows = 12;
+      const grid = new Float32Array(cols * rows);
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) grid[r * cols + c] = wedge[c % wedge.length];
+      }
+      const geom = GeometryGenerator.generateMesh(grid, cols, rows, {
+        ...DEFAULT_SETTINGS,
+        shape,
+        width: 80,
+        height: 60,
+        cylinderDiameter: 80,
+        cubeWidth: 80,
+        orientation: 'standing',
+        supportType: 'none',
+        hasFrame: false,
+      });
+      const validation = MeshValidator.validate(geom);
+      assert(validation.isWatertight && validation.isManifold && validation.degenerateTriangles === 0, `${shape} step wedge is watertight`);
+      const mid = Math.floor(rows / 2);
+      let prev = -1;
+      for (let i = 0; i < wedge.length; i++) {
+        const th = geom.thicknesses![mid * cols + i];
+        const perceived = transmissionToSrgb(th, DEFAULT_SETTINGS.minThickness, DEFAULT_SETTINGS.maxThickness);
+        assert(
+          Math.abs(perceived - wedge[i]) <= 0.05,
+          `${shape} transmission for input ${wedge[i]} is within ±0.05 (got ${perceived.toFixed(4)}, thickness ${th.toFixed(3)}mm)`
+        );
+        assert(
+          perceived > prev + 1e-4,
+          `${shape} transmission is strictly increasing at input ${wedge[i]} (${perceived.toFixed(4)} after ${prev.toFixed(4)})`
+        );
+        prev = perceived;
+      }
+    }
+
+    const panels: Array<{
+      shape: LithophaneSettings['shape'];
+      width: number;
+      height: number;
+      cols: number;
+      rows: number;
+      supports: Array<LithophaneSettings['supportType']>;
+    }> = [
+      { shape: 'flat', width: 120, height: 90, cols: 61, rows: 46, supports: ['flange', 'buttress', 'full', 'none'] },
+      { shape: 'curved', width: 120, height: 90, cols: 61, rows: 46, supports: ['flange', 'none'] },
+      { shape: 'cylinder', width: 120, height: 95, cols: 48, rows: 40, supports: ['flange', 'none'] },
+      { shape: 'cube', width: 90, height: 90, cols: 48, rows: 40, supports: ['flange', 'none'] },
+    ];
+
+    for (const panel of panels) {
+      const borderMax = maxBorderWidthMm(panel.shape, panel.width, panel.height);
+      for (const frameWidth of [1.5, borderMax]) {
+        for (const supportType of panel.supports) {
+          const grid = new Float32Array(panel.cols * panel.rows);
+          grid.fill(0.35);
+          const midR = Math.floor(panel.rows / 2);
+          const midC = panel.shape === 'cube' || panel.shape === 'cylinder'
+            ? Math.floor(panel.cols / 8)
+            : Math.floor(panel.cols / 2);
+          grid[midR * panel.cols + midC] = 0;
+          grid[midR * panel.cols + midC + 1] = 1;
+
+          const settings: LithophaneSettings = {
+            ...DEFAULT_SETTINGS,
+            shape: panel.shape,
+            width: panel.width,
+            height: panel.height,
+            cylinderDiameter: 90,
+            cubeWidth: 90,
+            orientation: 'standing',
+            supportType,
+            hasFrame: true,
+            frameWidth,
+            borderIcon: 'none',
+          };
+          const geom = GeometryGenerator.generateMesh(grid, panel.cols, panel.rows, settings);
+          const validation = MeshValidator.validate(geom);
+          const label = `${panel.shape}/${supportType}/border ${frameWidth}`;
+          assert(validation.isWatertight && validation.isManifold, `${label} is watertight and manifold`);
+          assert(validation.degenerateTriangles === 0, `${label} has no degenerate triangles`);
+          assert(Math.abs(geom.boundingBox.min[2]) < 1e-6, `${label} sits on Z = 0`);
+
+          const ext = standingBaseExtension(settings);
+          assert(
+            Math.abs(geom.boundingBox.max[2] - (panel.height + ext.heightMm)) < 1e-3,
+            `${label} height is photo plus stand (got ${geom.boundingBox.max[2].toFixed(2)}, expected ${(panel.height + ext.heightMm).toFixed(2)})`
+          );
+
+          const enclosed = panel.shape === 'cylinder' || panel.shape === 'cube';
+          let maxExcess = 0;
+          let sawBlack = false;
+          let sawWhite = false;
+          let bottomR = -1;
+          let bottomDist = Infinity;
+          for (let r = 0; r < panel.rows; r++) {
+            const v = r / (panel.rows - 1);
+            const yFromBottom = (1 - v) * panel.height;
+            if (yFromBottom <= frameWidth) continue;
+            if (yFromBottom < bottomDist) {
+              bottomDist = yFromBottom;
+              bottomR = r;
+            }
+            for (let c = 0; c < panel.cols; c++) {
+              const u = c / (panel.cols - 1);
+              const distX = Math.min(u, 1 - u) * panel.width;
+              const distY = Math.min(v, 1 - v) * panel.height;
+              const inside = enclosed ? distY > frameWidth : Math.min(distX, distY) > frameWidth;
+              if (!inside) continue;
+              const lum = grid[r * panel.cols + c];
+              const expected = thicknessForLuminance(lum, settings.minThickness, settings.maxThickness);
+              const th = geom.thicknesses![r * panel.cols + c];
+              maxExcess = Math.max(maxExcess, th - expected);
+              if (lum === 0 && Math.abs(th - settings.maxThickness) < 0.02) sawBlack = true;
+              if (lum === 1 && Math.abs(th - settings.minThickness) < 0.02) sawWhite = true;
+            }
+          }
+          assert(maxExcess < 0.02, `${label} adds no thickness inside the photo (excess ${maxExcess.toFixed(3)}mm)`);
+          assert(sawBlack && sawWhite, `${label} image thickness reaches ${settings.minThickness}–${settings.maxThickness}mm`);
+          assert(bottomR >= 0, `${label} has a photo row just above the frame`);
+
+          const edgeTh = geom.thicknesses![bottomR * panel.cols + midC];
+          const edgeExpected = thicknessForLuminance(grid[bottomR * panel.cols + midC], settings.minThickness, settings.maxThickness);
+          assert(
+            Math.abs(edgeTh - edgeExpected) < 0.02,
+            `${label} row just above the frame matches the photo (got ${edgeTh.toFixed(3)}mm, expected ${edgeExpected.toFixed(3)}mm)`
+          );
+          const edgeZ = geom.vertices[(bottomR * panel.cols + midC) * 3 + 2];
+          assert(
+            edgeZ > ext.heightMm + frameWidth - 0.05,
+            `${label} photo row sits above the stand (z ${edgeZ.toFixed(2)}, stand ${ext.heightMm})`
+          );
+
+          const topTh = geom.thicknesses![midC];
+          assert(
+            Math.abs(topTh - settings.frameThickness) < 0.05,
+            `${label} frame is ${settings.frameThickness}mm (got ${topTh.toFixed(3)}mm)`
+          );
+
+          const frontCount = geom.vertices.length / 6;
+          const f = (bottomR * panel.cols + midC) * 3;
+          const b = (frontCount + bottomR * panel.cols + midC) * 3;
+          const dx = geom.vertices[f] - geom.vertices[b];
+          const dy = geom.vertices[f + 1] - geom.vertices[b + 1];
+          const dz = geom.vertices[f + 2] - geom.vertices[b + 2];
+          const geometric = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          assert(
+            Math.abs(geometric - edgeTh) < 0.05,
+            `${label} geometric thickness matches the photo (got ${geometric.toFixed(3)}mm)`
+          );
+        }
+      }
+    }
   }
 
   await runEmailExportTests(assert);

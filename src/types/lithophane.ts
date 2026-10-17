@@ -30,13 +30,13 @@ export interface LithophaneSettings {
   cylinderPanelCount?: number; // 1, 2, 3, or 4 images around cylinder (default 4)
   cubeWidth?: number; // mm (side length of square hollow cube, 40-250mm, default 90mm)
   cubePanelCount?: number; // 1, 2, 3, or 4 images around cube (default 4)
-  minThickness: number; // e.g. 0.6 mm (thinnest, highlights)
-  maxThickness: number; // e.g. 2.25 mm (thickest, shadows)
+  minThickness: number; // e.g. 0.8 mm (thinnest, highlights)
+  maxThickness: number; // e.g. 3.0 mm (thickest, shadows)
 
   // Quality & Resolution Pipeline
   qualityTier: QualityTier; // 'master' (peak photographic fidelity 600+ cols), 'studio' (440 cols), 'balanced' (340 cols)
   sharpness: number; // 0 to 100 (Unsharp mask micro-contrast for maximum edge definition in translucent PLA)
-  autoLevels: boolean; // Dynamic range histogram expansion to use full 0.6mm - 2.25mm thickness gamut
+  autoLevels: boolean; // Dynamic range histogram expansion to use the full thickness gamut
 
   // Shape & Structural Rigidity
   shape: LithophaneShape;
@@ -46,7 +46,7 @@ export interface LithophaneSettings {
   curveDirection?: 'convex' | 'concave'; // default convex (edges wrap backwards away from viewer)
   hasFrame: boolean;
   frameWidth: number; // mm (e.g. 3.0 mm)
-  frameThickness: number; // mm (e.g. 2.4 mm)
+  frameThickness: number; // mm (e.g. 3.4 mm, 0.4 mm thicker than the darkest shadow)
   borderIcon: BorderIcon; // one motif repeated along the middle of the border
 
   // Print Standing Orientation & Stabilization Supports

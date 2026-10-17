@@ -822,7 +822,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               </div>
 
               <div className="text-[11px] text-slate-400 leading-relaxed font-mono px-1">
-                Adds a wider base so your lithophane stays firmly in place while 3D printing.
+                Adds a wider base below the photo, so the picture stays clear. Printed height grows by that base.
               </div>
             </div>
           )}
