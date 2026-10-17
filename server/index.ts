@@ -7,6 +7,15 @@ import { createApp } from './app';
 
 dotenv.config();
 
+// A failed request must never take the whole server down.
+process.on('unhandledRejection', (reason) => {
+  const detail = reason instanceof Error ? reason.stack || reason.message : String(reason);
+  console.error(`Unhandled promise rejection: ${detail.replace(/re_[A-Za-z0-9_-]+/g, 're_redacted')}`);
+});
+process.on('uncaughtException', (err) => {
+  console.error(`Uncaught exception: ${(err.stack || err.message).replace(/re_[A-Za-z0-9_-]+/g, 're_redacted')}`);
+});
+
 const app = createApp();
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');

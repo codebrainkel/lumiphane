@@ -312,7 +312,13 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
       const payload = (await response.json().catch(() => null)) as { message?: string } | null;
       if (controller.signal.aborted) return;
       if (!response.ok) {
-        setEmailError(payload?.message || 'The email could not be sent. Download the file instead.');
+        const fallback =
+          response.status === 413
+            ? 'This file is too large to email. Download it instead.'
+            : response.status === 502 || response.status === 503 || response.status === 504
+              ? 'The email service is unavailable right now. Download the file instead.'
+              : 'The email could not be sent. Download the file instead.';
+        setEmailError(payload?.message || fallback);
         return;
       }
       setEmailNotice(`Sent to ${recipient}. The file is attached to that email.`);

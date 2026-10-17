@@ -258,3 +258,99 @@ export function clientAddress(options: {
   if (forwarded && socket !== 'unknown' && isLoopbackOrPrivate(socket)) return forwarded;
   return socket;
 }
+
+export type EmailSendErrorCode =
+  | 'sender_not_verified'
+  | 'email_config'
+  | 'rejected'
+  | 'too_large'
+  | 'busy'
+  | 'timeout'
+  | 'network'
+  | 'send_failed';
+
+export interface EmailSendFailure {
+  httpStatus: number;
+  code: EmailSendErrorCode;
+  message: string;
+  retryable: boolean;
+}
+
+/**
+ * Maps a failed send (Resend API error, timeout, or network problem) to the
+ * status and plain-language message the browser shows.
+ */
+export function classifyEmailSendError(error: {
+  statusCode?: number | null;
+  name?: string | null;
+  message?: string | null;
+}): EmailSendFailure {
+  const status = error.statusCode ?? 0;
+  const name = (error.name || '').toLowerCase();
+  const text = (error.message || '').toLowerCase();
+  if (name === 'timeout') {
+    return {
+      httpStatus: 504,
+      code: 'timeout',
+      message: 'The email service did not respond in time. Download the file instead, or try again later.',
+      retryable: false,
+    };
+  }
+  if (name === 'network_error' || (!status && name !== 'request_build_failed')) {
+    return {
+      httpStatus: 502,
+      code: 'network',
+      message: 'The server could not reach the email service. Download the file instead, or try again later.',
+      retryable: true,
+    };
+  }
+  if (/not verified|verify (a|your) domain|domain is not verified|unverified/.test(text)) {
+    return {
+      httpStatus: 502,
+      code: 'sender_not_verified',
+      message: 'Email is not available yet because the sending domain has not been verified. Download the file instead.',
+      retryable: false,
+    };
+  }
+  if (status === 429) {
+    return {
+      httpStatus: 429,
+      code: 'busy',
+      message: 'The email service is busy. Wait a moment and try again, or download the file.',
+      retryable: true,
+    };
+  }
+  if (status === 413) {
+    return { httpStatus: 413, code: 'too_large', message: emailTooLargeMessage(), retryable: false };
+  }
+  if (status === 401 || status === 403) {
+    return {
+      httpStatus: 502,
+      code: 'email_config',
+      message: 'Email could not be sent because of a server email configuration problem. Download the file instead.',
+      retryable: false,
+    };
+  }
+  if (status >= 500) {
+    return {
+      httpStatus: 502,
+      code: 'send_failed',
+      message: 'The email service had a problem. Try again, or download the file instead.',
+      retryable: true,
+    };
+  }
+  if (status >= 400) {
+    return {
+      httpStatus: 502,
+      code: 'rejected',
+      message: 'The email service rejected this message. Download the file instead.',
+      retryable: false,
+    };
+  }
+  return {
+    httpStatus: 502,
+    code: 'send_failed',
+    message: 'The email could not be sent. Try again, or download the file instead.',
+    retryable: false,
+  };
+}
