@@ -15,14 +15,11 @@ import {
   isValidRecipientEmail,
   maxEmailAttachmentBytes,
   resolveEmailedFormat,
-  type EmailAttachmentFormat,
 } from '../services/emailExport';
 import {
-  Check,
   Download,
   FileArchive,
-  Layers,
-  Box,
+  Info,
   X,
   Printer,
   FileCheck,
@@ -47,11 +44,10 @@ export type ExportFormatType = 'bambu-project' | 'universal' | 'stl';
 const EMAIL_BYTE_LIMIT = maxEmailAttachmentBytes();
 const EMAIL_LIMIT_LABEL = formatByteSize(EMAIL_BYTE_LIMIT);
 
-function exportSubtitle(email: boolean, order: boolean): string {
-  if (email && order) return 'Download the file, email it to yourself, or order a print';
-  if (email) return 'Download the file or email it to yourself';
-  if (order) return 'Download the file or order a print';
-  return 'Choose a format and save the file';
+function exportFileLabel(format: ExportFormatType, printerId: string): string {
+  if (format === 'stl') return 'STL';
+  if (format === 'universal') return 'standard 3MF';
+  return `${getBambuPrinter(printerId).label} project`;
 }
 
 function downloadLabel(format: ExportFormatType, pending: boolean, exporting: boolean): string {
@@ -72,7 +68,8 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   onClose,
 }) => {
   const [exportFormat, setExportFormat] = useState<ExportFormatType>('bambu-project');
-  const [emailFormat, setEmailFormat] = useState<EmailAttachmentFormat>('3mf');
+  const [delivery, setDelivery] = useState<'download' | 'email'>('download');
+  const [specsPinned, setSpecsPinned] = useState(false);
   const [emailAddress, setEmailAddress] = useState('');
   const [emailNotice, setEmailNotice] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
@@ -83,17 +80,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const [pendingFile, setPendingFile] = useState(false);
   const pendingBlobRef = useRef<{ blob: Blob; filename: string } | null>(null);
-  const emailFormatTouched = useRef(false);
   const emailAbortRef = useRef<AbortController | null>(null);
-  const [verified3Mf, setVerified3Mf] = useState<{
-    hasRun: boolean;
-    isValid: boolean;
-    sizeKb: number;
-    unit: string;
-    parsedVertices: number;
-    parsedTriangles: number;
-    isBambuProject?: boolean;
-  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -114,6 +101,13 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
       emailAbortRef.current?.abort();
     };
   }, []);
+
+  useEffect(() => {
+    if (!specsPinned) return;
+    const close = () => setSpecsPinned(false);
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, [specsPinned]);
 
   const clearPendingFile = () => {
     pendingBlobRef.current = null;
@@ -151,12 +145,10 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
 
   const selectDownloadFormat = (format: ExportFormatType) => {
     setExportFormat(format);
-    setVerified3Mf(null);
     setExportError(null);
+    setEmailError(null);
+    setEmailNotice(null);
     clearPendingFile();
-    if (!emailFormatTouched.current) {
-      setEmailFormat(format === 'stl' ? 'stl' : '3mf');
-    }
   };
 
   const createModelFile = async (format: ExportFormatType): Promise<
@@ -213,7 +205,6 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
 
       const built = await createModelFile(exportFormat);
       if (!built.ok) {
-        setVerified3Mf(null);
         setExportError(built.message);
         return;
       }
@@ -224,34 +215,14 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
       }
 
       if (isIosDevice()) {
-        setVerified3Mf({
-          hasRun: true,
-          isValid: true,
-          sizeKb: Math.round(built.blob.size / 1024),
-          unit: 'millimeter',
-          parsedVertices: geometryData.vertices.length / 3,
-          parsedTriangles: geometryData.indices.length / 3,
-          isBambuProject: built.isBambuProject,
-        });
         holdForTap(built.blob, built.filename);
         return;
       }
 
       if (!built.verification) {
-        setVerified3Mf(null);
         setExportError('The 3MF package failed verification.');
         return;
       }
-
-      setVerified3Mf({
-        hasRun: true,
-        isValid: built.verification.isValid,
-        sizeKb: Math.round(built.blob.size / 1024),
-        unit: built.verification.unit,
-        parsedVertices: built.verification.parsedVertexCount,
-        parsedTriangles: built.verification.parsedTriangleCount,
-        isBambuProject: built.isBambuProject,
-      });
 
       await deliverFile(built.blob, built.filename);
     } catch (err) {
@@ -279,7 +250,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
       setEmailError(null);
       setEmailNotice(null);
 
-      const format = resolveEmailedFormat(emailFormat, exportFormat);
+      const format = resolveEmailedFormat(exportFormat === 'stl' ? 'stl' : '3mf', exportFormat);
       const built = await createModelFile(format);
       if (controller.signal.aborted) return;
       if (!built.ok) {
@@ -331,385 +302,318 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
     }
   };
 
-  const emailedFormat = resolveEmailedFormat(emailFormat, exportFormat);
+  const emailedFormat = resolveEmailedFormat(exportFormat === 'stl' ? 'stl' : '3mf', exportFormat);
   const emailFormatHint =
     emailedFormat === 'bambu-project'
-      ? `Emails the Bambu Studio 3MF selected above. Limit ${EMAIL_LIMIT_LABEL}.`
+      ? `Bambu Studio project · limit ${EMAIL_LIMIT_LABEL}`
       : emailedFormat === 'universal'
-        ? `Emails a standard 3MF. Limit ${EMAIL_LIMIT_LABEL}.`
-        : `Emails a binary STL. Limit ${EMAIL_LIMIT_LABEL}.`;
+        ? `Standard 3MF · limit ${EMAIL_LIMIT_LABEL}`
+        : `Binary STL · limit ${EMAIL_LIMIT_LABEL}`;
   const showOrder = printOrderingEnabled && Boolean(onOrderPrint);
+  const showEmail = emailExportEnabled;
+  const path: 'download' | 'email' = showEmail && delivery === 'email' ? 'email' : 'download';
+  const busy = isExporting || isEmailing;
+  const busyTitle = isEmailing ? 'Sending your file' : 'Preparing your file';
+  const busyDetail = isEmailing
+    ? `Attaching the ${exportFileLabel(emailedFormat, bambuPrinterId)} for ${emailAddress.trim()}.`
+    : `Building the ${exportFileLabel(exportFormat, bambuPrinterId)}.`;
+  const statusLabel = !validationResult.isValid
+    ? 'Check'
+    : validationResult.warnings.length > 0
+      ? 'Review'
+      : 'Ready';
+  const statusTone = !validationResult.isValid
+    ? 'text-red-400'
+    : validationResult.warnings.length > 0
+      ? 'text-amber-400'
+      : 'text-emerald-400';
+
+  const printerBlock = exportFormat === 'bambu-project' ? (
+    <div className="p-3 rounded-md bg-[#141924] border border-white/10 space-y-2.5">
+      <label className="block">
+        <span className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
+          <Printer className="w-3.5 h-3.5 text-amber-400" />
+          Printer
+        </span>
+        <select
+          value={bambuPrinterId}
+          onChange={(event) => {
+            setBambuPrinterId(event.target.value);
+            setExportError(null);
+            clearPendingFile();
+          }}
+          className="mt-1.5 w-full rounded-md border border-white/10 bg-[#10141d] px-2.5 py-2 text-base sm:text-xs text-slate-200 outline-none focus:border-amber-400"
+          style={{ colorScheme: 'dark' }}
+        >
+          {BAMBU_PRINTERS.map((printer) => (
+            <option key={printer.id} value={printer.id}>
+              {printer.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="text-[11px] text-slate-400">
+        {bambuProfile
+          ? `${getBambuPrinter(bambuPrinterId).bedWidth} × ${getBambuPrinter(bambuPrinterId).bedDepth} mm plate · ${bambuProfile.layerHeight} mm layers · ${bambuProfile.infillDensity} infill · ${bambuProfile.brimWidth} mm brim`
+          : 'Loading the saved Bambu Studio profile…'}
+      </div>
+    </div>
+  ) : null;
 
   return (
     <div className="modal-scrim">
-      <div className="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="export-title">
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/10">
-          <div>
-            <h2 id="export-title" className="text-base font-semibold text-white tracking-tight">
-              Export
-            </h2>
-            <div className="text-xs text-slate-400 font-mono mt-0.5">
-              {exportSubtitle(emailExportEnabled, showOrder)}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1 rounded-sm text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
-            aria-label="Close"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="modal-body p-5 space-y-4">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-            <div className="p-3 rounded-md bg-[#141924] border border-white/10">
-              <div className="flex items-center gap-1.5 text-slate-400 text-[11px] mb-1">
-                <Box className="w-3.5 h-3.5" />
-                <span>Dimensions</span>
-              </div>
-              <div className="font-mono tabular-nums text-xs font-semibold text-white">
-                {validationResult.dimensionsMm.width} × {validationResult.dimensionsMm.height} mm
-              </div>
-              <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                Depth: {validationResult.dimensionsMm.depth} mm
-              </div>
-            </div>
-
-            <div className="p-3 rounded-md bg-[#141924] border border-white/10">
-              <div className="flex items-center gap-1.5 text-slate-400 text-[11px] mb-1">
-                <span>Thickness</span>
-              </div>
-              <div className="font-mono tabular-nums text-xs font-bold text-amber-400">
-                {settings.minThickness.toFixed(2)} – {settings.maxThickness.toFixed(2)} mm
-              </div>
-              <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                Min to max relief
-              </div>
-            </div>
-
-            <div className="p-3 rounded-md bg-[#141924] border border-white/10">
-              <div className="flex items-center gap-1.5 text-slate-400 text-[11px] mb-1">
-                <Layers className="w-3.5 h-3.5" />
-                <span>3D Polygons</span>
-              </div>
-              <div className="font-mono tabular-nums text-xs font-bold text-white">
-                {validationResult.triangleCount.toLocaleString()}
-              </div>
-              <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                ~{validationResult.estimatedWeightGrams.toFixed(1)}g filament
-              </div>
-            </div>
-
-            <div className="p-3 rounded-md bg-[#141924] border border-white/10">
-              <div className="flex items-center gap-1.5 text-slate-400 text-[11px] mb-1">
-                <Check className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Print Status</span>
-              </div>
-              <div className="font-mono tabular-nums text-xs font-bold text-emerald-400">
-                Print Ready
-              </div>
-              <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                Watertight solid
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <div className="text-xs font-bold text-slate-300 uppercase font-mono mb-2">
-              Choose File Format
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-              <button
-                type="button"
-                onClick={() => selectDownloadFormat('bambu-project')}
-                className={`p-3 text-left rounded-md border transition-colors ${
-                  exportFormat === 'bambu-project'
-                    ? 'bg-[#181e28] border-amber-400 ring-1 ring-amber-400'
-                    : 'bg-[#141924] border-white/10 hover:border-white/20'
-                }`}
+      <div
+        className="modal-dialog relative"
+        role="dialog"
+        aria-modal="true"
+        aria-busy={busy}
+        aria-labelledby={busy ? 'export-busy-title' : 'export-title'}
+      >
+        <div className={`export-shell ${busy ? 'pointer-events-none' : ''}`} aria-hidden={busy || undefined}>
+          <div className="relative z-10 flex items-center justify-between px-5 py-3.5 border-b border-white/10">
+            <div className="flex items-center gap-1.5">
+              <h2 id="export-title" className="text-base font-semibold text-white tracking-tight">
+                Export
+              </h2>
+              <span
+                className="export-spec"
+                data-pinned={specsPinned ? 'true' : undefined}
+                onPointerDown={(event) => event.stopPropagation()}
               >
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-white">
-                    <Printer className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Bambu Studio Project</span>
-                  </div>
-                  <span className="text-[10px] font-mono font-bold text-amber-400">Direct</span>
-                </div>
-                <p className="text-[11px] text-slate-400 leading-snug">
-                  Native 3MF project with the saved Bambu Studio print profile.
-                </p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => selectDownloadFormat('universal')}
-                className={`p-3 text-left rounded-md border transition-colors ${
-                  exportFormat === 'universal'
-                    ? 'bg-[#181e28] border-amber-400 ring-1 ring-amber-400'
-                    : 'bg-[#141924] border-white/10 hover:border-white/20'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-white">
-                    <FileCheck className="w-3.5 h-3.5 text-slate-300" />
-                    <span>Standard 3MF</span>
-                  </div>
-                  <span className="text-[10px] font-mono text-slate-400">Standard</span>
-                </div>
-                <p className="text-[11px] text-slate-400 leading-snug">
-                  Modern 3D file for OrcaSlicer, PrusaSlicer, Cura, and other programs.
-                </p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => selectDownloadFormat('stl')}
-                className={`p-3 text-left rounded-md border transition-colors ${
-                  exportFormat === 'stl'
-                    ? 'bg-[#181e28] border-amber-400 ring-1 ring-amber-400'
-                    : 'bg-[#141924] border-white/10 hover:border-white/20'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-white">
-                    <FileArchive className="w-3.5 h-3.5 text-slate-300" />
-                    <span>Standard STL</span>
-                  </div>
-                  <span className="text-[10px] font-mono text-slate-400">Classic</span>
-                </div>
-                <p className="text-[11px] text-slate-400 leading-snug">
-                  Classic 3D printing format compatible with all 3D printers and software.
-                </p>
-              </button>
-            </div>
-
-            {exportFormat === 'bambu-project' && (
-              <div className="mt-3 p-3 rounded-md bg-[#141924] border border-white/10 space-y-2.5">
-                <label className="block">
-                  <span className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
-                    <Printer className="w-3.5 h-3.5 text-amber-400" />
-                    Printer
+                <button
+                  type="button"
+                  className="export-spec-btn"
+                  aria-label="Model details"
+                  aria-expanded={specsPinned}
+                  onClick={() => setSpecsPinned((open) => !open)}
+                >
+                  <Info className="w-3.5 h-3.5" />
+                </button>
+                <span role="tooltip" className="export-spec-tip">
+                  <span>
+                    {validationResult.dimensionsMm.width} × {validationResult.dimensionsMm.height} × {validationResult.dimensionsMm.depth} mm
                   </span>
-                  <select
-                    value={bambuPrinterId}
-                    onChange={(event) => {
-                      setBambuPrinterId(event.target.value);
-                      setVerified3Mf(null);
-                      setExportError(null);
-                      clearPendingFile();
-                    }}
-                    className="mt-1.5 w-full rounded-md border border-white/10 bg-[#10141d] px-2.5 py-2 text-base sm:text-xs text-slate-200 outline-none focus:border-amber-400"
-                    style={{ colorScheme: 'dark' }}
-                  >
-                    {BAMBU_PRINTERS.map((printer) => (
-                      <option key={printer.id} value={printer.id}>
-                        {printer.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="text-[11px] text-slate-400">
-                  {bambuProfile
-                    ? `${getBambuPrinter(bambuPrinterId).bedWidth} × ${getBambuPrinter(bambuPrinterId).bedDepth} mm plate · ${bambuProfile.layerHeight} mm layers · ${bambuProfile.infillDensity} infill · ${bambuProfile.brimWidth} mm brim`
-                    : 'Loading the saved Bambu Studio profile…'}
+                  <span className="text-amber-400">
+                    {settings.minThickness.toFixed(2)}–{settings.maxThickness.toFixed(2)} mm
+                  </span>
+                  <span>{validationResult.triangleCount.toLocaleString()} polygons</span>
+                  <span className={statusTone}>{statusLabel}</span>
+                </span>
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1 rounded-sm text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+              aria-label="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="modal-body p-5 space-y-4">
+            {validationResult.warnings.length > 0 && (
+              <div className="space-y-1.5">
+                {validationResult.warnings.map((warning, index) => (
+                  <div key={index} className="flex items-start gap-1.5 text-xs text-amber-400">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <span>{warning}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="export-formats" role="group" aria-label="File format">
+              <button
+                type="button"
+                data-on={exportFormat === 'bambu-project'}
+                className="export-format"
+                onClick={() => selectDownloadFormat('bambu-project')}
+              >
+                <Printer className="w-3.5 h-3.5 shrink-0" />
+                <span>Bambu Studio Project</span>
+              </button>
+              <button
+                type="button"
+                data-on={exportFormat === 'universal'}
+                className="export-format"
+                onClick={() => selectDownloadFormat('universal')}
+              >
+                <FileCheck className="w-3.5 h-3.5 shrink-0" />
+                <span>Standard 3MF</span>
+              </button>
+              <button
+                type="button"
+                data-on={exportFormat === 'stl'}
+                className="export-format"
+                onClick={() => selectDownloadFormat('stl')}
+              >
+                <FileArchive className="w-3.5 h-3.5 shrink-0" />
+                <span>Standard STL</span>
+              </button>
+            </div>
+
+            {printerBlock}
+
+            {showEmail && (
+              <div className="export-tabs" role="tablist" aria-label="How to get the file">
+                <button
+                  type="button"
+                  role="tab"
+                  id="export-tab-download"
+                  aria-selected={path === 'download'}
+                  className="export-tab"
+                  onClick={() => setDelivery('download')}
+                >
+                  Download
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  id="export-tab-email"
+                  aria-selected={path === 'email'}
+                  aria-controls="export-panel-email"
+                  className="export-tab"
+                  onClick={() => setDelivery('email')}
+                >
+                  Email file
+                </button>
+              </div>
+            )}
+
+            {path === 'download' && showOrder && (
+              <button
+                type="button"
+                onClick={onOrderPrint}
+                disabled={!orderReady || isExporting || isEmailing}
+                className="w-full p-3 text-left rounded-md border border-white/10 bg-[#141924] hover:border-white/20 disabled:opacity-45"
+              >
+                <div className="flex items-center gap-2 text-xs font-bold text-white">
+                  <Printer className="w-3.5 h-3.5 text-amber-400" />
+                  Order a print
                 </div>
+                <p className="text-[11px] text-slate-400 mt-1 leading-snug">
+                  Treatstock prints this lithophane and ships it to you. You pay Treatstock, not Lumiphane.
+                </p>
+              </button>
+            )}
+
+            {path === 'email' && (
+              <div id="export-panel-email" role="tabpanel" aria-labelledby="export-tab-email" className="space-y-3">
+                <p className="text-[11px] text-slate-400 leading-snug">
+                  One email, with the file attached. Lumiphane does not keep a copy.
+                </p>
+                <label className="block">
+                  <span className="text-[11px] font-medium text-slate-300">Email address</span>
+                  <input
+                    type="email"
+                    inputMode="email"
+                    autoComplete="email"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    enterKeyHint="send"
+                    maxLength={254}
+                    value={emailAddress}
+                    placeholder="you@example.com"
+                    aria-invalid={emailError ? true : undefined}
+                    onChange={(event) => {
+                      setEmailAddress(event.target.value);
+                      setEmailError(null);
+                      setEmailNotice(null);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        void handleEmail();
+                      }
+                    }}
+                    className="mt-1.5 w-full rounded-md border border-white/10 bg-[#10141d] px-3 py-2.5 text-base text-slate-100 outline-none focus:border-amber-400"
+                  />
+                </label>
+                <p className="text-[11px] text-slate-500 leading-snug">{emailFormatHint}</p>
               </div>
             )}
           </div>
 
-          {emailExportEnabled && (
-            <div className="p-3.5 rounded-md bg-[#141924] border border-white/10 space-y-3">
-              <div>
-                <div className="text-xs font-bold text-slate-200">Send to my email</div>
-                <p className="text-[11px] text-slate-400 leading-snug mt-1">
-                  The file is attached to one email. Lumiphane does not keep a copy.
-                </p>
-              </div>
-              <label className="block">
-                <span className="text-[11px] font-medium text-slate-300">Email address</span>
-                <input
-                  type="email"
-                  inputMode="email"
-                  autoComplete="email"
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  enterKeyHint="send"
-                  maxLength={254}
-                  value={emailAddress}
-                  placeholder="you@example.com"
-                  aria-invalid={emailError ? true : undefined}
-                  onChange={(event) => {
-                    setEmailAddress(event.target.value);
-                    setEmailError(null);
-                    setEmailNotice(null);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      event.preventDefault();
-                      void handleEmail();
-                    }
-                  }}
-                  className="mt-1.5 w-full rounded-md border border-white/10 bg-[#10141d] px-3 py-2.5 text-base text-slate-100 outline-none focus:border-amber-400"
-                />
-              </label>
-              <div>
-                <span id="email-format-label" className="text-[11px] font-medium text-slate-300">
-                  Attachment
-                </span>
-                <div className="seg-grid grid-cols-2 mt-1.5" role="group" aria-labelledby="email-format-label">
-                  <button
-                    type="button"
-                    data-on={emailFormat === '3mf'}
-                    className="seg-btn export-format"
-                    onClick={() => {
-                      emailFormatTouched.current = true;
-                      setEmailFormat('3mf');
-                      setEmailError(null);
-                    }}
-                  >
-                    3MF
-                  </button>
-                  <button
-                    type="button"
-                    data-on={emailFormat === 'stl'}
-                    className="seg-btn export-format"
-                    onClick={() => {
-                      emailFormatTouched.current = true;
-                      setEmailFormat('stl');
-                      setEmailError(null);
-                    }}
-                  >
-                    STL
-                  </button>
-                </div>
-                <p className="text-[11px] text-slate-500 mt-1.5 leading-snug">{emailFormatHint}</p>
-              </div>
+          {path === 'email' && emailError && (
+            <div className="px-5 pt-3 text-xs text-red-300" role="alert">
+              {emailError}
+            </div>
+          )}
+          {path === 'email' && emailNotice && (
+            <div className="px-5 pt-3 text-xs text-emerald-300" role="status">
+              {emailNotice}
+            </div>
+          )}
+          {path === 'download' && exportError && (
+            <div className="px-5 pt-3 text-xs text-red-300" role="alert">
+              {exportError}
+            </div>
+          )}
+          {path === 'download' && pendingFile && (
+            <div className="px-5 pt-3 text-xs text-slate-200">
+              The file is ready. Tap <span className="font-semibold text-white">Download</span>, then choose Save to Files.
+            </div>
+          )}
+
+          <div className="export-footer">
+            {path === 'email' ? (
               <button
                 type="button"
-                className="btn-secondary export-send"
+                className="btn-primary"
                 onClick={() => void handleEmail()}
                 disabled={isEmailing || isExporting || !emailAddress.trim()}
               >
                 <Mail className="w-3.5 h-3.5 shrink-0" />
                 <span>{isEmailing ? 'Sending…' : 'Send email'}</span>
               </button>
-              {emailError && (
-                <div className="text-xs text-red-300" role="alert">
-                  {emailError}
-                </div>
-              )}
-              {emailNotice && (
-                <div className="text-xs text-emerald-300" role="status">
-                  {emailNotice}
-                </div>
-              )}
-            </div>
-          )}
-
-          {showOrder && (
-            <button
-              type="button"
-              onClick={onOrderPrint}
-              disabled={!orderReady || isExporting || isEmailing}
-              className="w-full p-3.5 text-left rounded-md border border-white/10 bg-[#141924] hover:border-white/20 disabled:opacity-45"
-            >
-              <div className="flex items-center gap-2 text-xs font-bold text-white">
-                <Printer className="w-3.5 h-3.5 text-amber-400" />
-                Order a print
-              </div>
-              <p className="text-[11px] text-slate-400 mt-1 leading-snug">
-                Treatstock prints this lithophane and ships it to you. You pay Treatstock, not Lumiphane.
-              </p>
-            </button>
-          )}
-
-          <div className="p-3.5 rounded-md bg-[#141924] border border-white/10 space-y-2.5">
-            <div className="text-xs font-semibold text-slate-300 tracking-wide uppercase font-mono">
-              Pre-Print Quality Check
-            </div>
-
-            <div className="space-y-1.5 text-xs">
-              <div className="flex items-start gap-2 text-slate-300">
-                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                <span>Watertight solid mesh with closed edges (no holes or gaps)</span>
-              </div>
-              <div className="flex items-start gap-2 text-slate-300">
-                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                <span>Correct surface direction for realistic backlight simulation</span>
-              </div>
-              <div className="flex items-start gap-2 text-slate-300">
-                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                <span>Stands upright on the build plate (Z = 0) with stabilizing base</span>
-              </div>
-              <div className="flex items-start gap-2 text-slate-300">
-                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                <span>Accurate millimeter dimensions for 1:1 real-world size</span>
-              </div>
-            </div>
-
-            {validationResult.warnings.length > 0 && (
-              <div className="mt-2 pt-2 border-t border-white/5 space-y-1">
-                {validationResult.warnings.map((w, idx) => (
-                  <div key={idx} className="flex items-center gap-1.5 text-xs text-amber-400">
-                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                    <span>{w}</span>
-                  </div>
-                ))}
-              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={pendingFile ? handleSavePending : handleExport}
+                disabled={isExporting || isEmailing}
+                className="btn-primary"
+                aria-label={
+                  pendingFile
+                    ? 'Download the prepared file'
+                    : exportFormat === 'bambu-project'
+                      ? 'Download Bambu Studio file'
+                      : exportFormat === 'universal'
+                        ? 'Download 3MF file'
+                        : 'Download STL file'
+                }
+              >
+                <Download className="w-3.5 h-3.5 shrink-0" />
+                <span>{downloadLabel(exportFormat, pendingFile, isExporting)}</span>
+              </button>
             )}
           </div>
-
-          {exportError && (
-            <div className="p-3 rounded-md bg-red-950/40 border border-red-500/30 text-xs text-red-300">
-              {exportError}
-            </div>
-          )}
-
-          {pendingFile && (
-            <div className="p-3 rounded-md bg-[#141924] border border-amber-400/40 text-xs text-slate-200">
-              The file is ready. Tap <span className="font-semibold text-white">Download</span>, then choose Save to Files.
-            </div>
-          )}
-
-          {verified3Mf && (
-            <div className="p-3 rounded-md bg-emerald-950/40 border border-emerald-500/30 flex items-center justify-between text-xs text-emerald-300">
-              <div className="flex items-center gap-2">
-                <Check className="w-4 h-4 text-emerald-400" />
-                <span>
-                  File Ready ({verified3Mf.sizeKb} KB · {verified3Mf.parsedVertices.toLocaleString()} points)
-                </span>
-              </div>
-              <span className="font-mono text-emerald-400">Unit: mm</span>
-            </div>
-          )}
         </div>
 
-        <div className="export-footer">
-          <button type="button" onClick={onClose} className="btn-secondary">
-            Close
-          </button>
-          <button
-            type="button"
-            onClick={pendingFile ? handleSavePending : handleExport}
-            disabled={isExporting || (isEmailing && !pendingFile)}
-            className="btn-primary"
-            aria-label={
-              pendingFile
-                ? 'Download the prepared file'
-                : exportFormat === 'bambu-project'
-                  ? 'Download Bambu Studio file'
-                  : exportFormat === 'universal'
-                    ? 'Download 3MF file'
-                    : 'Download STL file'
-            }
-          >
-            <Download className="w-3.5 h-3.5 shrink-0" />
-            <span>{downloadLabel(exportFormat, pendingFile, isExporting)}</span>
-          </button>
-        </div>
+        {busy && (
+          <div className="export-busy" role="status" aria-live="polite">
+            <div className="export-busy-bar" aria-hidden="true">
+              <span />
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="export-busy-close"
+              aria-label="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <div className="export-busy-mark" aria-hidden="true">
+              <span className="export-busy-spin" />
+            </div>
+            <p className="export-busy-kicker">Export</p>
+            <h2 id="export-busy-title" className="export-busy-title">
+              {busyTitle}
+            </h2>
+            <p className="export-busy-detail">{busyDetail}</p>
+          </div>
+        )}
       </div>
     </div>
   );
