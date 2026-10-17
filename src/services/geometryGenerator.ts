@@ -8,6 +8,14 @@ export const SUPPORT_BRIM_HEIGHT_MM = 4;
 const SKIRT_ROW_PITCH_MM = 0.5;
 
 /**
+ * Faces merge only when every corner lies on the seed plane. 0.0005 mm is
+ * far under the 0.01 mm thickness tolerance, and it is tighter than the
+ * sagitta between neighboring cylinder or arc facets, so curved columns
+ * stay faceted.
+ */
+const COPLANAR_EPSILON_MM = 5e-4;
+
+/**
  * Vertical band added under the photo so the stand, flange, buttress, or brim
  * never thickens the image. Height is the support's own reach; row count
  * samples that band at about 0.5mm.
@@ -68,21 +76,12 @@ export class GeometryGenerator {
     const vertexCount = N * 2; // Front grid + Back grid
 
     const vertices = new Float32Array(vertexCount * 3);
-    const normals = new Float32Array(vertexCount * 3);
     const uvs = new Float32Array(vertexCount * 2);
     const thicknesses = new Float32Array(vertexCount);
 
-    // Number of triangles:
-    // Front: 2 * (cols - 1) * (rows - 1)
-    // Back:  2 * (cols - 1) * (rows - 1)
-    // Top:   2 * (cols - 1)
-    // Bot:   2 * (cols - 1)
     const isCylinder = settings.shape === 'cylinder';
     const isCube = settings.shape === 'cube';
     const isEnclosed = isCylinder || isCube;
-    const triangleCount = isEnclosed ? 4 * cols * meshRows : 4 * (cols * meshRows - 1);
-    const indices = new Uint32Array(triangleCount * 3);
-    let triOffset = 0;
 
     // Precalculate curved arc and cylinder parameters
     const isCurved = settings.shape === 'curved' || settings.shape === 'nightlight';
@@ -397,274 +396,408 @@ export class GeometryGenerator {
       }
     }
 
-    // 2. Generate Triangles with Consistent Winding & Outward Normals
-    if (isEnclosed) {
-      // ==============================================================
-      // 360° HOLLOW TUBE / CUBE (Watertight Annular Shell)
-      // ==============================================================
-      // OUTER FACE (Facing outward)
-      for (let r = 0; r < meshRows - 1; r++) {
-        for (let c = 0; c < cols; c++) {
-          const cNext = (c + 1) % cols;
-          const p00 = r * cols + c;
-          const p10 = r * cols + cNext;
-          const p01 = (r + 1) * cols + c;
-          const p11 = (r + 1) * cols + cNext;
-
-          // Tri 1: (p00, p10, p11)
-          indices[triOffset++] = p00;
-          indices[triOffset++] = p10;
-          indices[triOffset++] = p11;
-
-          // Tri 2: (p00, p11, p01)
-          indices[triOffset++] = p00;
-          indices[triOffset++] = p11;
-          indices[triOffset++] = p01;
-        }
-      }
-
-      // INNER CYLINDRICAL FACE (Facing inward towards center (0,0,z))
-      for (let r = 0; r < meshRows - 1; r++) {
-        for (let c = 0; c < cols; c++) {
-          const cNext = (c + 1) % cols;
-          const b00 = N + r * cols + c;
-          const b10 = N + r * cols + cNext;
-          const b01 = N + (r + 1) * cols + c;
-          const b11 = N + (r + 1) * cols + cNext;
-
-          // Tri 1: (b00, b11, b10)
-          indices[triOffset++] = b00;
-          indices[triOffset++] = b11;
-          indices[triOffset++] = b10;
-
-          // Tri 2: (b00, b01, b11)
-          indices[triOffset++] = b00;
-          indices[triOffset++] = b01;
-          indices[triOffset++] = b11;
-        }
-      }
-
-      // TOP ANNULAR RIM (r = 0, Z = H, Normal points strictly +Z)
-      for (let c = 0; c < cols; c++) {
-        const cNext = (c + 1) % cols;
-        const f0 = c;
-        const f1 = cNext;
-        const b0 = N + c;
-        const b1 = N + cNext;
-
-        // Tri 1: (f1, f0, b1)
-        indices[triOffset++] = f1;
-        indices[triOffset++] = f0;
-        indices[triOffset++] = b1;
-
-        // Tri 2: (f0, b0, b1)
-        indices[triOffset++] = f0;
-        indices[triOffset++] = b0;
-        indices[triOffset++] = b1;
-      }
-
-      // BOTTOM ANNULAR RIM (r = rows - 1, Z = 0, Normal points strictly -Z flush with bed)
-      const botRowOffset = (meshRows - 1) * cols;
-      for (let c = 0; c < cols; c++) {
-        const cNext = (c + 1) % cols;
-        const f0 = botRowOffset + c;
-        const f1 = botRowOffset + cNext;
-        const b0 = N + botRowOffset + c;
-        const b1 = N + botRowOffset + cNext;
-
-        // Tri 1: (f0, f1, b1)
-        indices[triOffset++] = f0;
-        indices[triOffset++] = f1;
-        indices[triOffset++] = b1;
-
-        // Tri 2: (f0, b1, b0)
-        indices[triOffset++] = f0;
-        indices[triOffset++] = b1;
-        indices[triOffset++] = b0;
-      }
-    } else if (isStanding) {
-      // FRONT FACE (Facing +Y)
-      // Vector p10-p00 is +X, Vector p01-p00 is -Z -> (+X) x (-Z) = +Y
-      for (let r = 0; r < meshRows - 1; r++) {
-        for (let c = 0; c < cols - 1; c++) {
-          const p00 = r * cols + c;
-          const p10 = r * cols + (c + 1);
-          const p01 = (r + 1) * cols + c;
-          const p11 = (r + 1) * cols + (c + 1);
-
-          // Tri 1: (p00, p10, p11)
-          indices[triOffset++] = p00;
-          indices[triOffset++] = p10;
-          indices[triOffset++] = p11;
-
-          // Tri 2: (p00, p11, p01)
-          indices[triOffset++] = p00;
-          indices[triOffset++] = p11;
-          indices[triOffset++] = p01;
-        }
-      }
-
-      // BACK FACE (Facing -Y, reverse winding)
-      for (let r = 0; r < meshRows - 1; r++) {
-        for (let c = 0; c < cols - 1; c++) {
-          const b00 = N + r * cols + c;
-          const b10 = N + r * cols + (c + 1);
-          const b01 = N + (r + 1) * cols + c;
-          const b11 = N + (r + 1) * cols + (c + 1);
-
-          // Tri 1: (b00, b11, b10)
-          indices[triOffset++] = b00;
-          indices[triOffset++] = b11;
-          indices[triOffset++] = b10;
-
-          // Tri 2: (b00, b01, b11)
-          indices[triOffset++] = b00;
-          indices[triOffset++] = b01;
-          indices[triOffset++] = b11;
-        }
-      }
-
-      // TOP EDGE (r = 0, Z = H, Normal points +Z)
-      for (let c = 0; c < cols - 1; c++) {
-        const f0 = c;
-        const f1 = c + 1;
-        const b0 = N + f0;
-        const b1 = N + f1;
-
-        indices[triOffset++] = f0;
-        indices[triOffset++] = b1;
-        indices[triOffset++] = f1;
-
-        indices[triOffset++] = f0;
-        indices[triOffset++] = b0;
-        indices[triOffset++] = b1;
-      }
-
-      // BOTTOM EDGE (r = rows - 1, Z = 0, Normal points -Z flush with bed)
-      const botRowOffset = (meshRows - 1) * cols;
-      for (let c = 0; c < cols - 1; c++) {
-        const f0 = botRowOffset + c;
-        const f1 = botRowOffset + (c + 1);
-        const b0 = N + f0;
-        const b1 = N + f1;
-
-        indices[triOffset++] = f0;
-        indices[triOffset++] = f1;
-        indices[triOffset++] = b1;
-
-        indices[triOffset++] = f0;
-        indices[triOffset++] = b1;
-        indices[triOffset++] = b0;
-      }
-
-      // LEFT EDGE (c = 0, X = -W/2, Normal points -X)
-      for (let r = 0; r < meshRows - 1; r++) {
-        const f0 = r * cols;
-        const f1 = (r + 1) * cols;
-        const b0 = N + f0;
-        const b1 = N + f1;
-
-        indices[triOffset++] = f0;
-        indices[triOffset++] = f1;
-        indices[triOffset++] = b1;
-
-        indices[triOffset++] = f0;
-        indices[triOffset++] = b1;
-        indices[triOffset++] = b0;
-      }
-
-      // RIGHT EDGE (c = cols - 1, X = +W/2, Normal points +X)
-      for (let r = 0; r < meshRows - 1; r++) {
-        const f0 = r * cols + (cols - 1);
-        const f1 = (r + 1) * cols + (cols - 1);
-        const b0 = N + f0;
-        const b1 = N + f1;
-
-        indices[triOffset++] = f0;
-        indices[triOffset++] = b1;
-        indices[triOffset++] = f1;
-
-        indices[triOffset++] = f0;
-        indices[triOffset++] = b0;
-        indices[triOffset++] = b1;
-      }
-    } else {
-      // FLAT LAYOUT
-      // Front face (+Z)
-      for (let r = 0; r < meshRows - 1; r++) {
-        for (let c = 0; c < cols - 1; c++) {
-          const p00 = r * cols + c;
-          const p10 = r * cols + (c + 1);
-          const p01 = (r + 1) * cols + c;
-          const p11 = (r + 1) * cols + (c + 1);
-
-          indices[triOffset++] = p00;
-          indices[triOffset++] = p01;
-          indices[triOffset++] = p11;
-
-          indices[triOffset++] = p00;
-          indices[triOffset++] = p11;
-          indices[triOffset++] = p10;
-        }
-      }
-
-      // Back face (-Z)
-      for (let r = 0; r < meshRows - 1; r++) {
-        for (let c = 0; c < cols - 1; c++) {
-          const b00 = N + r * cols + c;
-          const b10 = N + r * cols + (c + 1);
-          const b01 = N + (r + 1) * cols + c;
-          const b11 = N + (r + 1) * cols + (c + 1);
-
-          indices[triOffset++] = b00;
-          indices[triOffset++] = b11;
-          indices[triOffset++] = b01;
-
-          indices[triOffset++] = b00;
-          indices[triOffset++] = b10;
-          indices[triOffset++] = b11;
-        }
-      }
-
-      // Perimeter edges
-      for (let c = 0; c < cols - 1; c++) {
-        const f0 = c, f1 = c + 1, b0 = N + f0, b1 = N + f1;
-        indices[triOffset++] = f0; indices[triOffset++] = f1; indices[triOffset++] = b1;
-        indices[triOffset++] = f0; indices[triOffset++] = b1; indices[triOffset++] = b0;
-      }
-      const botRowOffset = (meshRows - 1) * cols;
-      for (let c = 0; c < cols - 1; c++) {
-        const f0 = botRowOffset + c, f1 = botRowOffset + (c + 1), b0 = N + f0, b1 = N + f1;
-        indices[triOffset++] = f0; indices[triOffset++] = b1; indices[triOffset++] = f1;
-        indices[triOffset++] = f0; indices[triOffset++] = b0; indices[triOffset++] = b1;
-      }
-      for (let r = 0; r < meshRows - 1; r++) {
-        const f0 = r * cols, f1 = (r + 1) * cols, b0 = N + f0, b1 = N + f1;
-        indices[triOffset++] = f0; indices[triOffset++] = b0; indices[triOffset++] = b1;
-        indices[triOffset++] = f0; indices[triOffset++] = b1; indices[triOffset++] = f1;
-      }
-      for (let r = 0; r < meshRows - 1; r++) {
-        const f0 = r * cols + (cols - 1), f1 = (r + 1) * cols + (cols - 1), b0 = N + f0, b1 = N + f1;
-        indices[triOffset++] = f0; indices[triOffset++] = f1; indices[triOffset++] = b1;
-        indices[triOffset++] = f0; indices[triOffset++] = b1; indices[triOffset++] = b0;
-      }
-    }
-
-    // 3. Compute Per-Vertex Smooth Normals
-    this.computeNormals(vertices, indices, normals);
-
-    return {
+    // 2. Lossless merge: flat backs, frames, and equal-height runs become
+    // one polygon per edge loop. Curved facets stay split. Windings match
+    // the per-pixel quads this replaced, and the bed stays at Z = 0.
+    const simplified = this.simplifyRegions(
       vertices,
-      indices,
-      normals,
       uvs,
       thicknesses,
+      cols,
+      meshRows,
+      isEnclosed,
+      isEnclosed || isStanding,
+      isEnclosed ? 'rim' : isStanding ? 'standing' : 'flat',
+    );
+
+    return {
+      vertices: simplified.vertices,
+      indices: simplified.indices,
+      normals: simplified.normals,
+      uvs: simplified.uvs,
+      thicknesses: simplified.thicknesses,
+      thicknessGrid: simplified.thicknessGrid,
       boundingBox: {
         min: [minX, minY, minZ],
         max: [maxX, maxY, maxZ],
         size: [maxX - minX, maxY - minY, maxZ - minZ],
       },
       gridResolution: { cols, rows },
+    };
+  }
+
+  /**
+   * Replaces the per-pixel grid with coplanar rectangles. A vertex stays only
+   * when it is a rectangle corner, and every polygon inserts those corners
+   * along its edges so neighbors share the same segments (no T-junctions).
+   */
+  private static simplifyRegions(
+    vertices: Float32Array,
+    uvs: Float32Array,
+    thicknesses: Float32Array,
+    cols: number,
+    meshRows: number,
+    wrapping: boolean,
+    frontCcw: boolean,
+    wallMode: 'rim' | 'standing' | 'flat',
+  ): {
+    vertices: Float32Array;
+    indices: Uint32Array;
+    normals: Float32Array;
+    uvs: Float32Array;
+    thicknesses: Float32Array;
+    thicknessGrid: Float32Array;
+  } {
+    const N = cols * meshRows;
+    const cellRows = meshRows - 1;
+    const cellCols = wrapping ? cols : cols - 1;
+    const kept = new Uint8Array(N * 2);
+    const tris: number[] = [];
+    const extraX: number[] = [];
+    const extraY: number[] = [];
+    const extraZ: number[] = [];
+    const extraU: number[] = [];
+    const extraV: number[] = [];
+    const extraTh: number[] = [];
+
+    type Plane = { ax: number; ay: number; az: number; nx: number; ny: number; nz: number; inv: number };
+    type Rect = { side: number; r0: number; c0: number; r1: number; c1: number };
+
+    const vidAt = (side: number, r: number, c: number) =>
+      side * N + r * cols + (c >= cols ? 0 : c);
+
+    const planeFrom = (a: number, b: number, c: number): Plane | null => {
+      const ia = a * 3;
+      const ib = b * 3;
+      const ic = c * 3;
+      const ax = vertices[ia];
+      const ay = vertices[ia + 1];
+      const az = vertices[ia + 2];
+      const abx = vertices[ib] - ax;
+      const aby = vertices[ib + 1] - ay;
+      const abz = vertices[ib + 2] - az;
+      const acx = vertices[ic] - ax;
+      const acy = vertices[ic + 1] - ay;
+      const acz = vertices[ic + 2] - az;
+      const nx = aby * acz - abz * acy;
+      const ny = abz * acx - abx * acz;
+      const nz = abx * acy - aby * acx;
+      const len = Math.hypot(nx, ny, nz);
+      if (len < 1e-8) return null;
+      return { ax, ay, az, nx, ny, nz, inv: 1 / len };
+    };
+
+    const onPlane = (p: Plane, id: number) => {
+      const i = id * 3;
+      const d =
+        (vertices[i] - p.ax) * p.nx +
+        (vertices[i + 1] - p.ay) * p.ny +
+        (vertices[i + 2] - p.az) * p.nz;
+      return Math.abs(d) * p.inv <= COPLANAR_EPSILON_MM;
+    };
+
+    const cellIds = (side: number, r: number, c: number) => {
+      const c1 = wrapping && c === cols - 1 ? cols : c + 1;
+      return [
+        vidAt(side, r, c),
+        vidAt(side, r, c1),
+        vidAt(side, r + 1, c1),
+        vidAt(side, r + 1, c),
+      ];
+    };
+
+    const cellPlane = (side: number, r: number, c: number): Plane | null => {
+      const ids = cellIds(side, r, c);
+      const combos = [
+        [0, 1, 2],
+        [0, 1, 3],
+        [0, 2, 3],
+        [1, 2, 3],
+      ];
+      for (let i = 0; i < combos.length; i++) {
+        const combo = combos[i];
+        const p = planeFrom(ids[combo[0]], ids[combo[1]], ids[combo[2]]);
+        if (!p) continue;
+        if (onPlane(p, ids[0]) && onPlane(p, ids[1]) && onPlane(p, ids[2]) && onPlane(p, ids[3])) return p;
+      }
+      return null;
+    };
+
+    const cellOn = (p: Plane, side: number, r: number, c: number) => {
+      const ids = cellIds(side, r, c);
+      return onPlane(p, ids[0]) && onPlane(p, ids[1]) && onPlane(p, ids[2]) && onPlane(p, ids[3]);
+    };
+
+    const rects: Rect[] = [];
+    for (let side = 0; side < 2; side++) {
+      const visited = new Uint8Array(cellRows * cellCols);
+      for (let r = 0; r < cellRows; r++) {
+        for (let c = 0; c < cellCols; c++) {
+          if (visited[r * cellCols + c]) continue;
+          const plane = cellPlane(side, r, c);
+          let w = 1;
+          let h = 1;
+          const seam = wrapping && c === cellCols - 1;
+          if (plane && !seam) {
+            while (c + w < cellCols && !(wrapping && c + w === cellCols - 1)) {
+              if (visited[r * cellCols + (c + w)] || !cellOn(plane, side, r, c + w)) break;
+              w++;
+            }
+            while (r + h < cellRows) {
+              let ok = true;
+              for (let k = 0; k < w; k++) {
+                if (visited[(r + h) * cellCols + (c + k)] || !cellOn(plane, side, r + h, c + k)) {
+                  ok = false;
+                  break;
+                }
+              }
+              if (!ok) break;
+              h++;
+            }
+          }
+          for (let rr = 0; rr < h; rr++) {
+            for (let cc = 0; cc < w; cc++) visited[(r + rr) * cellCols + (c + cc)] = 1;
+          }
+          const c1 = seam ? cols : c + w;
+          rects.push({ side, r0: r, c0: c, r1: r + h, c1 });
+          kept[vidAt(side, r, c)] = 1;
+          kept[vidAt(side, r, c1)] = 1;
+          kept[vidAt(side, r + h, c)] = 1;
+          kept[vidAt(side, r + h, c1)] = 1;
+        }
+      }
+    }
+
+    const area2 = (a: number, b: number, c: number) => {
+      const ia = a * 3;
+      const ib = b * 3;
+      const ic = c * 3;
+      const abx = vertices[ib] - vertices[ia];
+      const aby = vertices[ib + 1] - vertices[ia + 1];
+      const abz = vertices[ib + 2] - vertices[ia + 2];
+      const acx = vertices[ic] - vertices[ia];
+      const acy = vertices[ic + 1] - vertices[ia + 1];
+      const acz = vertices[ic + 2] - vertices[ia + 2];
+      const cx = aby * acz - abz * acy;
+      const cy = abz * acx - abx * acz;
+      const cz = abx * acy - aby * acx;
+      return cx * cx + cy * cy + cz * cz;
+    };
+
+    const appendEdge = (loop: number[], side: number, rowA: number, colA: number, rowB: number, colB: number) => {
+      if (rowA === rowB && (colA >= cols || colB >= cols)) {
+        const c = colA >= cols ? 0 : colA;
+        loop.push(side * N + rowA * cols + c);
+        return;
+      }
+      const cStart = colA >= cols ? 0 : colA;
+      const cEnd = colB >= cols ? 0 : colB;
+      if (rowA === rowB) {
+        const step = cEnd > cStart ? 1 : -1;
+        for (let c = cStart; c !== cEnd; c += step) {
+          const id = side * N + rowA * cols + c;
+          if (c === cStart || kept[id]) loop.push(id);
+        }
+        return;
+      }
+      const step = rowB > rowA ? 1 : -1;
+      for (let r = rowA; r !== rowB; r += step) {
+        const id = side * N + r * cols + cStart;
+        if (r === rowA || kept[id]) loop.push(id);
+      }
+    };
+
+    const emitFan = (loop: number[]) => {
+      const n = loop.length;
+      if (n < 3) return;
+      if (n === 3) {
+        tris.push(loop[0], loop[1], loop[2]);
+        return;
+      }
+      for (let origin = 0; origin < n; origin++) {
+        const a = loop[origin];
+        let ok = true;
+        for (let k = 1; k < n - 1; k++) {
+          const b = loop[(origin + k) % n];
+          const c = loop[(origin + k + 1) % n];
+          if (a === b || b === c || a === c || area2(a, b, c) < 1e-12) {
+            ok = false;
+            break;
+          }
+        }
+        if (!ok) continue;
+        for (let k = 1; k < n - 1; k++) {
+          tris.push(a, loop[(origin + k) % n], loop[(origin + k + 1) % n]);
+        }
+        return;
+      }
+      let x = 0;
+      let y = 0;
+      let z = 0;
+      let u = 0;
+      let v = 0;
+      let th = 0;
+      for (let i = 0; i < n; i++) {
+        const id = loop[i];
+        x += vertices[id * 3];
+        y += vertices[id * 3 + 1];
+        z += vertices[id * 3 + 2];
+        u += uvs[id * 2];
+        v += uvs[id * 2 + 1];
+        th += thicknesses[id];
+      }
+      const inv = 1 / n;
+      const cid = N * 2 + extraX.length;
+      extraX.push(x * inv);
+      extraY.push(y * inv);
+      extraZ.push(z * inv);
+      extraU.push(u * inv);
+      extraV.push(v * inv);
+      extraTh.push(th * inv);
+      for (let i = 0; i < n; i++) tris.push(loop[i], loop[(i + 1) % n], cid);
+    };
+
+    for (let i = 0; i < rects.length; i++) {
+      const rect = rects[i];
+      const loop: number[] = [];
+      appendEdge(loop, rect.side, rect.r0, rect.c0, rect.r0, rect.c1);
+      appendEdge(loop, rect.side, rect.r0, rect.c1, rect.r1, rect.c1);
+      appendEdge(loop, rect.side, rect.r1, rect.c1, rect.r1, rect.c0);
+      appendEdge(loop, rect.side, rect.r1, rect.c0, rect.r0, rect.c0);
+      if ((rect.side === 0) !== frontCcw) loop.reverse();
+      emitFan(loop);
+    }
+
+    const chainRow = (side: number, row: number, wrap: boolean) => {
+      const ids: number[] = [];
+      const keys: number[] = [];
+      const base = side * N + row * cols;
+      for (let c = 0; c < cols; c++) {
+        if (kept[base + c]) {
+          ids.push(base + c);
+          keys.push(c);
+        }
+      }
+      if (wrap && ids.length > 0) {
+        ids.push(ids[0]);
+        keys.push(cols);
+      }
+      return { ids, keys };
+    };
+
+    const chainCol = (side: number, col: number) => {
+      const ids: number[] = [];
+      const keys: number[] = [];
+      for (let r = 0; r < meshRows; r++) {
+        const id = side * N + r * cols + col;
+        if (kept[id]) {
+          ids.push(id);
+          keys.push(r);
+        }
+      }
+      return { ids, keys };
+    };
+
+    const stitch = (
+      front: { ids: number[]; keys: number[] },
+      back: { ids: number[]; keys: number[] },
+      pattern: 'top' | 'bot',
+    ) => {
+      if (front.ids.length < 2 || back.ids.length < 2) {
+        throw new Error('Lithophane boundary chain is missing its corners');
+      }
+      let i = 0;
+      let j = 0;
+      const fi = front.ids.length;
+      const bi = back.ids.length;
+      while (i < fi - 1 || j < bi - 1) {
+        const canF = i < fi - 1;
+        const canB = j < bi - 1;
+        const advF = !canB || (canF && front.keys[i + 1] < back.keys[j + 1]);
+        if (advF) {
+          const a = front.ids[i];
+          const b = front.ids[i + 1];
+          const c = back.ids[j];
+          if (pattern === 'top') tris.push(a, c, b);
+          else tris.push(a, b, c);
+          i++;
+        } else {
+          const a = front.ids[i];
+          const b = back.ids[j];
+          const c = back.ids[j + 1];
+          if (pattern === 'top') tris.push(a, b, c);
+          else tris.push(a, c, b);
+          j++;
+        }
+      }
+    };
+
+    const emitWall = (kind: 'row' | 'col', index: number, pattern: 'top' | 'bot', wrap: boolean) => {
+      const front = kind === 'row' ? chainRow(0, index, wrap) : chainCol(0, index);
+      const back = kind === 'row' ? chainRow(1, index, wrap) : chainCol(1, index);
+      stitch(front, back, pattern);
+    };
+
+    if (wallMode === 'rim') {
+      emitWall('row', 0, 'top', true);
+      emitWall('row', meshRows - 1, 'bot', true);
+    } else if (wallMode === 'standing') {
+      emitWall('row', 0, 'top', false);
+      emitWall('row', meshRows - 1, 'bot', false);
+      emitWall('col', 0, 'bot', false);
+      emitWall('col', cols - 1, 'top', false);
+    } else {
+      emitWall('row', 0, 'bot', false);
+      emitWall('row', meshRows - 1, 'top', false);
+      emitWall('col', 0, 'top', false);
+      emitWall('col', cols - 1, 'bot', false);
+    }
+
+    const slotCount = N * 2 + extraX.length;
+    const remap = new Int32Array(slotCount);
+    remap.fill(-1);
+    let used = 0;
+    for (let i = 0; i < tris.length; i++) {
+      const id = tris[i];
+      if (remap[id] === -1) remap[id] = used++;
+    }
+
+    const outV = new Float32Array(used * 3);
+    const outN = new Float32Array(used * 3);
+    const outUV = new Float32Array(used * 2);
+    const outTh = new Float32Array(used);
+    for (let id = 0; id < slotCount; id++) {
+      const ni = remap[id];
+      if (ni < 0) continue;
+      if (id < N * 2) {
+        outV[ni * 3] = vertices[id * 3];
+        outV[ni * 3 + 1] = vertices[id * 3 + 1];
+        outV[ni * 3 + 2] = vertices[id * 3 + 2];
+        outUV[ni * 2] = uvs[id * 2];
+        outUV[ni * 2 + 1] = uvs[id * 2 + 1];
+        outTh[ni] = thicknesses[id];
+      } else {
+        const e = id - N * 2;
+        outV[ni * 3] = extraX[e];
+        outV[ni * 3 + 1] = extraY[e];
+        outV[ni * 3 + 2] = extraZ[e];
+        outUV[ni * 2] = extraU[e];
+        outUV[ni * 2 + 1] = extraV[e];
+        outTh[ni] = extraTh[e];
+      }
+    }
+
+    const outI = new Uint32Array(tris.length);
+    for (let i = 0; i < tris.length; i++) outI[i] = remap[tris[i]];
+    this.computeNormals(outV, outI, outN);
+
+    return {
+      vertices: outV,
+      indices: outI,
+      normals: outN,
+      uvs: outUV,
+      thicknesses: outTh,
+      thicknessGrid: thicknesses.slice(0, N),
     };
   }
 

@@ -123,15 +123,22 @@ export class MeshValidator {
     const isWatertight = openBoundaryEdges === 0 && nonManifoldEdges === 0;
     const isManifold = isWatertight && windingViolations === 0;
 
-    // Detect actual thicknesses between corresponding front and back vertices
-    const halfN = vertexCount / 2;
-    for (let i = 0; i < halfN; i++) {
-      const fx = vertices[i * 3], fy = vertices[i * 3 + 1], fz = vertices[i * 3 + 2];
-      const bx = vertices[(halfN + i) * 3], by = vertices[(halfN + i) * 3 + 1], bz = vertices[(halfN + i) * 3 + 2];
-      const dist = Math.sqrt((fx - bx) ** 2 + (fy - by) ** 2 + (fz - bz) ** 2);
-      if (dist < minThick) minThick = dist;
-      if (dist > maxThick) maxThick = dist;
+    // Thickness comes from the generator's per-sample grid. The mesh no longer
+    // stores a front vertex and a back vertex for every pixel.
+    const samples = geometry.thicknessGrid?.length
+      ? geometry.thicknessGrid
+      : geometry.thicknesses?.length === vertexCount
+        ? geometry.thicknesses
+        : null;
+    if (samples) {
+      for (let i = 0; i < samples.length; i++) {
+        const dist = samples[i];
+        if (dist < minThick) minThick = dist;
+        if (dist > maxThick) maxThick = dist;
+      }
     }
+    if (!Number.isFinite(minThick)) minThick = 0;
+    if (!Number.isFinite(maxThick)) maxThick = 0;
 
     // Convert Volume from mm^3 to cm^3
     const volumeCm3 = Math.max(0, Math.abs(signedVolumeMm3) / 1000.0);

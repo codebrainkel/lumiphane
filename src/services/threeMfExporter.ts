@@ -26,32 +26,114 @@ export interface ThreeMfExportOptions {
   mode?: 'universal' | 'bambu-project';
   /** Bambu printer id from BAMBU_PRINTERS. Defaults to the saved A2L profile. */
   bambuPrinterId?: string;
+  /** Aborts the export between steps. A finished download must not start after this fires. */
+  signal?: AbortSignal;
 }
+
+/** Import and fetch of blank-profile.3mf fail with a clear error after this long. */
+export const BAMBU_TEMPLATE_TIMEOUT_MS = 20_000;
+
+export const BAMBU_TEMPLATE_TIMEOUT_MESSAGE = 'The Bambu Studio profile took too long to load.';
 
 const VOLUME_OBJECT_ID = 1;
 const MODEL_OBJECT_ID = 2;
 const IDENTIFY_ID = 1;
 const BAMBU_IDENTITY_3MF = '1 0 0 0 1 0 0 0 1 0 0 0';
 const BAMBU_IDENTITY_MATRIX = '1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1';
+const MODEL_UNIT = 'millimeter';
+const MODEL_FILE = '3D/3dmodel.model';
 
 let templateBytesPromise: Promise<Uint8Array> | null = null;
 let embeddedProfilePromise: Promise<EmbeddedBambuProfile> | null = null;
 
+export function exportAbortError(): DOMException {
+  return new DOMException('The export was cancelled.', 'AbortError');
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw exportAbortError();
+}
+
+/** Lets a click (Cancel) run, then rejects if the export was aborted. */
+async function checkpoint(signal?: AbortSignal, lastYield?: { at: number }): Promise<void> {
+  throwIfAborted(signal);
+  const now = Date.now();
+  if (lastYield && now - lastYield.at < 32) return;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  if (lastYield) lastYield.at = Date.now();
+  throwIfAborted(signal);
+}
+
+function raceTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([work, timeout]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+}
+
+function waitForExport<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return work;
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(exportAbortError());
+    signal.addEventListener('abort', onAbort, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (err) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(err);
+      }
+    );
+  });
+}
+
 async function readBlankProfileBytes(): Promise<Uint8Array> {
+  const started = Date.now();
+  const remaining = () => BAMBU_TEMPLATE_TIMEOUT_MS - (Date.now() - started);
+  const timed = async <T>(work: Promise<T>): Promise<T> => {
+    const left = remaining();
+    if (left <= 0) throw new Error(BAMBU_TEMPLATE_TIMEOUT_MESSAGE);
+    try {
+      return await raceTimeout(work, left, BAMBU_TEMPLATE_TIMEOUT_MESSAGE);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        throw new Error(BAMBU_TEMPLATE_TIMEOUT_MESSAGE);
+      }
+      throw err;
+    }
+  };
+
   const isNode = typeof process !== 'undefined' && typeof process.versions?.node === 'string';
   if (isNode) {
-    const { readFile } = await import('node:fs/promises');
-    const { fileURLToPath } = await import('node:url');
+    const { readFile } = await timed(import('node:fs/promises'));
+    const { fileURLToPath } = await timed(import('node:url'));
     const path = fileURLToPath(new URL('../../blank-profile.3mf', import.meta.url));
-    return new Uint8Array(await readFile(path));
+    return new Uint8Array(await timed(readFile(path)));
   }
 
-  const mod = (await import('../../blank-profile.3mf?url')) as { default: string };
-  const res = await fetch(mod.default);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch the Bambu Studio profile (${res.status})`);
+  const mod = await timed(import('../../blank-profile.3mf?url') as Promise<{ default: string }>);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(1, remaining()));
+  try {
+    const res = await fetch(mod.default, { signal: controller.signal });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch the Bambu Studio profile (${res.status})`);
+    }
+    return new Uint8Array(await res.arrayBuffer());
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error(BAMBU_TEMPLATE_TIMEOUT_MESSAGE);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return new Uint8Array(await res.arrayBuffer());
 }
 
 function loadTemplateBytes(): Promise<Uint8Array> {
@@ -197,9 +279,18 @@ export interface ThreeMfExportResult {
   blob: Blob;
   filename: string;
   filesizeBytes: number;
+  /** Vertex tags written into the model XML. */
   vertexCount: number;
+  /** Triangle tags written into the model XML. */
   triangleCount: number;
   isBambuProject?: boolean;
+}
+
+/** Counts recorded while the model XML was written. Verify uses these instead of parsing the file. */
+export interface ThreeMfWrittenModel {
+  vertexCount: number;
+  triangleCount: number;
+  unit?: string;
 }
 
 export class ThreeMfExporter {
@@ -214,20 +305,30 @@ export class ThreeMfExporter {
     modelName: string = 'lithophane',
     options?: ThreeMfExportOptions
   ): Promise<ThreeMfExportResult> {
+    const signal = options?.signal;
+    throwIfAborted(signal);
     const isBambuProject = options?.mode === 'bambu-project';
     const cleanName = modelName.replace(/[^a-zA-Z0-9_-]/g, '_') || 'lithophane';
-    const profile = isBambuProject ? await loadEmbeddedBambuProfile() : null;
+    const profile = isBambuProject ? await waitForExport(loadEmbeddedBambuProfile(), signal) : null;
+    throwIfAborted(signal);
     const printer = isBambuProject ? getBambuPrinter(options?.bambuPrinterId) : null;
-    const zip = isBambuProject
-      ? await this.buildBambuProjectZip(geometry, cleanName, modelName, profile!, printer!)
-      : this.buildUniversalZip(geometry, modelName);
+    const built = isBambuProject
+      ? await this.buildBambuProjectZip(geometry, cleanName, modelName, profile!, printer!, signal)
+      : await this.buildUniversalZip(geometry, modelName, signal);
+    const { zip, written } = built;
 
-    const blob = await zip.generateAsync({
-      type: 'blob',
-      mimeType: 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml',
-      compression: 'DEFLATE',
-      compressionOptions: { level: 6 },
-    });
+    const expectedVertices = geometry.vertices.length / 3;
+    const expectedTriangles = geometry.indices.length / 3;
+    if (written.vertexCount !== expectedVertices || written.triangleCount !== expectedTriangles) {
+      throw new Error(
+        `3MF model counts do not match the mesh (${written.vertexCount} vertices, ${written.triangleCount} triangles).`
+      );
+    }
+    if (!zip.file(MODEL_FILE)) {
+      throw new Error('3MF archive is missing 3D/3dmodel.model');
+    }
+
+    const blob = await this.zipToBlob(zip, signal);
 
     const isStanding = geometry.boundingBox.size[2] > geometry.boundingBox.size[1];
     const widthMm = Math.round(geometry.boundingBox.size[0]);
@@ -242,13 +343,18 @@ export class ThreeMfExporter {
       blob,
       filename,
       filesizeBytes: blob.size,
-      vertexCount: geometry.vertices.length / 3,
-      triangleCount: geometry.indices.length / 3,
+      vertexCount: written.vertexCount,
+      triangleCount: written.triangleCount,
       isBambuProject,
     };
   }
 
-  private static buildUniversalZip(geometry: MeshGeometryData, modelName: string): JSZip {
+  private static async buildUniversalZip(
+    geometry: MeshGeometryData,
+    modelName: string,
+    signal?: AbortSignal
+  ): Promise<{ zip: JSZip; written: ThreeMfWrittenModel & { xml: string } }> {
+    const written = await this.generateModelXml(geometry, modelName, undefined, undefined, signal);
     const zip = new JSZip();
     zip.file(
       '[Content_Types].xml',
@@ -265,8 +371,8 @@ export class ThreeMfExporter {
   <Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>
 </Relationships>`
     );
-    zip.folder('3D')?.file('3dmodel.model', this.generateModelXml(geometry, modelName));
-    return zip;
+    zip.folder('3D')?.file('3dmodel.model', written.xml);
+    return { zip, written };
   }
 
   /**
@@ -280,9 +386,12 @@ export class ThreeMfExporter {
     cleanName: string,
     modelName: string,
     profile: EmbeddedBambuProfile,
-    printer: ReturnType<typeof getBambuPrinter>
-  ): Promise<JSZip> {
-    const template = await JSZip.loadAsync(await loadTemplateBytes());
+    printer: ReturnType<typeof getBambuPrinter>,
+    signal?: AbortSignal
+  ): Promise<{ zip: JSZip; written: ThreeMfWrittenModel & { xml: string } }> {
+    throwIfAborted(signal);
+    const template = await JSZip.loadAsync(await waitForExport(loadTemplateBytes(), signal));
+    throwIfAborted(signal);
     const projectSettingsFile = template.file('Metadata/project_settings.config');
     const modelSettingsFile = template.file('Metadata/model_settings.config');
     if (!projectSettingsFile || !modelSettingsFile) {
@@ -307,11 +416,13 @@ export class ThreeMfExporter {
       if (file.dir || replacements.has(relativePath) || isUnusedPlateFile(relativePath)) return;
       copies.push(
         file.async('uint8array').then((bytes) => {
+          throwIfAborted(signal);
           zip.file(relativePath, bytes);
         })
       );
     });
     await Promise.all(copies);
+    await checkpoint(signal);
 
     const bed = bedSizeFromPrintableArea(projectSettings.printable_area);
     const sequenceFile = template.file('Metadata/filament_sequence.json');
@@ -320,7 +431,11 @@ export class ThreeMfExporter {
       this.buildPlateJson(template, geometry, cleanName, projectSettings, 1),
       sequenceFile ? sequenceFile.async('text') : Promise.resolve(''),
     ]);
-    zip.file('3D/3dmodel.model', this.generateModelXml(geometry, modelName, profile, bed));
+    const written = await this.generateModelXml(geometry, modelName, profile, bed, signal);
+    if (!written.xml.includes('BambuStudio-')) {
+      throw new Error('3dmodel.model is missing the Bambu Studio application stamp');
+    }
+    zip.file(MODEL_FILE, written.xml);
     if (retargeted) {
       zip.file('Metadata/project_settings.config', JSON.stringify(projectSettings));
     }
@@ -330,7 +445,7 @@ export class ThreeMfExporter {
     );
     zip.file('Metadata/plate_1.json', plate1Json);
     zip.file('Metadata/filament_sequence.json', singlePlateFilamentSequence(sequenceText));
-    return zip;
+    return { zip, written };
   }
 
   /**
@@ -438,12 +553,15 @@ export class ThreeMfExporter {
   /**
    * Builds the official 3MF model XML string with high performance chunking.
    */
-  private static generateModelXml(
+  private static async generateModelXml(
     geometry: MeshGeometryData,
     title: string,
     bambuProfile?: EmbeddedBambuProfile,
-    bed?: { width: number; depth: number }
-  ): string {
+    bed?: { width: number; depth: number },
+    signal?: AbortSignal
+  ): Promise<ThreeMfWrittenModel & { xml: string }> {
+    throwIfAborted(signal);
+    const lastYield = { at: Date.now() };
     const { vertices, indices } = geometry;
     const vertexCount = vertices.length / 3;
     const triangleCount = indices.length / 3;
@@ -457,7 +575,7 @@ export class ThreeMfExporter {
 
     const header = bambuProfile
       ? `<?xml version="1.0" encoding="UTF-8"?>
-<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p">
+<model unit="${MODEL_UNIT}" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p">
  <metadata name="Application">BambuStudio-${this.escapeXml(bambuProfile.version)}</metadata>
  <metadata name="BambuStudio:3mfVersion">1</metadata>
  <metadata name="CreationDate">${dateStr}</metadata>
@@ -470,7 +588,7 @@ export class ThreeMfExporter {
    <mesh>
     <vertices>\n`
       : `<?xml version="1.0" encoding="UTF-8"?>
-<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+<model unit="${MODEL_UNIT}" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
   <metadata name="Title">${safeTitle} Lithophane</metadata>
   <metadata name="Designer">Lumiphane 3D</metadata>
   <metadata name="Application">Lumiphane 3D Generator</metadata>
@@ -480,10 +598,11 @@ export class ThreeMfExporter {
       <mesh>
         <vertices>\n`;
 
-    // Fast vertex serialization
+    // Fast vertex serialization. The counter is the number of <vertex> tags actually written.
     const vertChunks: string[] = [];
     const CHUNK_SIZE = 5000;
     let tempStr = '';
+    let writtenVertices = 0;
     const placement = bambuProfile
       ? bambuBedPlacement(geometry, bed?.width ?? 256, bed?.depth ?? 256)
       : null;
@@ -497,10 +616,12 @@ export class ThreeMfExporter {
         [x, y, z] = placement.map(x, y, z);
       }
       tempStr += `          <vertex x="${x.toFixed(4)}" y="${y.toFixed(4)}" z="${z.toFixed(4)}" />\n`;
+      writtenVertices++;
 
       if (i > 0 && i % CHUNK_SIZE === 0) {
         vertChunks.push(tempStr);
         tempStr = '';
+        await checkpoint(signal, lastYield);
       }
     }
     if (tempStr) vertChunks.push(tempStr);
@@ -508,8 +629,9 @@ export class ThreeMfExporter {
     const midHeader = `        </vertices>
         <triangles>\n`;
 
-    // Fast triangle serialization
+    // Fast triangle serialization. The counter is the number of <triangle> tags actually written.
     const triChunks: string[] = [];
+    let writtenTriangles = 0;
     tempStr = '';
     for (let i = 0; i < triangleCount; i++) {
       const idx = i * 3;
@@ -517,10 +639,12 @@ export class ThreeMfExporter {
       const v2 = indices[idx + 1];
       const v3 = indices[idx + 2];
       tempStr += `          <triangle v1="${v1}" v2="${v2}" v3="${v3}" />\n`;
+      writtenTriangles++;
 
       if (i > 0 && i % CHUNK_SIZE === 0) {
         triChunks.push(tempStr);
         tempStr = '';
+        await checkpoint(signal, lastYield);
       }
     }
     if (tempStr) triChunks.push(tempStr);
@@ -548,14 +672,66 @@ export class ThreeMfExporter {
   </build>
 </model>`;
 
-    return header + vertChunks.join('') + midHeader + triChunks.join('') + footer;
+    return {
+      xml: header + vertChunks.join('') + midHeader + triChunks.join('') + footer,
+      vertexCount: writtenVertices,
+      triangleCount: writtenTriangles,
+      unit: MODEL_UNIT,
+    };
   }
 
   /**
-   * Verifies an exported 3MF blob independently:
-   * Checks ZIP headers, files, XML well-formedness, and object counts.
+   * Deflates the archive and checks the abort signal between JSZip chunks.
+   * Pausing the stream stops later chunks, so a cancelled export has no blob to download.
    */
-  static async verify3MfPackage(blob: Blob): Promise<{
+  private static async zipToBlob(zip: JSZip, signal?: AbortSignal): Promise<Blob> {
+    throwIfAborted(signal);
+    const stream = zip.generateInternalStream({
+      type: 'uint8array',
+      mimeType: 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 },
+      streamFiles: true,
+    });
+    const parts: Uint8Array[] = [];
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finish = (err?: unknown) => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener('abort', onAbort);
+        try {
+          stream.pause();
+        } catch {
+          // The stream may already have ended.
+        }
+        if (err) reject(err);
+        else resolve();
+      };
+      const onAbort = () => finish(exportAbortError());
+      signal?.addEventListener('abort', onAbort);
+      stream.on('data', (chunk: Uint8Array) => {
+        if (signal?.aborted) {
+          finish(exportAbortError());
+          return;
+        }
+        parts.push(chunk);
+      });
+      stream.on('error', (err: Error) => finish(err));
+      stream.on('end', () => finish());
+      stream.resume();
+    });
+    throwIfAborted(signal);
+    return new Blob(parts as BlobPart[], {
+      type: 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml',
+    });
+  }
+
+  /**
+   * Checks the package directory and the counts recorded while the model was written.
+   * Does not inflate or parse 3D/3dmodel.model.
+   */
+  static async verify3MfPackage(blob: Blob, written?: ThreeMfWrittenModel): Promise<{
     isValid: boolean;
     hasContentTypes: boolean;
     hasRels: boolean;
@@ -571,14 +747,13 @@ export class ThreeMfExporter {
     let hasRels = false;
     let hasModelXml = false;
     let hasMetadataConfigs = false;
-    let parsedVertexCount = 0;
-    let parsedTriangleCount = 0;
+    const parsedVertexCount = written?.vertexCount ?? 0;
+    const parsedTriangleCount = written?.triangleCount ?? 0;
     let unit = 'unknown';
 
     try {
       const zip = await JSZip.loadAsync(blob);
 
-      // Check [Content_Types].xml
       const ctFile = zip.file('[Content_Types].xml');
       if (ctFile) {
         hasContentTypes = true;
@@ -590,7 +765,6 @@ export class ThreeMfExporter {
         errors.push('Missing [Content_Types].xml in 3MF archive');
       }
 
-      // Check _rels/.rels
       const relsFile = zip.folder('_rels')?.file('.rels') || zip.file('_rels/.rels');
       if (relsFile) {
         hasRels = true;
@@ -602,36 +776,17 @@ export class ThreeMfExporter {
         errors.push('Missing _rels/.rels package relationship');
       }
 
-      // Check 3D/3dmodel.model
-      const modelFile = zip.folder('3D')?.file('3dmodel.model') || zip.file('3D/3dmodel.model');
+      // Name check only. Reading this entry inflates the model XML.
+      const modelFile = zip.file(MODEL_FILE);
       if (modelFile) {
         hasModelXml = true;
-        const modelText = await modelFile.async('text');
-
-        // Extract unit
-        const unitMatch = modelText.match(/unit="([^"]+)"/);
-        if (unitMatch) unit = unitMatch[1];
-
-        // Parse with DOMParser if in browser environment
-        if (typeof DOMParser !== 'undefined') {
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(modelText, 'application/xml');
-          const parserErrors = doc.getElementsByTagName('parsererror');
-          if (parserErrors.length > 0) {
-            errors.push('XML parsing error in 3dmodel.model: ' + parserErrors[0].textContent);
-          } else {
-            parsedVertexCount = doc.getElementsByTagName('vertex').length;
-            parsedTriangleCount = doc.getElementsByTagName('triangle').length;
-          }
-        } else {
-          // Fallback regex count for node/testing environments
-          const vMatches = modelText.match(/<vertex\s/g);
-          const tMatches = modelText.match(/<triangle\s/g);
-          parsedVertexCount = vMatches ? vMatches.length : 0;
-          parsedTriangleCount = tMatches ? tMatches.length : 0;
-        }
+        unit = written?.unit || MODEL_UNIT;
       } else {
         errors.push('Missing 3D/3dmodel.model file in 3MF archive');
+      }
+
+      if (!written || written.vertexCount <= 0 || written.triangleCount <= 0) {
+        errors.push('Vertex and triangle counts were not recorded while writing the model');
       }
 
       const projectFile = zip.file('Metadata/project_settings.config');
@@ -656,10 +811,6 @@ export class ThreeMfExporter {
         }
         if (!settingsText.includes(`id="${MODEL_OBJECT_ID}"`) || !settingsText.includes('model_instance')) {
           errors.push('Bambu model_settings.config does not place the lithophane on a plate');
-        }
-        const modelText = modelFile ? await modelFile.async('text') : '';
-        if (!modelText.includes('BambuStudio-')) {
-          errors.push('3dmodel.model is missing the Bambu Studio application stamp');
         }
       }
     } catch (err: unknown) {

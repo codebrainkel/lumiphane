@@ -886,6 +886,7 @@ export default function App() {
               geometryData={geometryData}
               settings={settings}
               isGenerating={isGenerating}
+              renderPaused={showValidationModal}
             />
           </section>
 
@@ -980,6 +981,7 @@ export default function App() {
             setShowValidationModal(false);
             setShowOrderModal(true);
           }}
+          onOpenPrintGuide={() => setShowSlicingModal(true)}
           onClose={() => setShowValidationModal(false)}
         />
       )}

@@ -9,6 +9,8 @@ interface Viewport3DProps {
   geometryData: MeshGeometryData | null;
   settings: LithophaneSettings;
   isGenerating: boolean;
+  /** While the export sheet is open, keep the last frame and stop the animation loop. */
+  renderPaused?: boolean;
 }
 
 // Fixed optical properties for calibrated translucent PLA
@@ -23,6 +25,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
   geometryData,
   settings,
   isGenerating,
+  renderPaused = false,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -38,6 +41,8 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
   const activeViewRef = useRef<'front' | 'iso'>('front');
   const autoRotateRef = useRef(false);
   const placeViewRef = useRef<(geom: MeshGeometryData, view: 'front' | 'iso') => void>(() => {});
+  const renderPausedRef = useRef(renderPaused);
+  renderPausedRef.current = renderPaused;
 
   const [showBed, setShowBed] = useState<boolean>(true);
   const [autoRotate, setAutoRotate] = useState<boolean>(false);
@@ -105,20 +110,6 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     scene.add(pLight);
     pointLightRef.current = pLight;
 
-    // Render Loop
-    let animId: number;
-    const animate = () => {
-      animId = requestAnimationFrame(animate);
-      if (controlsRef.current) {
-        if (autoRotateRef.current && meshRef.current) {
-          meshRef.current.rotation.z += 0.005;
-        }
-        controlsRef.current.update();
-      }
-      renderer.render(scene, camera);
-    };
-    animate();
-
     // Resize Observer
     let framedW = 0;
     let framedH = 0;
@@ -129,6 +120,10 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
           cameraRef.current.aspect = newW / newH;
           cameraRef.current.updateProjectionMatrix();
           rendererRef.current.setSize(newW, newH);
+          // setSize clears the drawing buffer. One frame keeps the picture while the loop is paused.
+          if (renderPausedRef.current && sceneRef.current && cameraRef.current) {
+            rendererRef.current.render(sceneRef.current, cameraRef.current);
+          }
           if (Math.abs(newW - framedW) > 1 || Math.abs(newH - framedH) > 1) {
             framedW = newW;
             framedH = newH;
@@ -154,7 +149,6 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     canvasEl.addEventListener('webglcontextrestored', handleContextRestored, false);
 
     return () => {
-      cancelAnimationFrame(animId);
       resizeObserver.disconnect();
       canvasEl.removeEventListener('webglcontextlost', handleContextLost);
       canvasEl.removeEventListener('webglcontextrestored', handleContextRestored);
@@ -164,6 +158,31 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       }
     };
   }, []);
+
+  // Animation loop. Pausing it drops the requestAnimationFrame callback entirely so a
+  // main-thread export is not queued behind a full-mesh render. The canvas keeps the
+  // last frame (nothing clears it while the loop is stopped).
+  useEffect(() => {
+    if (renderPaused) return;
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    const renderer = rendererRef.current;
+    if (!scene || !camera || !renderer) return;
+
+    let animId = 0;
+    const animate = () => {
+      animId = requestAnimationFrame(animate);
+      if (controlsRef.current) {
+        if (autoRotateRef.current && meshRef.current) {
+          meshRef.current.rotation.z += 0.005;
+        }
+        controlsRef.current.update();
+      }
+      renderer.render(scene, camera);
+    };
+    animate();
+    return () => cancelAnimationFrame(animId);
+  }, [renderPaused]);
 
   // 2. Physical Translucent Lithophane Shader
   const createLithophaneShaderMaterial = useCallback((): THREE.ShaderMaterial => {
@@ -358,14 +377,14 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       'normal',
       new THREE.BufferAttribute(geometryData.normals, 3)
     );
-    if (geometryData.thicknesses) {
+    const vertexCount = geometryData.vertices.length / 3;
+    if (geometryData.thicknesses && geometryData.thicknesses.length === vertexCount) {
       geometry.setAttribute(
         'thickness',
         new THREE.BufferAttribute(geometryData.thicknesses, 1)
       );
     } else {
-      const count = geometryData.vertices.length / 3;
-      const th = new Float32Array(count).fill(settings.maxThickness);
+      const th = new Float32Array(vertexCount).fill(settings.maxThickness);
       geometry.setAttribute('thickness', new THREE.BufferAttribute(th, 1));
     }
 
