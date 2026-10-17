@@ -114,7 +114,11 @@ export default function App() {
   const [placementOpen, setPlacementOpen] = useState(false);
 
   // Core Lithophane Settings
-  const [settings, setSettings] = useState<LithophaneSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<LithophaneSettings>({
+    ...DEFAULT_SETTINGS,
+    shape: 'cylinder',
+    height: 95,
+  });
 
   // Single Photo State (for Flat / Curved modes). Mirrors the first slot.
   const [imageSrc, setImageSrc] = useState<string>('');
@@ -698,14 +702,11 @@ export default function App() {
   };
 
   const handleResetSettings = () => {
-    const aspect = loadedImage
-      ? (loadedImage.naturalWidth || loadedImage.width) / (loadedImage.naturalHeight || loadedImage.height)
-      : DEFAULT_SETTINGS.width / DEFAULT_SETTINGS.height;
-    const defaultH = Math.max(10, Math.round(DEFAULT_SETTINGS.width / aspect));
-    const autoThickness = getAutoScaledThickness(DEFAULT_SETTINGS.width, defaultH);
+    const autoThickness = getAutoScaledThickness(DEFAULT_SETTINGS.cylinderDiameter || 90, 95);
     setSettings({
       ...DEFAULT_SETTINGS,
-      height: defaultH,
+      shape: 'cylinder',
+      height: 95,
       ...autoThickness,
     });
     setCropData(null);
