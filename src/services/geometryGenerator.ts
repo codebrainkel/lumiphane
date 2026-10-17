@@ -8,10 +8,10 @@ export const SUPPORT_BRIM_HEIGHT_MM = 4;
 const SKIRT_ROW_PITCH_MM = 0.5;
 
 /**
- * Faces merge only when every corner lies on the seed plane. 0.0005 mm is
- * far under the 0.01 mm thickness tolerance, and it is tighter than the
- * sagitta between neighboring cylinder or arc facets, so curved columns
- * stay faceted.
+ * Maximum a merged face may move the solid along its thickness axis.
+ * The test used to be a perpendicular distance, which on a steep face
+ * allows many times that error in thickness. Curved columns stay split:
+ * the allowance is still tighter than the sagitta between arc facets.
  */
 const COPLANAR_EPSILON_MM = 5e-4;
 
@@ -156,11 +156,21 @@ export class GeometryGenerator {
           const lum = luminanceGrid[r * cols + c];
           th = thicknessForLuminance(lum, minTh, maxTh, WHITE_PLA_EXTINCTION_PER_MM);
 
-          // Frame reinforcement (for continuous perimeter shapes, frame applies only to top/bottom rims; zero seam gap)
+          // Frame reinforcement. Enclosed shapes keep the frame on the top and
+          // bottom rims only. The inner edge of the band ramps from frameTh
+          // down to minTh so the band is not a square overhang. The ramp stays
+          // inside the band; the photo itself is left unchanged.
           if (hasFrame) {
             const distBorder = isEnclosed ? distY : Math.min(distX, distY);
             if (distBorder <= frameW) {
-              th = Math.max(th, frameTh);
+              const drop = Math.max(0, frameTh - minTh);
+              const chamferW = Math.min(drop, 0.6 * frameW);
+              let bandTh = frameTh;
+              if (chamferW > 1e-9 && distBorder > frameW - chamferW) {
+                const along = (distBorder - (frameW - chamferW)) / chamferW;
+                bandTh = frameTh - drop * along;
+              }
+              th = Math.max(th, bandTh);
               if (iconRelief) {
                 const borderX = isEnclosed ? (c / cols) * borderPerimeter : u * W;
                 const cut = iconRelief(borderX, v * H);
@@ -408,6 +418,7 @@ export class GeometryGenerator {
       isEnclosed,
       isEnclosed || isStanding,
       isEnclosed ? 'rim' : isStanding ? 'standing' : 'flat',
+      isCube,
     );
 
     return {
@@ -440,6 +451,7 @@ export class GeometryGenerator {
     wrapping: boolean,
     frontCcw: boolean,
     wallMode: 'rim' | 'standing' | 'flat',
+    cube: boolean,
   ): {
     vertices: Float32Array;
     indices: Uint32Array;
@@ -487,13 +499,50 @@ export class GeometryGenerator {
       return { ax, ay, az, nx, ny, nz, inv: 1 / len };
     };
 
+    // One thickness axis per grid vertex. onPlane is called for every corner
+    // of every cell, so the axis is computed once.
+    const tax = new Float32Array(N);
+    const tay = new Float32Array(N);
+    const taz = new Float32Array(N);
+    for (let local = 0; local < N; local++) {
+      // Cube walls are a scaled copy of the inner face, so front−back is skewed
+      // toward the corners. Thickness still runs along the face normal.
+      if (cube) {
+        const sideIdx = Math.min(3, Math.floor((local % cols) / (cols / 4)));
+        if (sideIdx === 0) tay[local] = 1;
+        else if (sideIdx === 1) tax[local] = 1;
+        else if (sideIdx === 2) tay[local] = -1;
+        else tax[local] = -1;
+        continue;
+      }
+      const fi = local * 3;
+      const bi = (N + local) * 3;
+      let ax = vertices[fi] - vertices[bi];
+      let ay = vertices[fi + 1] - vertices[bi + 1];
+      let az = vertices[fi + 2] - vertices[bi + 2];
+      const axisLen = Math.hypot(ax, ay, az);
+      if (axisLen < 1e-8) continue;
+      tax[local] = ax / axisLen;
+      tay[local] = ay / axisLen;
+      taz[local] = az / axisLen;
+    }
+
     const onPlane = (p: Plane, id: number) => {
       const i = id * 3;
       const d =
         (vertices[i] - p.ax) * p.nx +
         (vertices[i + 1] - p.ay) * p.ny +
         (vertices[i + 2] - p.az) * p.nz;
-      return Math.abs(d) * p.inv <= COPLANAR_EPSILON_MM;
+      const perp = Math.abs(d) * p.inv;
+      const local = id >= N ? id - N : id;
+      const ax = tax[local];
+      const ay = tay[local];
+      const az = taz[local];
+      if (ax === 0 && ay === 0 && az === 0) return perp <= COPLANAR_EPSILON_MM;
+      const align = Math.abs((p.nx * ax + p.ny * ay + p.nz * az) * p.inv);
+      // perp / align is the shift along the thickness axis. Steep faces
+      // (small align) may move only a tiny perpendicular distance.
+      return perp <= COPLANAR_EPSILON_MM * align;
     };
 
     const cellIds = (side: number, r: number, c: number) => {
@@ -568,22 +617,6 @@ export class GeometryGenerator {
       }
     }
 
-    const area2 = (a: number, b: number, c: number) => {
-      const ia = a * 3;
-      const ib = b * 3;
-      const ic = c * 3;
-      const abx = vertices[ib] - vertices[ia];
-      const aby = vertices[ib + 1] - vertices[ia + 1];
-      const abz = vertices[ib + 2] - vertices[ia + 2];
-      const acx = vertices[ic] - vertices[ia];
-      const acy = vertices[ic + 1] - vertices[ia + 1];
-      const acz = vertices[ic + 2] - vertices[ia + 2];
-      const cx = aby * acz - abz * acy;
-      const cy = abz * acx - abx * acz;
-      const cz = abx * acy - aby * acx;
-      return cx * cx + cy * cy + cz * cz;
-    };
-
     const appendEdge = (loop: number[], side: number, rowA: number, colA: number, rowB: number, colB: number) => {
       if (rowA === rowB && (colA >= cols || colB >= cols)) {
         const c = colA >= cols ? 0 : colA;
@@ -614,15 +647,96 @@ export class GeometryGenerator {
         tris.push(loop[0], loop[1], loop[2]);
         return;
       }
+      if (n === 4) {
+        // A quad has two triangulations. Keep the diagonal whose two
+        // triangles face each other so a corner on a flat edge cannot fold.
+        const faceMin = 0.01;
+        for (let step = 0; step < 2; step++) {
+          const origin = step * 2;
+          const a = loop[origin];
+          const b = loop[(origin + 1) % 4];
+          const c = loop[(origin + 2) % 4];
+          const d = loop[(origin + 3) % 4];
+          if (a === b || b === c || a === c || a === d || c === d) continue;
+          const ax = vertices[a * 3];
+          const ay = vertices[a * 3 + 1];
+          const az = vertices[a * 3 + 2];
+          const bcx = vertices[b * 3] - ax;
+          const bcy = vertices[b * 3 + 1] - ay;
+          const bcz = vertices[b * 3 + 2] - az;
+          const ccx = vertices[c * 3] - ax;
+          const ccy = vertices[c * 3 + 1] - ay;
+          const ccz = vertices[c * 3 + 2] - az;
+          const dcx = vertices[d * 3] - ax;
+          const dcy = vertices[d * 3 + 1] - ay;
+          const dcz = vertices[d * 3 + 2] - az;
+          const n0x = bcy * ccz - bcz * ccy;
+          const n0y = bcz * ccx - bcx * ccz;
+          const n0z = bcx * ccy - bcy * ccx;
+          const n1x = ccy * dcz - ccz * dcy;
+          const n1y = ccz * dcx - ccx * dcz;
+          const n1z = ccx * dcy - ccy * dcx;
+          const l0 = n0x * n0x + n0y * n0y + n0z * n0z;
+          const l1 = n1x * n1x + n1y * n1y + n1z * n1z;
+          if (l0 < 1e-12 || l1 < 1e-12) continue;
+          const dot = n0x * n1x + n0y * n1y + n0z * n1z;
+          if (!(dot > 0 && dot * dot > faceMin * l0 * l1)) continue;
+          tris.push(a, b, c);
+          tris.push(a, c, d);
+          return;
+        }
+      }
+      let nwx = 0;
+      let nwy = 0;
+      let nwz = 0;
+      for (let i = 0; i < n; i++) {
+        const a = loop[i];
+        const b = loop[(i + 1) % n];
+        const ax = vertices[a * 3];
+        const ay = vertices[a * 3 + 1];
+        const az = vertices[a * 3 + 2];
+        const bx = vertices[b * 3];
+        const by = vertices[b * 3 + 1];
+        const bz = vertices[b * 3 + 2];
+        nwx += (ay - by) * (az + bz);
+        nwy += (az - bz) * (ax + bx);
+        nwz += (ax - bx) * (ay + by);
+      }
+      const nwLen2 = nwx * nwx + nwy * nwy + nwz * nwz;
+      const faceMin = 0.01;
       for (let origin = 0; origin < n; origin++) {
         const a = loop[origin];
+        const ax = vertices[a * 3];
+        const ay = vertices[a * 3 + 1];
+        const az = vertices[a * 3 + 2];
         let ok = true;
         for (let k = 1; k < n - 1; k++) {
           const b = loop[(origin + k) % n];
           const c = loop[(origin + k + 1) % n];
-          if (a === b || b === c || a === c || area2(a, b, c) < 1e-12) {
+          if (a === b || b === c || a === c) {
             ok = false;
             break;
+          }
+          const abx = vertices[b * 3] - ax;
+          const aby = vertices[b * 3 + 1] - ay;
+          const abz = vertices[b * 3 + 2] - az;
+          const acx = vertices[c * 3] - ax;
+          const acy = vertices[c * 3 + 1] - ay;
+          const acz = vertices[c * 3 + 2] - az;
+          const cx = aby * acz - abz * acy;
+          const cy = abz * acx - abx * acz;
+          const cz = abx * acy - aby * acx;
+          const clen2 = cx * cx + cy * cy + cz * cz;
+          if (clen2 < 1e-12) {
+            ok = false;
+            break;
+          }
+          if (nwLen2 > 1e-24) {
+            const dot = cx * nwx + cy * nwy + cz * nwz;
+            if (!(dot > 0 && dot * dot > faceMin * clen2 * nwLen2)) {
+              ok = false;
+              break;
+            }
           }
         }
         if (!ok) continue;
@@ -656,6 +770,39 @@ export class GeometryGenerator {
       extraTh.push(th * inv);
       for (let i = 0; i < n; i++) tris.push(loop[i], loop[(i + 1) % n], cid);
     };
+
+    // Boundary rows and columns must keep the same samples on the front and
+    // the back. Zipping mismatched chains folds triangles onto the bed.
+    const uniteKept = (kind: 'row' | 'col', index: number) => {
+      if (kind === 'row') {
+        for (let c = 0; c < cols; c++) {
+          const front = vidAt(0, index, c);
+          const back = vidAt(1, index, c);
+          if (kept[front] || kept[back]) {
+            kept[front] = 1;
+            kept[back] = 1;
+          }
+        }
+        return;
+      }
+      for (let r = 0; r < meshRows; r++) {
+        const front = vidAt(0, r, index);
+        const back = vidAt(1, r, index);
+        if (kept[front] || kept[back]) {
+          kept[front] = 1;
+          kept[back] = 1;
+        }
+      }
+    };
+    if (wallMode === 'rim') {
+      uniteKept('row', 0);
+      uniteKept('row', meshRows - 1);
+    } else {
+      uniteKept('row', 0);
+      uniteKept('row', meshRows - 1);
+      uniteKept('col', 0);
+      uniteKept('col', cols - 1);
+    }
 
     for (let i = 0; i < rects.length; i++) {
       const rect = rects[i];

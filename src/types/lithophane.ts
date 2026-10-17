@@ -109,6 +109,14 @@ export interface MeshValidationResult {
   };
   minThicknessDetected: number;
   maxThicknessDetected: number;
+  /** Vertices with a NaN or Infinity component. */
+  nonFiniteVertexCount: number;
+  /** Edges that belong to exactly one triangle. */
+  openBoundaryEdges: number;
+  /** Edges shared by more than two triangles. */
+  nonManifoldEdges: number;
+  /** Adjacent triangles whose normals differ by more than 170°. */
+  foldedPairCount: number;
   degenerateTriangles: number;
   warnings: string[];
   eulerCharacteristic: number;

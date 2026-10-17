@@ -5,7 +5,8 @@ import { MeshGeometryData } from '../types/lithophane';
 /**
  * Print profile taken from blank-profile.3mf, a project saved by Bambu Studio.
  * Studio rejects handmade project_settings.config files ("invalid config") and
- * then imports geometry only. The saved file is copied through unchanged.
+ * then imports geometry only. The saved file is copied through, with supports
+ * forced off. Every other process setting, including classic walls, stays.
  */
 export interface EmbeddedBambuProfile {
   printerModel: string;
@@ -34,6 +35,13 @@ export interface ThreeMfExportOptions {
 export const BAMBU_TEMPLATE_TIMEOUT_MS = 20_000;
 
 export const BAMBU_TEMPLATE_TIMEOUT_MESSAGE = 'The Bambu Studio profile took too long to load.';
+
+/** Quoted JSON value only, so the semicolon key list that names this setting is left alone. */
+const ENABLE_SUPPORT_ON = /"enable_support"\s*:\s*"1"/g;
+
+function withSupportsDisabled(projectSettingsText: string): string {
+  return projectSettingsText.replace(ENABLE_SUPPORT_ON, '"enable_support": "0"');
+}
 
 const VOLUME_OBJECT_ID = 1;
 const MODEL_OBJECT_ID = 2;
@@ -377,9 +385,10 @@ export class ThreeMfExporter {
 
   /**
    * Copies the saved Bambu Studio project and swaps in the lithophane mesh.
-   * The A2L project_settings.config is kept byte-for-byte. Another Bambu
-   * printer keeps the lithophane process settings and replaces the machine
-   * profile (bed, limits, and G-code) with that model's Studio 02.08.02.60 preset.
+   * Supports are turned off on every printer. The A2L profile is otherwise
+   * byte-for-byte. Another Bambu printer keeps the lithophane process settings
+   * and replaces the machine profile (bed, limits, and G-code) with that
+   * model's Studio 02.08.02.60 preset.
    */
   private static async buildBambuProjectZip(
     geometry: MeshGeometryData,
@@ -401,15 +410,16 @@ export class ThreeMfExporter {
     const projectSettingsText = await projectSettingsFile.async('text');
     const projectSettings = JSON.parse(projectSettingsText) as Record<string, unknown>;
     const retargeted = retargetBambuProject(projectSettings, printer);
+    projectSettings.enable_support = '0';
     const zip = new JSZip();
 
     const replacements = new Set([
       '3D/3dmodel.model',
       'Metadata/model_settings.config',
+      'Metadata/project_settings.config',
       'Metadata/plate_1.json',
       'Metadata/filament_sequence.json',
     ]);
-    if (retargeted) replacements.add('Metadata/project_settings.config');
 
     const copies: Array<Promise<void>> = [];
     template.forEach((relativePath, file) => {
@@ -436,9 +446,10 @@ export class ThreeMfExporter {
       throw new Error('3dmodel.model is missing the Bambu Studio application stamp');
     }
     zip.file(MODEL_FILE, written.xml);
-    if (retargeted) {
-      zip.file('Metadata/project_settings.config', JSON.stringify(projectSettings));
-    }
+    zip.file(
+      'Metadata/project_settings.config',
+      retargeted ? JSON.stringify(projectSettings) : withSupportsDisabled(projectSettingsText),
+    );
     zip.file(
       'Metadata/model_settings.config',
       this.buildBambuModelSettings(modelSettingsText, cleanName, geometry.indices.length / 3)
