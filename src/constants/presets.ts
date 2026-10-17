@@ -7,8 +7,8 @@ export const DEFAULT_SETTINGS: LithophaneSettings = {
   cylinderPanelCount: 4, // 1 to 4 photos around cylinder (default 4)
   cubeWidth: 90, // mm (width of each face of hollow cube)
   cubePanelCount: 4, // 1 to 4 photos around cube (default 4)
-  minThickness: 0.6, // mm (0.60mm highlights — 25% thinner, full tonal range kept)
-  maxThickness: 2.25, // mm (2.25mm shadows — 25% thinner than 3.0mm)
+  minThickness: 0.8, // mm highlights — thin enough to pass light, thick enough for two perimeters
+  maxThickness: 3.0, // mm shadows — Beer–Lambert range with k = 1.75/mm white PLA
 
   // Quality & Resolution Pipeline (Uncompressed Master Quality)
   qualityTier: 'master',
@@ -21,7 +21,7 @@ export const DEFAULT_SETTINGS: LithophaneSettings = {
   curveDirection: 'convex',
   hasFrame: true,
   frameWidth: 5.0, // mm
-  frameThickness: 2.4, // mm
+  frameThickness: 3.4, // mm (maxThickness + 0.4, so the border reads darker than any shadow)
   borderIcon: 'none',
 
   orientation: 'standing', // Print-ready vertical on Z axis
@@ -30,7 +30,7 @@ export const DEFAULT_SETTINGS: LithophaneSettings = {
   supportHeight: 8.0, // mm
 
   brightness: 0,
-  contrast: 8,
+  contrast: 0,
   gamma: 1.0,
   invert: false,
   smoothing: 0,
@@ -41,11 +41,10 @@ export const DEFAULT_SETTINGS: LithophaneSettings = {
 
 /**
  * Calculates optimal lithophane thickness and structural parameters automatically.
- * Baseline at standard size (<= 120mm): 0.60mm min thickness (highlights) and 2.25mm max thickness (shadows).
- * That is 25% thinner than the previous 0.80–3.00mm wall. Min and max scale together so the
- * relief that carries image detail stays proportional.
- * Auto-scales appropriately when size is scaled up or adjusted to ensure high optical contrast,
- * proper light diffusion, and warp-free bed adhesion during tall vertical 3D printing.
+ * Baseline at standard size (<= 120mm): 0.80mm highlights and 3.00mm shadows.
+ * Larger panels keep the same proportional growth the previous 0.60–2.25mm curve
+ * had, scaled onto the new baseline (min × 0.80/0.60, max × 3.00/2.25).
+ * The frame is always 0.4mm thicker than the darkest shadow.
  */
 export function getAutoScaledThickness(width: number, height: number): {
   minThickness: number;
@@ -59,11 +58,13 @@ export function getAutoScaledThickness(width: number, height: number): {
   const baseDim = 120;
 
   if (maxDim <= baseDim) {
+    const minThickness = 0.8;
+    const maxThickness = 3.0;
     return {
-      minThickness: 0.60,
-      maxThickness: 2.25,
+      minThickness,
+      maxThickness,
       frameWidth: 5.0,
-      frameThickness: 2.4,
+      frameThickness: Math.round((maxThickness + 0.4) * 100) / 100,
       supportBaseDepth: 14.0,
       supportHeight: 8.0,
     };
@@ -72,15 +73,15 @@ export function getAutoScaledThickness(width: number, height: number): {
   // Size is increased from defaults (e.g. 130mm - 280mm):
   const scaleRatio = (maxDim - baseDim) / baseDim; // 0 at 120mm, 0.33 at 160mm, 1.0 at 240mm
 
-  // minThickness gently scales (0.60mm -> 0.69mm) to maintain stiffness during tall printing
-  const minThickness = Math.round((0.60 + Math.min(0.15, scaleRatio * 0.09)) * 100) / 100;
+  // Same shape as the old 0.60 + min(0.15, ratio·0.09) curve, scaled by 0.80/0.60.
+  const minThickness = Math.round((0.8 + Math.min(0.2, scaleRatio * 0.12)) * 100) / 100;
 
-  // maxThickness scales smoothly (2.25mm -> 2.44mm) so shadows stay deep without a bulky wall
-  const maxThickness = Math.round((2.25 + Math.min(0.30, scaleRatio * 0.1875)) * 100) / 100;
+  // Same shape as the old 2.25 + min(0.30, ratio·0.1875) curve, scaled by 3.00/2.25.
+  const maxThickness = Math.round((3.0 + Math.min(0.4, scaleRatio * 0.25)) * 100) / 100;
 
-  // Frame width and depth adapt proportionally to structural size
+  // Frame width adapts to structural size. Depth stays 0.4mm past the darkest shadow.
   const frameWidth = Math.round((5.0 + Math.min(2.0, scaleRatio * 1.5)) * 10) / 10;
-  const frameThickness = Math.round((maxThickness + 0.15) * 10) / 10;
+  const frameThickness = Math.round((maxThickness + 0.4) * 100) / 100;
 
   // Support footing deepens for taller prints to ensure 100% bed adhesion stability
   const heightRatio = Math.max(1, height / 90);

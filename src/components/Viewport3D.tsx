@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { MeshGeometryData, LithophaneSettings } from '../types/lithophane';
+import { WHITE_PLA_EXTINCTION_PER_MM } from '../constants/optics';
 import { RotateCcw, Maximize2, Layers } from 'lucide-react';
 
 interface Viewport3DProps {
@@ -13,7 +14,6 @@ interface Viewport3DProps {
 // Fixed optical properties for calibrated translucent PLA
 const WARM_LIGHT_COLOR = 0xffdfa8; // Warm 2700K backlight
 const MATERIAL_BASE_COLOR = 0xf7f4ec; // Warm Ivory PLA base color
-const EXTINCTION_COEFFICIENT = 1.15; // Material light extinction mu in mm^-1
 const SCATTER_STRENGTH = 0.8;
 const BACKLIGHT_INTENSITY = 1.56 * 1.25;
 const VIEW_EDGE_PAD = 16;
@@ -180,7 +180,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       uRoomLightIntensity: { value: ROOM_LIGHT_INTENSITY },
       uRoomLightColor: { value: new THREE.Color(0xdce7f5) },
       uMaterialBaseColor: { value: effectiveBaseColor },
-      uTranslucencyExtinction: { value: EXTINCTION_COEFFICIENT },
+      uTranslucencyExtinction: { value: WHITE_PLA_EXTINCTION_PER_MM }, // shared with the mesh, per mm
       uScatteringStrength: { value: SCATTER_STRENGTH },
       uMinThickness: { value: Math.max(0.4, settings.minThickness) },
       uMaxThickness: { value: Math.max(1.0, settings.maxThickness) },
@@ -587,7 +587,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       {geometryData && (
         <div className="hud-badge">
           {settings.shape === 'cylinder'
-            ? `Ø ${Math.round(settings.cylinderDiameter || 90)} × ${Math.round(settings.height || 95)} mm`
+            ? `Ø ${Math.round(settings.cylinderDiameter || 90)} × ${Math.round(geometryData.boundingBox.size[2])} mm`
             : `${Math.round(geometryData.boundingBox.size[0])} × ${Math.round(geometryData.boundingBox.size[2])} mm`}
         </div>
       )}

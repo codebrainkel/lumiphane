@@ -1,5 +1,40 @@
 import { LithophaneSettings, MeshGeometryData } from '../types/lithophane';
+import { WHITE_PLA_EXTINCTION_PER_MM, thicknessForLuminance } from '../constants/optics';
 import { clampBorderWidthMm, createBorderIconField } from './borderIcons';
+
+/** Curved, cylinder, and cube feet flare over this height, entirely below the photo. */
+export const SUPPORT_BRIM_HEIGHT_MM = 4;
+
+const SKIRT_ROW_PITCH_MM = 0.5;
+
+/**
+ * Vertical band added under the photo so the stand, flange, buttress, or brim
+ * never thickens the image. Height is the support's own reach; row count
+ * samples that band at about 0.5mm.
+ */
+export function standingBaseExtension(settings: {
+  shape: LithophaneSettings['shape'];
+  orientation: LithophaneSettings['orientation'];
+  supportType?: LithophaneSettings['supportType'];
+  supportHeight?: number;
+}): { heightMm: number; rows: number } {
+  if (settings.orientation === 'flat') return { heightMm: 0, rows: 0 };
+  const supportType = settings.supportType || 'flange';
+  if (supportType === 'none') return { heightMm: 0, rows: 0 };
+
+  const shape = settings.shape;
+  const usesBrim = shape === 'curved' || shape === 'nightlight' || shape === 'cylinder' || shape === 'cube';
+  let heightMm: number;
+  if (usesBrim) {
+    heightMm = SUPPORT_BRIM_HEIGHT_MM;
+  } else {
+    const supportHeight = Math.max(2, settings.supportHeight ?? 8);
+    const hasButtress = supportType === 'buttress' || supportType === 'full';
+    heightMm = hasButtress ? supportHeight * 2.8 : supportHeight;
+  }
+  const rows = Math.max(2, Math.round(heightMm / SKIRT_ROW_PITCH_MM));
+  return { heightMm, rows };
+}
 
 export class GeometryGenerator {
   /**
@@ -23,7 +58,13 @@ export class GeometryGenerator {
     const supportBaseDepth = Math.max(4, settings.supportBaseDepth ?? 14.0);
     const supportHeight = Math.max(2, settings.supportHeight ?? 8.0);
 
-    const N = cols * rows;
+    // The stand is extra rows under the photo, so image resolution is unchanged.
+    const extension = standingBaseExtension(settings);
+    const skirtRows = extension.rows;
+    const zBase = extension.heightMm;
+    const meshRows = rows + skirtRows;
+
+    const N = cols * meshRows;
     const vertexCount = N * 2; // Front grid + Back grid
 
     const vertices = new Float32Array(vertexCount * 3);
@@ -39,7 +80,7 @@ export class GeometryGenerator {
     const isCylinder = settings.shape === 'cylinder';
     const isCube = settings.shape === 'cube';
     const isEnclosed = isCylinder || isCube;
-    const triangleCount = isEnclosed ? 4 * cols * rows : 4 * (cols * rows - 1);
+    const triangleCount = isEnclosed ? 4 * cols * meshRows : 4 * (cols * meshRows - 1);
     const indices = new Uint32Array(triangleCount * 3);
     let triOffset = 0;
 
@@ -90,11 +131,17 @@ export class GeometryGenerator {
     let minX = Infinity, minY = Infinity, minZ = Infinity;
     let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
 
+    // Thickness of the photo's bottom edge, continued through the stand.
+    const imageEdgeThickness = new Float32Array(cols);
+
     // 1. Generate Front and Back Vertices
-    for (let r = 0; r < rows; r++) {
-      const v = r / (rows - 1);
-      // When standing: r=0 is top of image (Z=H), r=rows-1 is bottom (Z=0, bed contact)
-      const pz = (1.0 - v) * H;
+    // Image rows keep their full height. Skirt rows hang below them down to Z = 0.
+    for (let r = 0; r < meshRows; r++) {
+      const inSkirt = r >= rows;
+      const v = inSkirt ? 1 : r / (rows - 1);
+      const pz = inSkirt
+        ? zBase * (1 - (r - (rows - 1)) / skirtRows)
+        : zBase + (1.0 - v) * H;
       const pyFlat = H / 2 - v * H;
 
       const distY = Math.min(v, 1.0 - v) * H;
@@ -103,20 +150,57 @@ export class GeometryGenerator {
         const u = c / (cols - 1);
         const distX = Math.min(u, 1.0 - u) * W;
 
-        // Luminance to thickness mapping
-        const lum = luminanceGrid[r * cols + c];
-        // Standard: dark (lum 0) => maxThickness; bright (lum 1) => minThickness
-        let th = minTh + (1.0 - lum) * (maxTh - minTh);
+        // Dark (lum 0) => maxThickness; bright (lum 1) => minThickness.
+        // Transmission exp(-k·t) tracks linearized sRGB between those walls.
+        let th: number;
+        if (!inSkirt) {
+          const lum = luminanceGrid[r * cols + c];
+          th = thicknessForLuminance(lum, minTh, maxTh, WHITE_PLA_EXTINCTION_PER_MM);
 
-        // Frame reinforcement (for continuous perimeter shapes, frame applies only to top/bottom rims; zero seam gap)
-        if (hasFrame) {
-          const distBorder = isEnclosed ? distY : Math.min(distX, distY);
-          if (distBorder <= frameW) {
-            th = Math.max(th, frameTh);
-            if (iconRelief) {
-              const borderX = isEnclosed ? (c / cols) * borderPerimeter : u * W;
-              const cut = iconRelief(borderX, v * H);
-              if (cut > 0) th = Math.max(minTh + 0.2, th - cut);
+          // Frame reinforcement (for continuous perimeter shapes, frame applies only to top/bottom rims; zero seam gap)
+          if (hasFrame) {
+            const distBorder = isEnclosed ? distY : Math.min(distX, distY);
+            if (distBorder <= frameW) {
+              th = Math.max(th, frameTh);
+              if (iconRelief) {
+                const borderX = isEnclosed ? (c / cols) * borderPerimeter : u * W;
+                const cut = iconRelief(borderX, v * H);
+                if (cut > 0) th = Math.max(minTh + 0.2, th - cut);
+              }
+            }
+          }
+          if (r === rows - 1) imageEdgeThickness[c] = th;
+        } else {
+          th = imageEdgeThickness[c];
+        }
+
+        // Stand flare is applied only on the skirt, never inside the photo.
+        let flangeBack = 0;
+        let flangeFront = 0;
+        let brimExtra = 0;
+        if (inSkirt) {
+          if (isCube || isCylinder || isCurved) {
+            if (pz < SUPPORT_BRIM_HEIGHT_MM) {
+              const tBrim = Math.pow(1.0 - pz / SUPPORT_BRIM_HEIGHT_MM, 2);
+              brimExtra = (isCurved ? 2.5 : 2.0) * tBrim;
+            }
+          } else if (isStanding) {
+            if (supportType === 'flange' || supportType === 'full') {
+              if (pz <= supportHeight) {
+                const t = Math.pow(1.0 - pz / supportHeight, 2);
+                flangeBack = supportBaseDepth * 0.55 * t;
+                flangeFront = supportBaseDepth * 0.45 * t;
+              }
+            }
+            if (supportType === 'buttress' || supportType === 'full') {
+              const edgeSpan = 0.16;
+              const distFromSide = Math.min(u, 1.0 - u) / edgeSpan;
+              const buttressTop = supportHeight * 2.8;
+              if (distFromSide <= 1.0 && pz <= buttressTop) {
+                const sideFactor = Math.pow(1.0 - distFromSide, 1.5);
+                const heightFactor = Math.pow(1.0 - pz / buttressTop, 2);
+                flangeBack += supportBaseDepth * 0.75 * sideFactor * heightFactor;
+              }
             }
           }
         }
@@ -139,11 +223,6 @@ export class GeometryGenerator {
           const sideIdx = Math.min(3, Math.floor(c / sideCols));
           const uSide = (c - sideIdx * sideCols) / sideCols; // [0, 1)
 
-          let brimExtra = 0;
-          if (supportType !== 'none' && pz < 4.0) {
-            const tBrim = Math.pow(1.0 - pz / 4.0, 2);
-            brimExtra = 2.0 * tBrim;
-          }
           localThickness = th + brimExtra;
 
           if (sideIdx === 0) {
@@ -186,11 +265,6 @@ export class GeometryGenerator {
           const sinPhi = Math.sin(phi);
           const cosPhi = Math.cos(phi);
 
-          let brimExtra = 0;
-          if (supportType !== 'none' && pz < 4.0) {
-            const tBrim = Math.pow(1.0 - pz / 4.0, 2);
-            brimExtra = 2.0 * tBrim;
-          }
           localThickness = th + brimExtra;
 
           // Inner smooth bore (facing center (0,0,z))
@@ -213,12 +287,6 @@ export class GeometryGenerator {
             const sinPhi = Math.sin(phi);
             const cosPhi = Math.cos(phi);
 
-            // Stabilizing brim at bed contact
-            let brimExtra = 0;
-            if (supportType !== 'none' && pz < 4.0) {
-              const tBrim = Math.pow(1.0 - pz / 4.0, 2);
-              brimExtra = 2.5 * tBrim;
-            }
             localThickness = th + brimExtra;
 
             if (isConvex) {
@@ -243,31 +311,6 @@ export class GeometryGenerator {
           } else {
             // Flat Plate Lithophane Standing on Build Plate
             const px = -W / 2 + u * W;
-
-            // Stabilizing supports for tall thin item
-            let flangeBack = 0;
-            let flangeFront = 0;
-
-            if (supportType === 'flange' || supportType === 'full') {
-              if (pz <= supportHeight) {
-                // Smooth parabolic taper to wide footing at bed contact (pz=0)
-                const t = Math.pow(1.0 - pz / supportHeight, 2);
-                flangeBack = (supportBaseDepth * 0.55) * t;
-                flangeFront = (supportBaseDepth * 0.45) * t;
-              }
-            }
-
-            if (supportType === 'buttress' || supportType === 'full') {
-              // Triangular buttress ribs on outer 15% edges for lateral stability
-              const edgeSpan = 0.16;
-              const distFromSide = Math.min(u, 1.0 - u) / edgeSpan;
-              if (distFromSide <= 1.0 && pz <= supportHeight * 2.8) {
-                const sideFactor = Math.pow(1.0 - distFromSide, 1.5);
-                const heightFactor = Math.pow(1.0 - pz / (supportHeight * 2.8), 2);
-                const buttressDepth = (supportBaseDepth * 0.75) * sideFactor * heightFactor;
-                flangeBack += buttressDepth;
-              }
-            }
 
             localThickness = th + flangeFront + flangeBack;
 
@@ -360,7 +403,7 @@ export class GeometryGenerator {
       // 360° HOLLOW TUBE / CUBE (Watertight Annular Shell)
       // ==============================================================
       // OUTER FACE (Facing outward)
-      for (let r = 0; r < rows - 1; r++) {
+      for (let r = 0; r < meshRows - 1; r++) {
         for (let c = 0; c < cols; c++) {
           const cNext = (c + 1) % cols;
           const p00 = r * cols + c;
@@ -381,7 +424,7 @@ export class GeometryGenerator {
       }
 
       // INNER CYLINDRICAL FACE (Facing inward towards center (0,0,z))
-      for (let r = 0; r < rows - 1; r++) {
+      for (let r = 0; r < meshRows - 1; r++) {
         for (let c = 0; c < cols; c++) {
           const cNext = (c + 1) % cols;
           const b00 = N + r * cols + c;
@@ -421,7 +464,7 @@ export class GeometryGenerator {
       }
 
       // BOTTOM ANNULAR RIM (r = rows - 1, Z = 0, Normal points strictly -Z flush with bed)
-      const botRowOffset = (rows - 1) * cols;
+      const botRowOffset = (meshRows - 1) * cols;
       for (let c = 0; c < cols; c++) {
         const cNext = (c + 1) % cols;
         const f0 = botRowOffset + c;
@@ -442,7 +485,7 @@ export class GeometryGenerator {
     } else if (isStanding) {
       // FRONT FACE (Facing +Y)
       // Vector p10-p00 is +X, Vector p01-p00 is -Z -> (+X) x (-Z) = +Y
-      for (let r = 0; r < rows - 1; r++) {
+      for (let r = 0; r < meshRows - 1; r++) {
         for (let c = 0; c < cols - 1; c++) {
           const p00 = r * cols + c;
           const p10 = r * cols + (c + 1);
@@ -462,7 +505,7 @@ export class GeometryGenerator {
       }
 
       // BACK FACE (Facing -Y, reverse winding)
-      for (let r = 0; r < rows - 1; r++) {
+      for (let r = 0; r < meshRows - 1; r++) {
         for (let c = 0; c < cols - 1; c++) {
           const b00 = N + r * cols + c;
           const b10 = N + r * cols + (c + 1);
@@ -498,7 +541,7 @@ export class GeometryGenerator {
       }
 
       // BOTTOM EDGE (r = rows - 1, Z = 0, Normal points -Z flush with bed)
-      const botRowOffset = (rows - 1) * cols;
+      const botRowOffset = (meshRows - 1) * cols;
       for (let c = 0; c < cols - 1; c++) {
         const f0 = botRowOffset + c;
         const f1 = botRowOffset + (c + 1);
@@ -515,7 +558,7 @@ export class GeometryGenerator {
       }
 
       // LEFT EDGE (c = 0, X = -W/2, Normal points -X)
-      for (let r = 0; r < rows - 1; r++) {
+      for (let r = 0; r < meshRows - 1; r++) {
         const f0 = r * cols;
         const f1 = (r + 1) * cols;
         const b0 = N + f0;
@@ -531,7 +574,7 @@ export class GeometryGenerator {
       }
 
       // RIGHT EDGE (c = cols - 1, X = +W/2, Normal points +X)
-      for (let r = 0; r < rows - 1; r++) {
+      for (let r = 0; r < meshRows - 1; r++) {
         const f0 = r * cols + (cols - 1);
         const f1 = (r + 1) * cols + (cols - 1);
         const b0 = N + f0;
@@ -548,7 +591,7 @@ export class GeometryGenerator {
     } else {
       // FLAT LAYOUT
       // Front face (+Z)
-      for (let r = 0; r < rows - 1; r++) {
+      for (let r = 0; r < meshRows - 1; r++) {
         for (let c = 0; c < cols - 1; c++) {
           const p00 = r * cols + c;
           const p10 = r * cols + (c + 1);
@@ -566,7 +609,7 @@ export class GeometryGenerator {
       }
 
       // Back face (-Z)
-      for (let r = 0; r < rows - 1; r++) {
+      for (let r = 0; r < meshRows - 1; r++) {
         for (let c = 0; c < cols - 1; c++) {
           const b00 = N + r * cols + c;
           const b10 = N + r * cols + (c + 1);
@@ -589,18 +632,18 @@ export class GeometryGenerator {
         indices[triOffset++] = f0; indices[triOffset++] = f1; indices[triOffset++] = b1;
         indices[triOffset++] = f0; indices[triOffset++] = b1; indices[triOffset++] = b0;
       }
-      const botRowOffset = (rows - 1) * cols;
+      const botRowOffset = (meshRows - 1) * cols;
       for (let c = 0; c < cols - 1; c++) {
         const f0 = botRowOffset + c, f1 = botRowOffset + (c + 1), b0 = N + f0, b1 = N + f1;
         indices[triOffset++] = f0; indices[triOffset++] = b1; indices[triOffset++] = f1;
         indices[triOffset++] = f0; indices[triOffset++] = b0; indices[triOffset++] = b1;
       }
-      for (let r = 0; r < rows - 1; r++) {
+      for (let r = 0; r < meshRows - 1; r++) {
         const f0 = r * cols, f1 = (r + 1) * cols, b0 = N + f0, b1 = N + f1;
         indices[triOffset++] = f0; indices[triOffset++] = b0; indices[triOffset++] = b1;
         indices[triOffset++] = f0; indices[triOffset++] = b1; indices[triOffset++] = f1;
       }
-      for (let r = 0; r < rows - 1; r++) {
+      for (let r = 0; r < meshRows - 1; r++) {
         const f0 = r * cols + (cols - 1), f1 = (r + 1) * cols + (cols - 1), b0 = N + f0, b1 = N + f1;
         indices[triOffset++] = f0; indices[triOffset++] = f1; indices[triOffset++] = b1;
         indices[triOffset++] = f0; indices[triOffset++] = b1; indices[triOffset++] = b0;
