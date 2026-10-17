@@ -8,14 +8,7 @@ import {
   loadEmbeddedBambuProfile,
 } from '../services/threeMfExporter';
 import { StlExporter } from '../services/stlExporter';
-import {
-  isIosDevice,
-  makeShareFile,
-  prepareDownload,
-  releasePreparedDownload,
-  saveBlob,
-  type PreparedDownload,
-} from '../services/saveFile';
+import { isIosDevice, makeShareFile, saveBlob } from '../services/saveFile';
 import {
   Check,
   Download,
@@ -50,8 +43,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   const [bambuProfile, setBambuProfile] = useState<EmbeddedBambuProfile | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
-  const [pendingFile, setPendingFile] = useState<PreparedDownload | null>(null);
-  const pendingRef = useRef<PreparedDownload | null>(null);
+  const [pendingFile, setPendingFile] = useState(false);
   const pendingShareRef = useRef<File | null>(null);
   const [verified3Mf, setVerified3Mf] = useState<{
     hasRun: boolean;
@@ -78,25 +70,13 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   }, []);
 
   const clearPendingFile = () => {
-    const current = pendingRef.current;
-    pendingRef.current = null;
     pendingShareRef.current = null;
-    if (current) releasePreparedDownload(current);
-    setPendingFile(null);
+    setPendingFile(false);
   };
 
-  useEffect(() => {
-    return () => {
-      if (pendingRef.current) releasePreparedDownload(pendingRef.current);
-    };
-  }, []);
-
   const holdForTap = (blob: Blob, filename: string) => {
-    if (pendingRef.current) releasePreparedDownload(pendingRef.current);
-    const prepared = prepareDownload(blob, filename);
-    pendingRef.current = prepared;
     pendingShareRef.current = makeShareFile(blob, filename);
-    setPendingFile(prepared);
+    setPendingFile(true);
   };
 
   const deliverFile = async (blob: Blob, filename: string) => {
@@ -109,31 +89,22 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   };
 
   const handleSavePending = () => {
-    const prepared = pendingRef.current;
     const shareFile = pendingShareRef.current;
-    if (!prepared) return;
-    pendingRef.current = null;
-    pendingShareRef.current = null;
-    setPendingFile(null);
-    setExportError(null);
-
-    const canShare =
-      !!shareFile &&
-      typeof navigator.share === 'function' &&
-      typeof navigator.canShare === 'function' &&
-      navigator.canShare({ files: [shareFile] });
-
-    if (canShare && shareFile) {
-      navigator.share({ files: [shareFile], title: shareFile.name }).catch((err: unknown) => {
-        if (err instanceof DOMException && err.name === 'AbortError') return;
-        setExportError('The share sheet could not open. Tap Download and try again.');
-      });
-      releasePreparedDownload(prepared);
+    if (!shareFile || typeof navigator.share !== 'function') {
+      setExportError('This iPhone could not open the share sheet.');
       return;
     }
-
-    prepared.anchor.click();
-    window.setTimeout(() => releasePreparedDownload(prepared), 180_000);
+    // Share has to start before any other work, or Safari reloads the page.
+    const pending = navigator.share({ files: [shareFile], title: shareFile.name });
+    pendingShareRef.current = null;
+    setPendingFile(false);
+    setExportError(null);
+    pending.catch((err: unknown) => {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      pendingShareRef.current = shareFile;
+      setPendingFile(true);
+      setExportError('The share sheet could not open. Tap Download and try again.');
+    });
   };
 
   const handleExport = async () => {

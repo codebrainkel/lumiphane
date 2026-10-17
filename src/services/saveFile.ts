@@ -48,7 +48,7 @@ export interface PreparedDownload {
 
 /** Build the link before the tap so iPhone Safari still counts the click as a user gesture. */
 export function prepareDownload(blob: Blob, filename: string): PreparedDownload {
-  const url = URL.createObjectURL(new Blob([blob], { type: 'application/octet-stream' }));
+  const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
   anchor.download = filename;
