@@ -7,6 +7,7 @@ import {
   RESEND_MAX_TOTAL_BYTES,
   base64Length,
   buildExportEmail,
+  classifyEmailSendError,
   clientAddress,
   createRateLimiter,
   emailTooLargeMessage,
@@ -25,6 +26,7 @@ import {
   type EmailSendFn,
   type OutboundExportEmail,
 } from '../../server/emailExportRouter';
+import { buildResendRequestBody, createResendHttpSend, type TransportRequest } from '../../server/resendClient';
 
 type Assert = (condition: boolean, testName: string, details?: string) => void;
 
@@ -357,6 +359,164 @@ export async function runEmailExportTests(assert: Assert) {
         'X-Export-Format': 'stl',
       });
       assert(oversized.status === 413 && (oversized.body.message || '').includes('too large'), 'The body limit rejects a file past the email ceiling');
+    }
+  );
+
+  console.log('\n[14b] Testing email send failures, timeouts, and memory-safe request bodies...');
+
+  const notVerified = classifyEmailSendError({
+    statusCode: 400,
+    message: 'The associated domain with your API key is not verified. Please, create a new API key with full access or with a verified domain.',
+  });
+  assert(notVerified.code === 'sender_not_verified' && !notVerified.retryable, 'An unverified Resend domain gets its own clear error');
+  assert(notVerified.message.includes('not been verified'), 'The unverified-domain message says what is wrong');
+  const notVerified403 = classifyEmailSendError({ statusCode: 403, message: 'The lumiphane.com domain is not verified.' });
+  assert(notVerified403.code === 'sender_not_verified', 'A 403 domain error is also reported as unverified');
+  assert(classifyEmailSendError({ name: 'timeout', statusCode: null, message: 'slow' }).httpStatus === 504, 'A timeout becomes a 504');
+  assert(classifyEmailSendError({ name: 'network_error', statusCode: null, message: 'ECONNRESET' }).code === 'network', 'A network error is reported as such');
+  assert(classifyEmailSendError({ statusCode: 401, message: 'API key is invalid' }).code === 'email_config', 'A bad key is a configuration error');
+  assert(classifyEmailSendError({ statusCode: 500, message: 'oops' }).retryable, 'A Resend 500 may be retried');
+  assert(classifyEmailSendError({ statusCode: 422, message: 'Invalid `to` field' }).code === 'rejected', 'A validation error is not retried');
+
+  const bigFile = Buffer.alloc(3 * 1024 * 1024 + 1, 7);
+  const outbound: OutboundExportEmail = {
+    from: 'Lumiphane <exports@lumiphane.com>',
+    to: ['maker@example.com'],
+    subject: 'Your STL "file"',
+    html: '<p>é</p>',
+    text: 'é',
+    attachments: [{ filename: 'big.stl', content: bigFile, contentType: 'model/stl' }],
+    tags: [{ name: 'email_type', value: 'lithophane-export' }],
+  };
+  const requestBody = buildResendRequestBody(outbound);
+  const parsedBody = JSON.parse(requestBody.toString('utf8'));
+  assert(parsedBody.attachments[0].content === bigFile.toString('base64'), 'The attachment is sent as one base64 string');
+  assert(parsedBody.attachments[0].content_type === 'model/stl' && parsedBody.subject === outbound.subject, 'Other fields survive the hand-built body');
+  assert(!requestBody.includes('"type":"Buffer"'), 'The attachment is not serialized as a JSON byte array');
+  assert(requestBody.byteLength < bigFile.byteLength * 1.34 + 4096, 'The request body stays near the base64 size');
+
+  const calls: { url: string; request: TransportRequest }[] = [];
+  const okSend = createResendHttpSend('re_test_key_abcdefghij', {
+    transport: async (url, request) => {
+      calls.push({ url, request });
+      return { status: 200, text: JSON.stringify({ id: 'email_http' }) };
+    },
+  });
+  const okResult = await okSend(outbound, { idempotencyKey: 'lithophane-export/abc12345' });
+  const sentHeaders = calls[0]?.request.headers || {};
+  assert(calls[0]?.url === 'https://api.resend.com/emails', 'The HTTP sender posts to the Resend emails endpoint');
+  assert(Buffer.isBuffer(calls[0]?.request.body), 'The HTTP sender passes the prebuilt body without copying it');
+  assert(okResult.data?.id === 'email_http', 'The HTTP sender returns the Resend id');
+  assert(sentHeaders['Idempotency-Key'] === 'lithophane-export/abc12345', 'The HTTP sender passes the idempotency key');
+  assert(sentHeaders.Authorization === 'Bearer re_test_key_abcdefghij', 'The HTTP sender authenticates with the key');
+
+  const rejectedSend = createResendHttpSend('re_test_key_abcdefghij', {
+    transport: async () => ({
+      status: 400,
+      text: JSON.stringify({ statusCode: 400, name: 'validation_error', message: 'The associated domain with your API key is not verified.' }),
+    }),
+  });
+  const rejectedResult = await rejectedSend(outbound, { idempotencyKey: 'k' });
+  assert(rejectedResult.error?.statusCode === 400 && /not verified/.test(rejectedResult.error.message), 'The HTTP sender keeps the Resend error text');
+
+  const hangingSend = createResendHttpSend('re_test_key_abcdefghij', {
+    timeoutMs: 50,
+    transport: (_url, request) =>
+      new Promise((_resolve, reject) => {
+        request.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+      }),
+  });
+  const hungStarted = Date.now();
+  const hungResult = await hangingSend(outbound, { idempotencyKey: 'k' });
+  assert(hungResult.error?.name === 'timeout' && Date.now() - hungStarted < 2000, 'A hung Resend call times out');
+
+  const brokenSend = createResendHttpSend('re_test_key_abcdefghij', {
+    transport: async () => {
+      throw Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
+    },
+  });
+  const brokenResult = await brokenSend(outbound, { idempotencyKey: 'k' });
+  assert(brokenResult.error?.name === 'network_error', 'A network failure is returned, not thrown');
+
+  let unverifiedAttempts = 0;
+  await withServer(
+    createEmailExportRouter({
+      getApiKey: () => 're_test_key_abcdefghij',
+      send: async () => {
+        unverifiedAttempts += 1;
+        return {
+          data: null,
+          error: { statusCode: 400, message: 'The associated domain with your API key is not verified.' },
+        };
+      },
+      retryDelayMs: 0,
+    }),
+    async (base) => {
+      const result = await postFile(base, stl, { 'X-Recipient-Email': 'maker@example.com', 'X-Export-Format': 'stl' });
+      const body = result.body as { code?: string; message?: string };
+      assert(result.status === 502 && body.code === 'sender_not_verified', 'The endpoint reports an unverified sender domain');
+      assert(unverifiedAttempts === 1, 'An unverified domain is not retried');
+    }
+  );
+
+  await withServer(
+    createEmailExportRouter({
+      getApiKey: () => 're_test_key_abcdefghij',
+      send: () => new Promise(() => {}),
+      sendTimeoutMs: 150,
+      retryDelayMs: 0,
+    }),
+    async (base) => {
+      const started = Date.now();
+      const result = await postFile(base, stl, { 'X-Recipient-Email': 'maker@example.com', 'X-Export-Format': 'stl' });
+      assert(result.status === 504 && Date.now() - started < 3000, 'A send that never finishes returns 504 quickly');
+    }
+  );
+
+  await withServer(
+    createEmailExportRouter({
+      getApiKey: () => 're_test_key_abcdefghij',
+      send: async () => {
+        throw new Error('socket hang up re_test_key_abcdefghij');
+      },
+      retryDelayMs: 0,
+      sendTimeoutMs: 500,
+    }),
+    async (base) => {
+      const result = await postFile(base, stl, { 'X-Recipient-Email': 'maker@example.com', 'X-Export-Format': 'stl' });
+      assert(result.status === 502 && typeof result.body.message === 'string', 'A throwing send returns JSON instead of crashing');
+      assert(!JSON.stringify(result.body).includes('re_test'), 'The thrown error text is not sent to the browser');
+      const status = await fetch(`${base}/api/email-export/status`);
+      assert(status.status === 200, 'The server keeps serving after a failed send');
+    }
+  );
+
+  let releaseSlow: () => void = () => {};
+  await withServer(
+    createEmailExportRouter({
+      getApiKey: () => 're_test_key_abcdefghij',
+      send: () =>
+        new Promise((resolve) => {
+          releaseSlow = () => resolve({ data: { id: 'email_slow' }, error: null });
+        }),
+      maxConcurrentSends: 1,
+      retryDelayMs: 0,
+    }),
+    async (base) => {
+      const headers = { 'X-Recipient-Email': 'maker@example.com', 'X-Export-Format': 'stl' };
+      const first = postFile(base, stl, headers);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const second = await postFile(base, stl, headers);
+      const secondBody = second.body as { code?: string };
+      assert(second.status === 503 && secondBody.code === 'busy', 'A second upload during a send is turned away');
+      releaseSlow();
+      const done = await first;
+      assert(done.status === 200, 'The first send still completes');
+      const thirdPending = postFile(base, stl, headers);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      releaseSlow();
+      const third = await thirdPending;
+      assert(third.status === 200 && third.body.id === 'email_slow', 'The slot frees up after the send');
     }
   );
 }
