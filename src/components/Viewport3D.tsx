@@ -377,14 +377,14 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       'normal',
       new THREE.BufferAttribute(geometryData.normals, 3)
     );
-    if (geometryData.thicknesses) {
+    const vertexCount = geometryData.vertices.length / 3;
+    if (geometryData.thicknesses && geometryData.thicknesses.length === vertexCount) {
       geometry.setAttribute(
         'thickness',
         new THREE.BufferAttribute(geometryData.thicknesses, 1)
       );
     } else {
-      const count = geometryData.vertices.length / 3;
-      const th = new Float32Array(count).fill(settings.maxThickness);
+      const th = new Float32Array(vertexCount).fill(settings.maxThickness);
       geometry.setAttribute('thickness', new THREE.BufferAttribute(th, 1));
     }
 

@@ -28,7 +28,7 @@ import {
 } from '../services/printOrder';
 import { DEFAULT_SETTINGS, ULTRA_FINE_RESOLUTION, getAutoScaledThickness } from '../constants/presets';
 import { thicknessForLuminance, transmissionToSrgb } from '../constants/optics';
-import { LithophaneSettings } from '../types/lithophane';
+import { LithophaneSettings, MeshGeometryData } from '../types/lithophane';
 import { borderIconCoverage, createBorderIconField, maxBorderWidthMm } from '../services/borderIcons';
 import { runEmailExportTests } from './emailExportTests';
 import JSZip from 'jszip';
@@ -46,6 +46,136 @@ function assert(condition: boolean, testName: string, details?: string) {
     failedTests++;
     console.error(`  ✗ FAIL: ${testName}${details ? ` -> ${details}` : ''}`);
   }
+}
+
+function faceNear(
+  geom: MeshGeometryData,
+  pred: (cx: number, cy: number, cz: number) => boolean,
+): { nx: number; ny: number; nz: number; cx: number; cy: number; cz: number } | null {
+  const { vertices, indices } = geom;
+  for (let i = 0; i < indices.length; i += 3) {
+    const ia = indices[i] * 3;
+    const ib = indices[i + 1] * 3;
+    const ic = indices[i + 2] * 3;
+    const ax = vertices[ia];
+    const ay = vertices[ia + 1];
+    const az = vertices[ia + 2];
+    const bx = vertices[ib];
+    const by = vertices[ib + 1];
+    const bz = vertices[ib + 2];
+    const cx = vertices[ic];
+    const cy = vertices[ic + 1];
+    const cz = vertices[ic + 2];
+    const mx = (ax + bx + cx) / 3;
+    const my = (ay + by + cy) / 3;
+    const mz = (az + bz + cz) / 3;
+    if (!pred(mx, my, mz)) continue;
+    const abx = bx - ax;
+    const aby = by - ay;
+    const abz = bz - az;
+    const acx = cx - ax;
+    const acy = cy - ay;
+    const acz = cz - az;
+    let nx = aby * acz - abz * acy;
+    let ny = abz * acx - abx * acz;
+    let nz = abx * acy - aby * acx;
+    const len = Math.hypot(nx, ny, nz);
+    if (len < 1e-8) continue;
+    nx /= len;
+    ny /= len;
+    nz /= len;
+    return { nx, ny, nz, cx: mx, cy: my, cz: mz };
+  }
+  return null;
+}
+
+function rayThickness(
+  geom: MeshGeometryData,
+  ox: number,
+  oy: number,
+  oz: number,
+  dx: number,
+  dy: number,
+  dz: number,
+): number | null {
+  const { vertices, indices } = geom;
+  const hits: number[] = [];
+  const eps = 1e-8;
+  for (let i = 0; i < indices.length; i += 3) {
+    const ia = indices[i] * 3;
+    const ib = indices[i + 1] * 3;
+    const ic = indices[i + 2] * 3;
+    const ax = vertices[ia];
+    const ay = vertices[ia + 1];
+    const az = vertices[ia + 2];
+    const bx = vertices[ib];
+    const by = vertices[ib + 1];
+    const bz = vertices[ib + 2];
+    const cx = vertices[ic];
+    const cy = vertices[ic + 1];
+    const cz = vertices[ic + 2];
+    const abx = bx - ax;
+    const aby = by - ay;
+    const abz = bz - az;
+    const acx = cx - ax;
+    const acy = cy - ay;
+    const acz = cz - az;
+    const px = dy * acz - dz * acy;
+    const py = dz * acx - dx * acz;
+    const pz = dx * acy - dy * acx;
+    const det = abx * px + aby * py + abz * pz;
+    if (det > -eps && det < eps) continue;
+    const inv = 1 / det;
+    const tx = ox - ax;
+    const ty = oy - ay;
+    const tz = oz - az;
+    const u = (tx * px + ty * py + tz * pz) * inv;
+    if (u < -1e-5 || u > 1 + 1e-5) continue;
+    const qx = ty * abz - tz * aby;
+    const qy = tz * abx - tx * abz;
+    const qz = tx * aby - ty * abx;
+    const v = (dx * qx + dy * qy + dz * qz) * inv;
+    if (v < -1e-5 || u + v > 1 + 1e-5) continue;
+    const t = (acx * qx + acy * qy + acz * qz) * inv;
+    if (t > 1e-4) hits.push(t);
+  }
+  hits.sort((a, b) => a - b);
+  const uniq: number[] = [];
+  for (const t of hits) {
+    if (!uniq.length || t - uniq[uniq.length - 1] > 1e-3) uniq.push(t);
+  }
+  if (uniq.length < 2) return null;
+  return uniq[1] - uniq[0];
+}
+
+function signedVolumeMm3(geom: MeshGeometryData): number {
+  const { vertices, indices } = geom;
+  let signed = 0;
+  for (let i = 0; i < indices.length; i += 3) {
+    const ia = indices[i] * 3;
+    const ib = indices[i + 1] * 3;
+    const ic = indices[i + 2] * 3;
+    const ax = vertices[ia];
+    const ay = vertices[ia + 1];
+    const az = vertices[ia + 2];
+    const bx = vertices[ib];
+    const by = vertices[ib + 1];
+    const bz = vertices[ib + 2];
+    const cx = vertices[ic];
+    const cy = vertices[ic + 1];
+    const cz = vertices[ic + 2];
+    const abx = bx - ax;
+    const aby = by - ay;
+    const abz = bz - az;
+    const acx = cx - ax;
+    const acy = cy - ay;
+    const acz = cz - az;
+    const nx = aby * acz - abz * acy;
+    const ny = abz * acx - abx * acz;
+    const nz = abx * acy - aby * acx;
+    signed += (ax * nx + ay * ny + az * nz) / 6;
+  }
+  return signed;
 }
 
 async function runTestSuite() {
@@ -172,8 +302,11 @@ async function runTestSuite() {
     const geometry = GeometryGenerator.generateMesh(dummyGrid, cols, rows, testSettings);
     const flatExt = standingBaseExtension(testSettings);
     const flatMeshRows = rows + flatExt.rows;
-    assert(geometry.vertices.length === cols * flatMeshRows * 2 * 3, 'Vertex buffer length matches the image grid plus the stand below it');
-    assert(geometry.indices.length === 4 * (cols * flatMeshRows - 1) * 3, 'Index buffer length matches the image grid plus the stand below it');
+    const fullFlatVerts = cols * flatMeshRows * 2;
+    const fullFlatTris = 4 * (cols * flatMeshRows - 1);
+    assert(geometry.vertices.length / 3 < fullFlatVerts, `Lossless merge drops interior vertices (got ${geometry.vertices.length / 3} of ${fullFlatVerts})`);
+    assert(geometry.indices.length / 3 < fullFlatTris, `Lossless merge uses fewer triangles than the full grid (got ${geometry.indices.length / 3} of ${fullFlatTris})`);
+    assert(geometry.thicknessGrid?.length === cols * flatMeshRows, 'Thickness samples stay on the image grid, including the stand');
 
     const validation = MeshValidator.validate(geometry);
     assert(validation.isWatertight, 'Mesh is strictly watertight (zero open boundaries)');
@@ -638,30 +771,33 @@ async function runTestSuite() {
     // Outer diameter includes base cylinder radius + thickness
     const outerDiamExpected = cylDiameter + 3.0 * 2; // ~96mm
     assert(cylGeom.boundingBox.min[2] === 0, 'Cylinder bottom rim rests flat at Z=0 on print bed');
-    assert(cylGeom.indices.length === 4 * testCols * (testRows + cylExt.rows) * 3, `Cylinder index count includes the brim rows (got ${cylGeom.indices.length})`);
+    const fullCylTris = 4 * testCols * (testRows + cylExt.rows);
+    assert(
+      cylGeom.indices.length / 3 < fullCylTris,
+      `Cylinder merge uses fewer triangles than the full grid (got ${cylGeom.indices.length / 3} of ${fullCylTris})`,
+    );
 
-    // Verify outward vs inward normal directions for proper lithophane lighting
+    // Face normals, not grid indices: equal-height columns no longer keep a vertex on every row.
     const midRow = Math.floor(testRows / 2);
-    const frontCount = cylGeom.vertices.length / 6;
-    const midOuterIdx = (midRow * testCols + Math.floor(testCols / 8)) * 3;
-    const midInnerIdx = (frontCount + midRow * testCols + Math.floor(testCols / 8)) * 3;
-
-    const outerDot = cylGeom.normals[midOuterIdx] * cylGeom.vertices[midOuterIdx] +
-                     cylGeom.normals[midOuterIdx + 1] * cylGeom.vertices[midOuterIdx + 1];
-    const innerDot = cylGeom.normals[midInnerIdx] * cylGeom.vertices[midInnerIdx] +
-                     cylGeom.normals[midInnerIdx + 1] * cylGeom.vertices[midInnerIdx + 1];
-
+    const radius = cylDiameter / 2;
+    const outer = faceNear(cylGeom, (cx, cy, cz) => Math.hypot(cx, cy) > radius + 0.4 && cz > 10 && cz < cylHeight);
+    const inner = faceNear(cylGeom, (cx, cy, cz) => {
+      const r = Math.hypot(cx, cy);
+      return r > radius - 1 && r < radius + 0.25 && cz > 10 && cz < cylHeight;
+    });
+    const outerDot = outer ? outer.nx * outer.cx + outer.ny * outer.cy : 0;
+    const innerDot = inner ? inner.nx * inner.cx + inner.ny * inner.cy : 0;
     assert(outerDot > 20, `Cylinder outer face normals point strictly outward away from center (dot: ${outerDot.toFixed(1)})`);
     assert(innerDot < -20, `Cylinder inner bore normals point strictly inward toward center light (dot: ${innerDot.toFixed(1)})`);
-    assert(cylGeom.normals[2] > 0.1, 'Cylinder top rim normals point +Z (upward)');
-    const botIdx = (testRows + cylExt.rows - 1) * testCols * 3;
-    assert(Math.abs(cylGeom.vertices[botIdx + 2]) < 1e-4, 'Cylinder brim rests on the bed at Z = 0');
-    assert(cylGeom.normals[botIdx + 2] < -0.1, 'Cylinder bottom rim normals point -Z (downward flush with bed)');
+    const topRim = faceNear(cylGeom, (_cx, _cy, cz) => cz > cylHeight + cylExt.heightMm - 0.05);
+    assert(!!topRim && topRim.nz > 0.1, `Cylinder top rim normals point +Z (upward) (got ${topRim?.nz.toFixed(2)})`);
+    const bottomRim = faceNear(cylGeom, (_cx, _cy, cz) => cz < 0.05);
+    assert(!!bottomRim && bottomRim.nz < -0.1, `Cylinder bottom rim normals point -Z (downward flush with bed) (got ${bottomRim?.nz.toFixed(2)})`);
 
     // Verify zero vertical frame seam gap between last image (c = testCols - 1) and first image (c = 0)
     // Even when hasFrame is enabled, the 360° cylinder perimeter must NOT have vertical side borders
-    assert(cylGeom.thicknesses !== undefined, 'Cylinder thicknesses buffer is generated');
-    const ths = cylGeom.thicknesses!;
+    assert(cylGeom.thicknessGrid !== undefined, 'Cylinder thickness grid is generated');
+    const ths = cylGeom.thicknessGrid!;
     const firstColTh = ths[midRow * testCols + 0];
     const lastColTh = ths[midRow * testCols + (testCols - 1)];
     const expectedFirstTh = thicknessForLuminance(0.2, DEFAULT_SETTINGS.minThickness, DEFAULT_SETTINGS.maxThickness);
@@ -700,9 +836,10 @@ async function runTestSuite() {
     assert(singleVal.degenerateTriangles === 0, '1-Photo 360° cylinder wrap has zero degenerate triangles');
 
     // For 1-photo wrap, the center of the image (c = testCols / 2) faces front (+Y) towards viewer
-    const midRow = Math.floor(testRows / 2);
-    const centerColIdx = (midRow * testCols + Math.floor(testCols / 2)) * 3;
-    const centerNormDot = singleWrapGeom.normals[centerColIdx + 1]; // Y component of normal
+    const centerFace = faceNear(singleWrapGeom, (cx, cy, cz) => {
+      return Math.hypot(cx, cy) > cylDiameter / 2 + 0.4 && Math.abs(cx) < 4 && cy > 0 && cz > 20 && cz < 80;
+    });
+    const centerNormDot = centerFace ? centerFace.ny : 0;
     assert(centerNormDot > 0.8, `Center of single image faces directly forward (+Y) (got normal.y: ${centerNormDot.toFixed(2)})`);
 
     // Test 2: Two Photos (180° Halves)
@@ -812,7 +949,7 @@ async function runTestSuite() {
         for (let c = 0; c < cols; c++) {
           const x = (c / (cols - 1)) * W;
           if (Math.abs(x - x0) > radius) continue;
-          const th = geometry.thicknesses![r * cols + c];
+          const th = geometry.thicknessGrid![r * cols + c];
           value = pick === 'min' ? Math.min(value, th) : Math.max(value, th);
         }
       }
@@ -821,7 +958,7 @@ async function runTestSuite() {
     const centerTh = near(W / 2, H / 2, 4, 'max');
     const topTh = near(W / 2, frameW / 2, 1.2, 'min');
     assert(Math.abs(centerTh - 0.6) < 0.05, `Photo center keeps highlight thickness (got ${centerTh.toFixed(2)}mm)`);
-    assert(topTh < 2.4 - 0.4, `Top-center heart is cut into the border (got ${topTh.toFixed(2)}mm)`);
+    assert(topTh < iconSettings.frameThickness - 0.4, `Top-center heart is cut into the border (got ${topTh.toFixed(2)}mm)`);
     assert(topTh > 1.0, `Heart recess stays a solid border (got ${topTh.toFixed(2)}mm)`);
 
     let finite = true;
@@ -848,7 +985,7 @@ async function runTestSuite() {
     const cylD = 90;
     const cylGrid = new Float32Array(cylCols * cylRows);
     cylGrid.fill(0.5);
-    const cylGeom = GeometryGenerator.generateMesh(cylGrid, cylCols, cylRows, {
+    const cylIconSettings: LithophaneSettings = {
       ...DEFAULT_SETTINGS,
       shape: 'cylinder',
       cylinderDiameter: cylD,
@@ -860,12 +997,13 @@ async function runTestSuite() {
       frameWidth: frameW,
       frameThickness: 2.4,
       borderIcon: 'bone',
-    });
+    };
+    const cylGeom = GeometryGenerator.generateMesh(cylGrid, cylCols, cylRows, cylIconSettings);
     const cylVal = MeshValidator.validate(cylGeom);
     assert(cylVal.isWatertight && cylVal.isManifold, 'Cylinder bone border stays watertight');
     const perimeter = Math.PI * cylD;
     const frontArc = perimeter / 8;
-    const cylTh = cylGeom.thicknesses!;
+    const cylTh = cylGeom.thicknessGrid!;
     let rimMin = Infinity;
     let midMax = 0;
     for (let c = 0; c < cylCols; c++) {
@@ -877,14 +1015,14 @@ async function runTestSuite() {
         if (Math.abs(y - cylH / 2) < 2) midMax = Math.max(midMax, th);
       }
     }
-    assert(rimMin < 2.4 - 0.4, `Cylinder top rim has a bone cut into it (got ${rimMin.toFixed(2)}mm)`);
+    assert(rimMin < cylIconSettings.frameThickness - 0.4, `Cylinder top rim has a bone cut into it (got ${rimMin.toFixed(2)}mm)`);
     const midPhoto = thicknessForLuminance(0.5, DEFAULT_SETTINGS.minThickness, DEFAULT_SETTINGS.maxThickness);
     assert(Math.abs(midMax - midPhoto) < 0.08, `Cylinder mid-height stays free of a vertical border (got ${midMax.toFixed(2)}mm)`);
 
     const cubeCols = 96;
     const cubeRows = 48;
     const cubeSide = 90;
-    const cubeGeom = GeometryGenerator.generateMesh(cylGrid, cubeCols, cubeRows, {
+    const cubeIconSettings: LithophaneSettings = {
       ...DEFAULT_SETTINGS,
       shape: 'cube',
       cubeWidth: cubeSide,
@@ -895,10 +1033,11 @@ async function runTestSuite() {
       frameWidth: frameW,
       frameThickness: 2.4,
       borderIcon: 'star',
-    });
+    };
+    const cubeGeom = GeometryGenerator.generateMesh(cylGrid, cubeCols, cubeRows, cubeIconSettings);
     const cubeVal = MeshValidator.validate(cubeGeom);
     assert(cubeVal.isWatertight && cubeVal.isManifold, 'Cube star border stays watertight');
-    const cubeTh = cubeGeom.thicknesses!;
+    const cubeTh = cubeGeom.thicknessGrid!;
     let faceMin = Infinity;
     let cornerMin = Infinity;
     const cubePer = cubeSide * 4;
@@ -913,7 +1052,7 @@ async function runTestSuite() {
         if (distCorner < 0.4) cornerMin = Math.min(cornerMin, th);
       }
     }
-    assert(faceMin < 2.4 - 0.4, `Cube front rim has a star cut into it (got ${faceMin.toFixed(2)}mm)`);
+    assert(faceMin < cubeIconSettings.frameThickness - 0.4, `Cube front rim has a star cut into it (got ${faceMin.toFixed(2)}mm)`);
     assert(cornerMin > 2.15, `Cube corners stay a plain border (got ${cornerMin.toFixed(2)}mm)`);
   }
 
@@ -1047,7 +1186,7 @@ async function runTestSuite() {
       const mid = Math.floor(rows / 2);
       let prev = -1;
       for (let i = 0; i < wedge.length; i++) {
-        const th = geom.thicknesses![mid * cols + i];
+        const th = geom.thicknessGrid![mid * cols + i];
         const perceived = transmissionToSrgb(th, DEFAULT_SETTINGS.minThickness, DEFAULT_SETTINGS.maxThickness);
         assert(
           Math.abs(perceived - wedge[i]) <= 0.05,
@@ -1136,7 +1275,7 @@ async function runTestSuite() {
               if (!inside) continue;
               const lum = grid[r * panel.cols + c];
               const expected = thicknessForLuminance(lum, settings.minThickness, settings.maxThickness);
-              const th = geom.thicknesses![r * panel.cols + c];
+              const th = geom.thicknessGrid![r * panel.cols + c];
               maxExcess = Math.max(maxExcess, th - expected);
               if (lum === 0 && Math.abs(th - settings.maxThickness) < 0.02) sawBlack = true;
               if (lum === 1 && Math.abs(th - settings.minThickness) < 0.02) sawWhite = true;
@@ -1146,37 +1285,150 @@ async function runTestSuite() {
           assert(sawBlack && sawWhite, `${label} image thickness reaches ${settings.minThickness}–${settings.maxThickness}mm`);
           assert(bottomR >= 0, `${label} has a photo row just above the frame`);
 
-          const edgeTh = geom.thicknesses![bottomR * panel.cols + midC];
+          const edgeTh = geom.thicknessGrid![bottomR * panel.cols + midC];
           const edgeExpected = thicknessForLuminance(grid[bottomR * panel.cols + midC], settings.minThickness, settings.maxThickness);
           assert(
             Math.abs(edgeTh - edgeExpected) < 0.02,
             `${label} row just above the frame matches the photo (got ${edgeTh.toFixed(3)}mm, expected ${edgeExpected.toFixed(3)}mm)`
           );
-          const edgeZ = geom.vertices[(bottomR * panel.cols + midC) * 3 + 2];
+          const edgeZ = ext.heightMm + (1 - bottomR / (panel.rows - 1)) * panel.height;
           assert(
             edgeZ > ext.heightMm + frameWidth - 0.05,
             `${label} photo row sits above the stand (z ${edgeZ.toFixed(2)}, stand ${ext.heightMm})`
           );
 
-          const topTh = geom.thicknesses![midC];
+          const topTh = geom.thicknessGrid![midC];
           assert(
             Math.abs(topTh - settings.frameThickness) < 0.05,
             `${label} frame is ${settings.frameThickness}mm (got ${topTh.toFixed(3)}mm)`
           );
 
-          const frontCount = geom.vertices.length / 6;
-          const f = (bottomR * panel.cols + midC) * 3;
-          const b = (frontCount + bottomR * panel.cols + midC) * 3;
-          const dx = geom.vertices[f] - geom.vertices[b];
-          const dy = geom.vertices[f + 1] - geom.vertices[b + 1];
-          const dz = geom.vertices[f + 2] - geom.vertices[b + 2];
-          const geometric = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          const sampleU = midC / (panel.cols - (panel.shape === 'cylinder' || panel.shape === 'cube' ? 0 : 1));
+          const sampleV = bottomR / (panel.rows - 1);
+          const sampleZ = ext.heightMm + (1 - sampleV) * panel.height;
+          let geometric: number | null = null;
+          if (panel.shape === 'flat') {
+            const x = -panel.width / 2 + (midC / (panel.cols - 1)) * panel.width;
+            geometric = rayThickness(geom, x, -40, sampleZ, 0, 1, 0);
+          } else if (panel.shape === 'curved') {
+            const curveRad = ((settings.curveAngle || 75) * Math.PI) / 180;
+            const arcRadius = panel.width / curveRad;
+            const phi = (midC / (panel.cols - 1) - 0.5) * curveRad;
+            const sinPhi = Math.sin(phi);
+            const cosPhi = Math.cos(phi);
+            const bx = arcRadius * sinPhi;
+            const by = -arcRadius * (1 - cosPhi);
+            geometric = rayThickness(geom, bx - sinPhi * 8, by - cosPhi * 8, sampleZ, sinPhi, cosPhi, 0);
+          } else if (panel.shape === 'cylinder') {
+            const panels = settings.cylinderPanelCount || 4;
+            const phi = sampleU * Math.PI * 2 - Math.PI / panels;
+            geometric = rayThickness(geom, 0, 0, sampleZ, Math.sin(phi), Math.cos(phi), 0);
+          } else {
+            geometric = rayThickness(geom, 0, 0, sampleZ, 0, 1, 0);
+          }
           assert(
-            Math.abs(geometric - edgeTh) < 0.05,
-            `${label} geometric thickness matches the photo (got ${geometric.toFixed(3)}mm)`
+            geometric !== null && Math.abs(geometric - edgeTh) < 0.05,
+            `${label} geometric thickness matches the photo (got ${geometric === null ? 'miss' : geometric.toFixed(3)}mm)`
           );
         }
       }
+    }
+  }
+
+  console.log('\n[15] Testing lossless mesh reduction...');
+  {
+    const fullTris = (shape: LithophaneSettings['shape'], cols: number, meshRows: number) =>
+      shape === 'cylinder' || shape === 'cube' ? 4 * cols * meshRows : 4 * (cols * meshRows - 1);
+
+    const cols = 48;
+    const rows = 36;
+    const flatSettings: LithophaneSettings = {
+      ...DEFAULT_SETTINGS,
+      width: 96,
+      height: 72,
+      shape: 'flat',
+      orientation: 'standing',
+      supportType: 'flange',
+      hasFrame: true,
+    };
+    const flatExt = standingBaseExtension(flatSettings);
+    const flatRows = rows + flatExt.rows;
+    const unreducedFlat = fullTris('flat', cols, flatRows);
+
+    const constant = new Float32Array(cols * rows);
+    constant.fill(0.35);
+    const flat = GeometryGenerator.generateMesh(constant, cols, rows, flatSettings);
+    const flatVal = MeshValidator.validate(flat);
+    const flatTris = flat.indices.length / 3;
+    assert(flatVal.isWatertight && flatVal.isManifold, 'Reduced constant flat panel is watertight and 2-manifold');
+    assert(flatVal.eulerCharacteristic === 2, `Reduced flat panel stays genus 0 (chi ${flatVal.eulerCharacteristic})`);
+    assert(flatVal.degenerateTriangles === 0, 'Reduced flat panel has no degenerate triangles');
+    assert(signedVolumeMm3(flat) > 0, 'Reduced flat panel winding keeps a positive volume');
+    assert(Math.abs(flat.boundingBox.min[2]) < 1e-6, 'Reduced flat panel still sits on Z = 0');
+    assert(flat.vertices.length / 3 < cols * flatRows * 2, `Reduced flat panel drops unused grid vertices (got ${flat.vertices.length / 3})`);
+    assert(flatTris < unreducedFlat * 0.5, `Constant flat panel is under half the full grid (got ${flatTris} of ${unreducedFlat})`);
+    assert(flat.thicknessGrid?.length === cols * flatRows, 'Thickness grid still has one sample per pixel');
+
+    const noisy = new Float32Array(cols * rows);
+    for (let i = 0; i < noisy.length; i++) noisy[i] = ((i * 17) % 97) / 96;
+    const noisyMesh = GeometryGenerator.generateMesh(noisy, cols, rows, flatSettings);
+    const noisyVal = MeshValidator.validate(noisyMesh);
+    const noisyTris = noisyMesh.indices.length / 3;
+    assert(noisyVal.isWatertight && noisyVal.isManifold && noisyVal.degenerateTriangles === 0, 'Reduced noisy flat panel is watertight');
+    assert(noisyTris < unreducedFlat, `Noisy flat panel has fewer triangles than the unreduced grid (got ${noisyTris} of ${unreducedFlat})`);
+    assert(flatTris < noisyTris, 'Equal-height regions merge further than a varying photo');
+
+    let maxGap = 0;
+    let misses = 0;
+    let samples = 0;
+    for (let r = 0; r < rows; r += 3) {
+      for (let c = 0; c < cols; c += 3) {
+        const u = c / (cols - 1);
+        const v = r / (rows - 1);
+        const x = -flatSettings.width / 2 + u * flatSettings.width;
+        const z = flatExt.heightMm + (1 - v) * flatSettings.height;
+        const measured = rayThickness(noisyMesh, x, -40, z, 0, 1, 0);
+        samples++;
+        if (measured === null) {
+          misses++;
+          continue;
+        }
+        maxGap = Math.max(maxGap, Math.abs(measured - noisyMesh.thicknessGrid![r * cols + c]));
+      }
+    }
+    assert(misses === 0, `Every sampled ray hits the reduced flat panel (missed ${misses} of ${samples})`);
+    assert(maxGap <= 0.01, `Ray-cast thickness stays within 0.01 mm of the photo (max ${maxGap.toFixed(4)} mm)`);
+
+    const shapes: Array<{ shape: LithophaneSettings['shape']; cols: number; rows: number; width: number; height: number }> = [
+      { shape: 'curved', cols: 36, rows: 24, width: 90, height: 70 },
+      { shape: 'cylinder', cols: 48, rows: 24, width: 90, height: 70 },
+      { shape: 'cube', cols: 48, rows: 24, width: 80, height: 70 },
+    ];
+    for (const spec of shapes) {
+      const grid = new Float32Array(spec.cols * spec.rows);
+      for (let i = 0; i < grid.length; i++) grid[i] = ((i * 13 + 5) % 89) / 88;
+      const settings: LithophaneSettings = {
+        ...DEFAULT_SETTINGS,
+        shape: spec.shape,
+        width: spec.width,
+        height: spec.height,
+        cylinderDiameter: 90,
+        cubeWidth: 80,
+        orientation: 'standing',
+        hasFrame: true,
+      };
+      const geom = GeometryGenerator.generateMesh(grid, spec.cols, spec.rows, settings);
+      const validation = MeshValidator.validate(geom);
+      const ext = standingBaseExtension(settings);
+      const meshRows = spec.rows + ext.rows;
+      const before = fullTris(spec.shape, spec.cols, meshRows);
+      const after = geom.indices.length / 3;
+      assert(validation.isWatertight && validation.isManifold, `${spec.shape} stays watertight after reduction`);
+      assert(validation.degenerateTriangles === 0, `${spec.shape} has no degenerate triangles after reduction`);
+      assert(signedVolumeMm3(geom) > 0, `${spec.shape} winding stays outward`);
+      assert(Math.abs(geom.boundingBox.min[2]) < 1e-4, `${spec.shape} bottom stays on Z = 0`);
+      assert(after < before, `${spec.shape} triangle count ${after} is below the unreduced grid ${before}`);
+      assert(geom.vertices.length / 3 < spec.cols * meshRows * 2, `${spec.shape} drops interior vertices`);
     }
   }
 

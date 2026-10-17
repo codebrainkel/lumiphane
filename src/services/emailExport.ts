@@ -48,7 +48,7 @@ export function formatByteSize(bytes: number): string {
 }
 
 export function emailTooLargeMessage(limit = maxEmailAttachmentBytes()): string {
-  return `This file is too large to email (limit ${formatByteSize(limit)} after encoding, about 40 MB total). Download it instead, or lower the quality tier and try again.`;
+  return `This file is too large to email (limit ${formatByteSize(limit)} after encoding, about 40 MB total). Download the STL, or download the file instead.`;
 }
 
 export function isEmailExportConfigured(key: string | undefined | null): boolean {

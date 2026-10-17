@@ -80,7 +80,8 @@ export interface MeshGeometryData {
   indices: Uint32Array;   // [t0a, t0b, t0c, t1a, t1b, t1c, ...]
   normals: Float32Array;  // [nx0, ny0, nz0, ...]
   uvs?: Float32Array;      // [u0, v0, u1, v1, ...]
-  thicknesses?: Float32Array; // [th0, th1, ...] local solid thickness in mm
+  thicknesses?: Float32Array; // per final vertex, local solid thickness in mm
+  thicknessGrid?: Float32Array; // front sample at image/skirt row r, column c (r * cols + c)
   boundingBox: {
     min: [number, number, number];
     max: [number, number, number];
