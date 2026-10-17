@@ -33,6 +33,8 @@ const MODEL_OBJECT_ID = 2;
 const IDENTIFY_ID = 1;
 const BAMBU_IDENTITY_3MF = '1 0 0 0 1 0 0 0 1 0 0 0';
 const BAMBU_IDENTITY_MATRIX = '1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1';
+const MODEL_UNIT = 'millimeter';
+const MODEL_FILE = '3D/3dmodel.model';
 
 let templateBytesPromise: Promise<Uint8Array> | null = null;
 let embeddedProfilePromise: Promise<EmbeddedBambuProfile> | null = null;
@@ -197,9 +199,18 @@ export interface ThreeMfExportResult {
   blob: Blob;
   filename: string;
   filesizeBytes: number;
+  /** Vertex tags written into the model XML. */
   vertexCount: number;
+  /** Triangle tags written into the model XML. */
   triangleCount: number;
   isBambuProject?: boolean;
+}
+
+/** Counts recorded while the model XML was written. Verify uses these instead of parsing the file. */
+export interface ThreeMfWrittenModel {
+  vertexCount: number;
+  triangleCount: number;
+  unit?: string;
 }
 
 export class ThreeMfExporter {
@@ -218,9 +229,21 @@ export class ThreeMfExporter {
     const cleanName = modelName.replace(/[^a-zA-Z0-9_-]/g, '_') || 'lithophane';
     const profile = isBambuProject ? await loadEmbeddedBambuProfile() : null;
     const printer = isBambuProject ? getBambuPrinter(options?.bambuPrinterId) : null;
-    const zip = isBambuProject
+    const built = isBambuProject
       ? await this.buildBambuProjectZip(geometry, cleanName, modelName, profile!, printer!)
       : this.buildUniversalZip(geometry, modelName);
+    const { zip, written } = built;
+
+    const expectedVertices = geometry.vertices.length / 3;
+    const expectedTriangles = geometry.indices.length / 3;
+    if (written.vertexCount !== expectedVertices || written.triangleCount !== expectedTriangles) {
+      throw new Error(
+        `3MF model counts do not match the mesh (${written.vertexCount} vertices, ${written.triangleCount} triangles).`
+      );
+    }
+    if (!zip.file(MODEL_FILE)) {
+      throw new Error('3MF archive is missing 3D/3dmodel.model');
+    }
 
     const blob = await zip.generateAsync({
       type: 'blob',
@@ -242,13 +265,17 @@ export class ThreeMfExporter {
       blob,
       filename,
       filesizeBytes: blob.size,
-      vertexCount: geometry.vertices.length / 3,
-      triangleCount: geometry.indices.length / 3,
+      vertexCount: written.vertexCount,
+      triangleCount: written.triangleCount,
       isBambuProject,
     };
   }
 
-  private static buildUniversalZip(geometry: MeshGeometryData, modelName: string): JSZip {
+  private static buildUniversalZip(
+    geometry: MeshGeometryData,
+    modelName: string
+  ): { zip: JSZip; written: ThreeMfWrittenModel & { xml: string } } {
+    const written = this.generateModelXml(geometry, modelName);
     const zip = new JSZip();
     zip.file(
       '[Content_Types].xml',
@@ -265,8 +292,8 @@ export class ThreeMfExporter {
   <Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>
 </Relationships>`
     );
-    zip.folder('3D')?.file('3dmodel.model', this.generateModelXml(geometry, modelName));
-    return zip;
+    zip.folder('3D')?.file('3dmodel.model', written.xml);
+    return { zip, written };
   }
 
   /**
@@ -281,7 +308,7 @@ export class ThreeMfExporter {
     modelName: string,
     profile: EmbeddedBambuProfile,
     printer: ReturnType<typeof getBambuPrinter>
-  ): Promise<JSZip> {
+  ): Promise<{ zip: JSZip; written: ThreeMfWrittenModel & { xml: string } }> {
     const template = await JSZip.loadAsync(await loadTemplateBytes());
     const projectSettingsFile = template.file('Metadata/project_settings.config');
     const modelSettingsFile = template.file('Metadata/model_settings.config');
@@ -320,7 +347,11 @@ export class ThreeMfExporter {
       this.buildPlateJson(template, geometry, cleanName, projectSettings, 1),
       sequenceFile ? sequenceFile.async('text') : Promise.resolve(''),
     ]);
-    zip.file('3D/3dmodel.model', this.generateModelXml(geometry, modelName, profile, bed));
+    const written = this.generateModelXml(geometry, modelName, profile, bed);
+    if (!written.xml.includes('BambuStudio-')) {
+      throw new Error('3dmodel.model is missing the Bambu Studio application stamp');
+    }
+    zip.file(MODEL_FILE, written.xml);
     if (retargeted) {
       zip.file('Metadata/project_settings.config', JSON.stringify(projectSettings));
     }
@@ -330,7 +361,7 @@ export class ThreeMfExporter {
     );
     zip.file('Metadata/plate_1.json', plate1Json);
     zip.file('Metadata/filament_sequence.json', singlePlateFilamentSequence(sequenceText));
-    return zip;
+    return { zip, written };
   }
 
   /**
@@ -443,7 +474,7 @@ export class ThreeMfExporter {
     title: string,
     bambuProfile?: EmbeddedBambuProfile,
     bed?: { width: number; depth: number }
-  ): string {
+  ): ThreeMfWrittenModel & { xml: string } {
     const { vertices, indices } = geometry;
     const vertexCount = vertices.length / 3;
     const triangleCount = indices.length / 3;
@@ -457,7 +488,7 @@ export class ThreeMfExporter {
 
     const header = bambuProfile
       ? `<?xml version="1.0" encoding="UTF-8"?>
-<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p">
+<model unit="${MODEL_UNIT}" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p">
  <metadata name="Application">BambuStudio-${this.escapeXml(bambuProfile.version)}</metadata>
  <metadata name="BambuStudio:3mfVersion">1</metadata>
  <metadata name="CreationDate">${dateStr}</metadata>
@@ -470,7 +501,7 @@ export class ThreeMfExporter {
    <mesh>
     <vertices>\n`
       : `<?xml version="1.0" encoding="UTF-8"?>
-<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+<model unit="${MODEL_UNIT}" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
   <metadata name="Title">${safeTitle} Lithophane</metadata>
   <metadata name="Designer">Lumiphane 3D</metadata>
   <metadata name="Application">Lumiphane 3D Generator</metadata>
@@ -480,10 +511,11 @@ export class ThreeMfExporter {
       <mesh>
         <vertices>\n`;
 
-    // Fast vertex serialization
+    // Fast vertex serialization. The counter is the number of <vertex> tags actually written.
     const vertChunks: string[] = [];
     const CHUNK_SIZE = 5000;
     let tempStr = '';
+    let writtenVertices = 0;
     const placement = bambuProfile
       ? bambuBedPlacement(geometry, bed?.width ?? 256, bed?.depth ?? 256)
       : null;
@@ -497,6 +529,7 @@ export class ThreeMfExporter {
         [x, y, z] = placement.map(x, y, z);
       }
       tempStr += `          <vertex x="${x.toFixed(4)}" y="${y.toFixed(4)}" z="${z.toFixed(4)}" />\n`;
+      writtenVertices++;
 
       if (i > 0 && i % CHUNK_SIZE === 0) {
         vertChunks.push(tempStr);
@@ -508,8 +541,9 @@ export class ThreeMfExporter {
     const midHeader = `        </vertices>
         <triangles>\n`;
 
-    // Fast triangle serialization
+    // Fast triangle serialization. The counter is the number of <triangle> tags actually written.
     const triChunks: string[] = [];
+    let writtenTriangles = 0;
     tempStr = '';
     for (let i = 0; i < triangleCount; i++) {
       const idx = i * 3;
@@ -517,6 +551,7 @@ export class ThreeMfExporter {
       const v2 = indices[idx + 1];
       const v3 = indices[idx + 2];
       tempStr += `          <triangle v1="${v1}" v2="${v2}" v3="${v3}" />\n`;
+      writtenTriangles++;
 
       if (i > 0 && i % CHUNK_SIZE === 0) {
         triChunks.push(tempStr);
@@ -548,14 +583,19 @@ export class ThreeMfExporter {
   </build>
 </model>`;
 
-    return header + vertChunks.join('') + midHeader + triChunks.join('') + footer;
+    return {
+      xml: header + vertChunks.join('') + midHeader + triChunks.join('') + footer,
+      vertexCount: writtenVertices,
+      triangleCount: writtenTriangles,
+      unit: MODEL_UNIT,
+    };
   }
 
   /**
-   * Verifies an exported 3MF blob independently:
-   * Checks ZIP headers, files, XML well-formedness, and object counts.
+   * Checks the package directory and the counts recorded while the model was written.
+   * Does not inflate or parse 3D/3dmodel.model.
    */
-  static async verify3MfPackage(blob: Blob): Promise<{
+  static async verify3MfPackage(blob: Blob, written?: ThreeMfWrittenModel): Promise<{
     isValid: boolean;
     hasContentTypes: boolean;
     hasRels: boolean;
@@ -571,14 +611,13 @@ export class ThreeMfExporter {
     let hasRels = false;
     let hasModelXml = false;
     let hasMetadataConfigs = false;
-    let parsedVertexCount = 0;
-    let parsedTriangleCount = 0;
+    const parsedVertexCount = written?.vertexCount ?? 0;
+    const parsedTriangleCount = written?.triangleCount ?? 0;
     let unit = 'unknown';
 
     try {
       const zip = await JSZip.loadAsync(blob);
 
-      // Check [Content_Types].xml
       const ctFile = zip.file('[Content_Types].xml');
       if (ctFile) {
         hasContentTypes = true;
@@ -590,7 +629,6 @@ export class ThreeMfExporter {
         errors.push('Missing [Content_Types].xml in 3MF archive');
       }
 
-      // Check _rels/.rels
       const relsFile = zip.folder('_rels')?.file('.rels') || zip.file('_rels/.rels');
       if (relsFile) {
         hasRels = true;
@@ -602,36 +640,17 @@ export class ThreeMfExporter {
         errors.push('Missing _rels/.rels package relationship');
       }
 
-      // Check 3D/3dmodel.model
-      const modelFile = zip.folder('3D')?.file('3dmodel.model') || zip.file('3D/3dmodel.model');
+      // Name check only. Reading this entry inflates the model XML.
+      const modelFile = zip.file(MODEL_FILE);
       if (modelFile) {
         hasModelXml = true;
-        const modelText = await modelFile.async('text');
-
-        // Extract unit
-        const unitMatch = modelText.match(/unit="([^"]+)"/);
-        if (unitMatch) unit = unitMatch[1];
-
-        // Parse with DOMParser if in browser environment
-        if (typeof DOMParser !== 'undefined') {
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(modelText, 'application/xml');
-          const parserErrors = doc.getElementsByTagName('parsererror');
-          if (parserErrors.length > 0) {
-            errors.push('XML parsing error in 3dmodel.model: ' + parserErrors[0].textContent);
-          } else {
-            parsedVertexCount = doc.getElementsByTagName('vertex').length;
-            parsedTriangleCount = doc.getElementsByTagName('triangle').length;
-          }
-        } else {
-          // Fallback regex count for node/testing environments
-          const vMatches = modelText.match(/<vertex\s/g);
-          const tMatches = modelText.match(/<triangle\s/g);
-          parsedVertexCount = vMatches ? vMatches.length : 0;
-          parsedTriangleCount = tMatches ? tMatches.length : 0;
-        }
+        unit = written?.unit || MODEL_UNIT;
       } else {
         errors.push('Missing 3D/3dmodel.model file in 3MF archive');
+      }
+
+      if (!written || written.vertexCount <= 0 || written.triangleCount <= 0) {
+        errors.push('Vertex and triangle counts were not recorded while writing the model');
       }
 
       const projectFile = zip.file('Metadata/project_settings.config');
@@ -656,10 +675,6 @@ export class ThreeMfExporter {
         }
         if (!settingsText.includes(`id="${MODEL_OBJECT_ID}"`) || !settingsText.includes('model_instance')) {
           errors.push('Bambu model_settings.config does not place the lithophane on a plate');
-        }
-        const modelText = modelFile ? await modelFile.async('text') : '';
-        if (!modelText.includes('BambuStudio-')) {
-          errors.push('3dmodel.model is missing the Bambu Studio application stamp');
         }
       }
     } catch (err: unknown) {

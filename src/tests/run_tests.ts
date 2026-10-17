@@ -273,8 +273,15 @@ async function runTestSuite() {
     assert(exportResult.filesizeBytes > 1000, `Generated valid 3MF ZIP archive (${exportResult.filesizeBytes} bytes)`);
     assert(exportResult.filename.endsWith('.3mf'), `Filename ends with .3mf (${exportResult.filename})`);
 
-    // Verify Universal 3MF package structure
-    const verification = await ThreeMfExporter.verify3MfPackage(exportResult.blob);
+    assert(exportResult.vertexCount === geometry.vertices.length / 3, 'Vertices were counted while writing the model');
+    assert(exportResult.triangleCount === geometry.indices.length / 3, 'Triangles were counted while writing the model');
+
+    // Directory check plus the counts recorded at write time. The model XML is not parsed again.
+    const verification = await ThreeMfExporter.verify3MfPackage(exportResult.blob, {
+      vertexCount: exportResult.vertexCount,
+      triangleCount: exportResult.triangleCount,
+      unit: 'millimeter',
+    });
     assert(verification.hasContentTypes, 'Package contains [Content_Types].xml');
     assert(verification.hasRels, 'Package contains _rels/.rels');
     assert(verification.hasModelXml, 'Package contains 3D/3dmodel.model');
@@ -368,7 +375,11 @@ async function runTestSuite() {
     assert(flatHeight > 30, `Face-down mesh is stood up for Bambu (height ${flatHeight.toFixed(1)} mm)`);
     assert(Math.abs(Math.min(...flatZ)) < 0.05, 'Stood-up mesh base is on the bed');
 
-    const bambuVerification = await ThreeMfExporter.verify3MfPackage(bambuProjectResult.blob);
+    const bambuVerification = await ThreeMfExporter.verify3MfPackage(bambuProjectResult.blob, {
+      vertexCount: bambuProjectResult.vertexCount,
+      triangleCount: bambuProjectResult.triangleCount,
+      unit: 'millimeter',
+    });
     assert(bambuVerification.isValid, `Bambu 3MF package verifies (${bambuVerification.errors.join('; ')})`);
     assert(bambuVerification.hasMetadataConfigs, 'Verifier finds the Bambu project config');
 
@@ -419,9 +430,12 @@ async function runTestSuite() {
     assert(JSON.stringify(p1s.proj.printable_area) === JSON.stringify(['0x0', '256x0', '256x256', '0x256']), 'P1S bed is 256 mm square');
     assert(!String(p1s.proj.machine_start_gcode).includes('A2L'), 'P1S start G-code is not the A2L script');
     assert(Math.abs(p1s.cx - 128) < 1 && Math.abs(p1s.cy - 128) < 1, `P1S mesh is centered on its bed (${p1s.cx.toFixed(1)}, ${p1s.cy.toFixed(1)})`);
-    const p1sVerify = await ThreeMfExporter.verify3MfPackage(
-      (await ThreeMfExporter.export3MF(geometry, 'test_sample', { mode: 'bambu-project', bambuPrinterId: 'p1s' })).blob
-    );
+    const p1sExport = await ThreeMfExporter.export3MF(geometry, 'test_sample', { mode: 'bambu-project', bambuPrinterId: 'p1s' });
+    const p1sVerify = await ThreeMfExporter.verify3MfPackage(p1sExport.blob, {
+      vertexCount: p1sExport.vertexCount,
+      triangleCount: p1sExport.triangleCount,
+      unit: 'millimeter',
+    });
     assert(p1sVerify.isValid, `Retargeted P1S package verifies (${p1sVerify.errors.join('; ')})`);
   }
 

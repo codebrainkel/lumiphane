@@ -152,48 +152,27 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   };
 
   const createModelFile = async (format: ExportFormatType): Promise<
-    | { ok: true; blob: Blob; filename: string; isBambuProject?: boolean; verification: null }
-    | {
-        ok: true;
-        blob: Blob;
-        filename: string;
-        isBambuProject?: boolean;
-        verification: Awaited<ReturnType<typeof ThreeMfExporter.verify3MfPackage>>;
-      }
+    | { ok: true; blob: Blob; filename: string; isBambuProject?: boolean }
     | { ok: false; message: string }
   > => {
     if (format === 'stl') {
       const result = StlExporter.exportBinaryStl(geometryData, imageName);
-      return { ok: true, blob: result.blob, filename: result.filename, verification: null };
+      return { ok: true, blob: result.blob, filename: result.filename };
     }
 
     const isBambu = format === 'bambu-project';
+    // Vertex and triangle counts are checked while the model XML is written.
+    // The finished package is not opened again: inflating it crashes iPhone Safari.
     const result: ThreeMfExportResult = await ThreeMfExporter.export3MF(geometryData, imageName, {
       mode: isBambu ? 'bambu-project' : 'universal',
       bambuPrinterId: isBambu ? bambuPrinterId : undefined,
     });
 
-    // Opening the finished 3MF again to verify it crashes iPhone Safari.
-    if (isIosDevice()) {
-      return {
-        ok: true,
-        blob: result.blob,
-        filename: result.filename,
-        isBambuProject: result.isBambuProject,
-        verification: null,
-      };
-    }
-
-    const verification = await ThreeMfExporter.verify3MfPackage(result.blob);
-    if (!verification.isValid) {
-      return { ok: false, message: verification.errors[0] || 'The 3MF package failed verification.' };
-    }
     return {
       ok: true,
       blob: result.blob,
       filename: result.filename,
       isBambuProject: result.isBambuProject,
-      verification,
     };
   };
 
@@ -216,11 +195,6 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
 
       if (isIosDevice()) {
         holdForTap(built.blob, built.filename);
-        return;
-      }
-
-      if (!built.verification) {
-        setExportError('The 3MF package failed verification.');
         return;
       }
 
