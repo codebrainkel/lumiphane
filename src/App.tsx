@@ -35,7 +35,7 @@ import { ValidationModal } from './components/ValidationModal';
 import { CropModal } from './components/CropModal';
 import { SlicingModal } from './components/SlicingModal';
 import { OrderPrintModal } from './components/OrderPrintModal';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ArrowRight, Download } from 'lucide-react';
 
 async function readImageAsDataUrl(
   file: File,
@@ -816,9 +816,6 @@ export default function App() {
         currentStep={currentStep}
         onStepChange={handleStepChange}
         shape={settings.shape}
-        canPreview={photosReady}
-        onExportClick={() => setShowValidationModal(true)}
-        exportReady={orderReady}
       />
 
       {/* Error Banner */}
@@ -831,7 +828,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setErrorMessage(null)}
-            className="shrink-0 px-2 py-0.5 text-xs font-mono font-medium text-red-400 hover:text-red-200 transition-colors"
+            className="inline-flex min-h-11 shrink-0 items-center px-3 text-sm font-medium text-red-300 hover:text-red-100 sm:min-h-0 sm:px-2 sm:text-xs"
           >
             Dismiss
           </button>
@@ -842,11 +839,10 @@ export default function App() {
           STEP 1: CHOOSE MODE
           ===================================================================== */}
       {currentStep === 'mode' && (
-        <div className="flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           <ModeSelector
             selectedShape={settings.shape}
             onSelectShape={handleSelectShape}
-            onContinue={() => setCurrentStep('upload')}
           />
         </div>
       )}
@@ -855,36 +851,12 @@ export default function App() {
           STEP 2: ADD UP TO 4 PHOTOS
           ===================================================================== */}
       {currentStep === 'upload' && (
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex min-h-0 flex-1 flex-col">
           <PhotoUploader
             cylinderSlots={cylinderSlots}
             uploadJobs={uploadJobs}
-            onUploadCylinderSlotFile={handleUploadCylinderSlotFile}
             onUploadMultipleFiles={placeUploadedFiles}
-            onReorderCylinderSlots={(newSlots) => {
-              const labels = getMultiPanelSlotLabels(
-                settings.shape,
-                newSlots.length,
-                settings.stripLayout
-              );
-              setCylinderSlots(
-                newSlots.map((slot, index) => ({
-                  ...slot,
-                  label: labels[index]
-                    ? labels[index].deg
-                      ? `${labels[index].label} (${labels[index].deg})`
-                      : labels[index].label
-                    : slot.label,
-                }))
-              );
-            }}
             onRemoveCylinderSlot={handleRemoveCylinderSlot}
-            onOpenCropSlot={(slotId) => {
-              setCropTargetSlotId(slotId);
-              setShowCropModal(true);
-            }}
-            onBackToMode={() => setCurrentStep('mode')}
-            onContinueToPreview={() => handleStepChange('preview')}
           />
         </div>
       )}
@@ -943,6 +915,46 @@ export default function App() {
           />
         </main>
       )}
+
+      <nav className="step-bar" aria-label="Steps">
+        {currentStep !== 'mode' && (
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setCurrentStep(currentStep === 'preview' ? 'upload' : 'mode')}
+          >
+            <ArrowLeft className="h-4 w-4 shrink-0" />
+            <span>Back</span>
+          </button>
+        )}
+        {currentStep === 'preview' ? (
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => setShowValidationModal(true)}
+            disabled={!orderReady}
+            title={orderReady ? 'Export the model' : 'Wait for the model to finish'}
+          >
+            <span>Export</span>
+            <Download className="h-4 w-4 shrink-0" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() =>
+              currentStep === 'mode' ? setCurrentStep('upload') : handleStepChange('preview')
+            }
+            disabled={currentStep === 'upload' && !photosReady}
+            title={
+              currentStep === 'upload' && !photosReady ? 'Add a photo first' : undefined
+            }
+          >
+            <span>Next</span>
+            <ArrowRight className="h-4 w-4 shrink-0" />
+          </button>
+        )}
+      </nav>
 
       {/* Modals */}
       {showValidationModal && geometryData && validationResult && (

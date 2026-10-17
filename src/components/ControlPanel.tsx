@@ -208,7 +208,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   const placePhotosButton = onPlacePhotos ? (
     <button
       type="button"
-      className="ml-auto flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-[#090c12] px-2.5 text-xs font-medium text-slate-200 transition-colors hover:border-white/25 hover:text-white"
+      className="ml-auto flex h-11 shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-[#090c12] px-3 text-sm font-medium text-slate-200 transition-colors hover:border-white/25 hover:text-white sm:h-9 sm:px-2.5 sm:text-xs"
       onClick={onPlacePhotos}
     >
       <Move className="h-3.5 w-3.5 text-amber-400" />
@@ -377,7 +377,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                                 aria-label={preset.label}
                                 aria-pressed={selected}
                                 onClick={() => onUpdateSettings({ stripLayout: preset.id })}
-                                className={`flex h-9 w-9 items-center justify-center rounded-md border p-1 transition-colors ${
+                                className={`flex h-11 w-11 items-center justify-center rounded-md border p-1 transition-colors sm:h-9 sm:w-9 ${
                                   selected
                                     ? 'border-amber-400 bg-amber-400/15 text-amber-300'
                                     : 'border-white/10 bg-[#090c12] text-slate-500 hover:border-white/25 hover:text-slate-200'
@@ -484,7 +484,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                             {photoCount > 1 && (
                               <button
                                 type="button"
-                                className="shrink-0 cursor-grab touch-none rounded-xs p-0.5 text-slate-500 hover:text-slate-300 active:cursor-grabbing"
+                                className="inline-flex h-11 w-11 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-slate-500 hover:text-slate-300 active:cursor-grabbing sm:h-8 sm:w-8"
                                 aria-label={`Drag to reorder ${labelInfo.label}`}
                                 title="Drag to reorder"
                                 onPointerDown={(event) => startPhotoDrag(idx, event)}

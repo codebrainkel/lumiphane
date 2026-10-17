@@ -1,17 +1,15 @@
 import React, { useRef } from 'react';
 import { LithophaneShape } from '../types/lithophane';
-import { Check, ArrowRight } from 'lucide-react';
+import { Check } from 'lucide-react';
 
 interface ModeSelectorProps {
   selectedShape: LithophaneShape;
   onSelectShape: (shape: LithophaneShape) => void;
-  onContinue: () => void;
 }
 
 export const ModeSelector: React.FC<ModeSelectorProps> = ({
   selectedShape,
   onSelectShape,
-  onContinue,
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -246,31 +244,23 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
       </div>
 
       {/* Subtle Mobile Pagination Indicator Dots */}
-      <div className="sm:hidden flex items-center justify-center gap-1.5 mt-2 mb-4">
+      <div className="sm:hidden flex items-center justify-center mt-1 mb-2">
         {modes.map((mode) => (
           <button
             key={mode.id}
             type="button"
             onClick={() => onSelectShape(mode.id)}
-            className={`h-1.5 rounded-full transition-all ${
-              selectedShape === mode.id
-                ? 'w-5 bg-amber-400'
-                : 'w-1.5 bg-white/20'
-            }`}
+            className="inline-flex h-11 w-8 items-center justify-center"
             aria-label={`Select ${mode.title}`}
-          />
+            aria-pressed={selectedShape === mode.id}
+          >
+            <span
+              className={`h-1.5 rounded-full transition-all ${
+                selectedShape === mode.id ? 'w-5 bg-amber-400' : 'w-1.5 bg-white/20'
+              }`}
+            />
+          </button>
         ))}
-      </div>
-
-      <div className="flex items-center justify-center w-full mt-6">
-        <button
-          type="button"
-          onClick={onContinue}
-          className="btn-primary"
-        >
-          <span>Continue to Photos</span>
-          <ArrowRight className="w-3.5 h-3.5 shrink-0 stroke-[2.5]" />
-        </button>
       </div>
     </div>
   );
