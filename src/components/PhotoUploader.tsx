@@ -146,7 +146,11 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
               <li key={slot.id} className="photo-thumb">
                 <div className="photo-frame">
                   {slot.imageSrc ? (
-                    <img src={slot.imageSrc} alt="" draggable={false} />
+                    <img
+                      src={slot.imageSrc}
+                      alt={slot.name ? `Uploaded photo: ${slot.name}` : `Uploaded photo ${index + 1}`}
+                      draggable={false}
+                    />
                   ) : (
                     <span className="photo-spinner" role="status" aria-label="Loading photo" />
                   )}

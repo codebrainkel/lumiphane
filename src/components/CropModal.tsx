@@ -489,7 +489,7 @@ export const CropModal: React.FC<CropModalProps> = ({
             {bounds.width > 0 && (
               <img
                 src={imageSrc}
-                alt="Source"
+                alt="Photo being cropped"
                 className="absolute pointer-events-none select-none"
                 style={{
                   left: `${bounds.x}px`,

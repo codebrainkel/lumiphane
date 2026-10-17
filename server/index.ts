@@ -20,7 +20,23 @@ const app = createApp();
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = path.join(root, 'dist');
-app.use(express.static(dist));
+const indexHtml = path.join(dist, 'index.html');
+const notFoundHtml = path.join(dist, '404.html');
+
+// Vite fingerprints /assets/*, so those files can be cached for a year.
+// index.html, robots.txt, and the sitemap stay fresh.
+app.use(
+  '/assets',
+  express.static(path.join(dist, 'assets'), {
+    immutable: true,
+    maxAge: '1y',
+    index: false,
+  })
+);
+app.use(express.static(dist, { maxAge: 0 }));
+
+const APP_ROUTES = new Set(['/', '/index.html']);
+
 app.use((req, res, next) => {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     next();
@@ -30,7 +46,14 @@ app.use((req, res, next) => {
     next();
     return;
   }
-  res.sendFile(path.join(dist, 'index.html'), (err) => {
+  if (APP_ROUTES.has(req.path)) {
+    res.status(200).sendFile(indexHtml, (err) => {
+      if (err) next();
+    });
+    return;
+  }
+  res.set('X-Robots-Tag', 'noindex');
+  res.status(404).sendFile(notFoundHtml, (err) => {
     if (err) next();
   });
 });

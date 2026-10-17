@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react';
 import {
   LithophaneSettings,
   MeshGeometryData,
@@ -28,14 +28,85 @@ import { MeshValidator } from './services/meshValidator';
 import { Header } from './components/Header';
 import { ModeSelector } from './components/ModeSelector';
 import { PhotoUploader } from './components/PhotoUploader';
-import { Viewport3D } from './components/Viewport3D';
 import { PhotoPlacementBoard } from './components/PhotoPlacement';
 import { ControlPanel } from './components/ControlPanel';
-import { ValidationModal } from './components/ValidationModal';
-import { CropModal } from './components/CropModal';
-import { SlicingModal } from './components/SlicingModal';
-import { OrderPrintModal } from './components/OrderPrintModal';
 import { AlertCircle, ArrowLeft, ArrowRight, Download } from 'lucide-react';
+
+const Viewport3D = lazy(() =>
+  import('./components/Viewport3D').then((module) => ({ default: module.Viewport3D }))
+);
+const ValidationModal = lazy(() =>
+  import('./components/ValidationModal').then((module) => ({ default: module.ValidationModal }))
+);
+const CropModal = lazy(() =>
+  import('./components/CropModal').then((module) => ({ default: module.CropModal }))
+);
+const SlicingModal = lazy(() =>
+  import('./components/SlicingModal').then((module) => ({ default: module.SlicingModal }))
+);
+const OrderPrintModal = lazy(() =>
+  import('./components/OrderPrintModal').then((module) => ({ default: module.OrderPrintModal }))
+);
+
+function preloadStudioChunks() {
+  void import('./components/Viewport3D');
+  void import('./components/ValidationModal');
+  void import('./components/CropModal');
+  void import('./components/SlicingModal');
+  void import('./components/OrderPrintModal');
+}
+
+class ChunkBoundary extends React.Component<
+  { children: React.ReactNode; fallback: React.ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
+
+function Deferred({
+  children,
+  loading = null,
+  error = null,
+}: {
+  children: React.ReactNode;
+  loading?: React.ReactNode;
+  error?: React.ReactNode;
+}) {
+  return (
+    <ChunkBoundary fallback={error}>
+      <Suspense fallback={loading}>{children}</Suspense>
+    </ChunkBoundary>
+  );
+}
+
+const viewportFallback = (
+  <div className="viewport" role="status" aria-live="polite" aria-label="Loading 3D preview" />
+);
+
+const viewportError = (
+  <div className="viewport" role="alert">
+    <p className="absolute inset-x-4 bottom-4 m-0 text-xs text-slate-400">
+      The 3D preview didn't load. Refresh the page and try again.
+    </p>
+  </div>
+);
+
+const panelFallback = (
+  <div
+    role="alert"
+    className="fixed inset-x-4 bottom-20 z-50 rounded-md border border-white/10 bg-[#10141d] px-3 py-2 text-xs text-slate-300"
+  >
+    That panel didn't load. Refresh the page and try again.
+  </div>
+);
 
 async function readImageAsDataUrl(
   file: File,
@@ -176,6 +247,12 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  // The shape picker doesn't need three.js or the exporters. Start those chunks
+  // once a shape is chosen so the preview step still opens without a wait.
+  useEffect(() => {
+    if (shapeChosen || currentStep !== 'mode') preloadStudioChunks();
+  }, [shapeChosen, currentStep]);
 
   // =========================================================================
   // 1. Load Images
@@ -882,11 +959,13 @@ export default function App() {
               open={placementOpen}
               onOpenChange={setPlacementOpen}
             />
-            <Viewport3D
-              geometryData={geometryData}
-              settings={settings}
-              isGenerating={isGenerating}
-            />
+            <Deferred loading={viewportFallback} error={viewportError}>
+              <Viewport3D
+                geometryData={geometryData}
+                settings={settings}
+                isGenerating={isGenerating}
+              />
+            </Deferred>
           </section>
 
           <ControlPanel
@@ -968,59 +1047,67 @@ export default function App() {
 
       {/* Modals */}
       {showValidationModal && geometryData && validationResult && (
-        <ValidationModal
-          geometryData={geometryData}
-          validationResult={validationResult}
-          settings={settings}
-          imageName={exportName}
-          emailExportEnabled={emailExportEnabled}
-          printOrderingEnabled={printOrderingEnabled}
-          orderReady={orderReady}
-          onOrderPrint={() => {
-            setShowValidationModal(false);
-            setShowOrderModal(true);
-          }}
-          onClose={() => setShowValidationModal(false)}
-        />
+        <Deferred error={panelFallback}>
+          <ValidationModal
+            geometryData={geometryData}
+            validationResult={validationResult}
+            settings={settings}
+            imageName={exportName}
+            emailExportEnabled={emailExportEnabled}
+            printOrderingEnabled={printOrderingEnabled}
+            orderReady={orderReady}
+            onOrderPrint={() => {
+              setShowValidationModal(false);
+              setShowOrderModal(true);
+            }}
+            onClose={() => setShowValidationModal(false)}
+          />
+        </Deferred>
       )}
 
       {showCropModal && (
-        <CropModal
-          imageSrc={activeCropImageSrc}
-          initialCrop={activeCropInitial}
-          physicalWidthMm={Math.round(cropSpanMm)}
-          targetAspect={lockCropToTile ? cropTileAspect : undefined}
-          targetAspectLabel={
-            lockCropToTile
-              ? photoCount === 1
-                ? isCubeShape
-                  ? '4-face wrap'
-                  : isCylinderShape
-                  ? '360° wrap'
-                  : 'Full panel'
-                : isStripShape
-                ? cropCellLabel || 'Tile'
-                : `Tile (${cropTileAspect}:1)`
-              : undefined
-          }
-          onApplyCrop={handleApplyCrop}
-          onClose={() => {
-            setShowCropModal(false);
-            setCropTargetSlotId(null);
-          }}
-        />
+        <Deferred error={panelFallback}>
+          <CropModal
+            imageSrc={activeCropImageSrc}
+            initialCrop={activeCropInitial}
+            physicalWidthMm={Math.round(cropSpanMm)}
+            targetAspect={lockCropToTile ? cropTileAspect : undefined}
+            targetAspectLabel={
+              lockCropToTile
+                ? photoCount === 1
+                  ? isCubeShape
+                    ? '4-face wrap'
+                    : isCylinderShape
+                    ? '360° wrap'
+                    : 'Full panel'
+                  : isStripShape
+                  ? cropCellLabel || 'Tile'
+                  : `Tile (${cropTileAspect}:1)`
+                : undefined
+            }
+            onApplyCrop={handleApplyCrop}
+            onClose={() => {
+              setShowCropModal(false);
+              setCropTargetSlotId(null);
+            }}
+          />
+        </Deferred>
       )}
 
       {showSlicingModal && (
-        <SlicingModal onClose={() => setShowSlicingModal(false)} />
+        <Deferred error={panelFallback}>
+          <SlicingModal onClose={() => setShowSlicingModal(false)} />
+        </Deferred>
       )}
 
       {showOrderModal && geometryData && (
-        <OrderPrintModal
-          geometryData={geometryData}
-          imageName={exportName}
-          onClose={() => setShowOrderModal(false)}
-        />
+        <Deferred error={panelFallback}>
+          <OrderPrintModal
+            geometryData={geometryData}
+            imageName={exportName}
+            onClose={() => setShowOrderModal(false)}
+          />
+        </Deferred>
       )}
     </div>
   );
