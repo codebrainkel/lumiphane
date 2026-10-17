@@ -232,7 +232,7 @@ export class ThreeMfExporter {
     const isStanding = geometry.boundingBox.size[2] > geometry.boundingBox.size[1];
     const widthMm = Math.round(geometry.boundingBox.size[0]);
     const heightMm = Math.round(isStanding ? geometry.boundingBox.size[2] : geometry.boundingBox.size[1]);
-    const layerTag = profile?.layerHeight || '0.12';
+    const layerTag = profile?.layerHeight || '0.10';
 
     const filename = isBambuProject
       ? `${cleanName}_Bambu_${printerToken(printer!.printerModel)}_${layerTag}mm.3mf`
@@ -415,7 +415,7 @@ export class ThreeMfExporter {
           area: Math.abs(geometry.boundingBox.size[0] * geometry.boundingBox.size[1]),
           bbox,
           id: IDENTIFY_ID,
-          layer_height: Number.isFinite(layerHeight) ? layerHeight : 0.12,
+          layer_height: Number.isFinite(layerHeight) ? layerHeight : 0.1,
           name: cleanName,
         },
       ];

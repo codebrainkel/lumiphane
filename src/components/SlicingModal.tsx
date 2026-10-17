@@ -40,7 +40,7 @@ export const SlicingModal: React.FC<SlicingModalProps> = ({ onClose }) => {
               Print Vertically for Sharp Details
             </h4>
             <p className="text-slate-300 leading-relaxed font-mono text-[11px]">
-              Always print your lithophane standing upright on the print bed. Your printer creates much finer photo details between vertical layers (0.12mm) than across horizontal lines.
+              Always print your lithophane standing upright on the print bed. Vertical layers of 0.10 mm carry the photo. Lines across the face are only as fine as the nozzle.
             </p>
           </div>
 
@@ -53,25 +53,25 @@ export const SlicingModal: React.FC<SlicingModalProps> = ({ onClose }) => {
               <div className="p-3 rounded-md bg-[#141924] border border-white/10">
                 <span className="text-slate-400 text-[11px] font-mono">Infill</span>
                 <div className="text-xs font-semibold text-white font-mono mt-0.5">100% Solid</div>
-                <p className="text-[10px] text-slate-500 font-mono mt-0.5">Prevents internal grid shadows in light</p>
+                <p className="text-[10px] text-slate-500 font-mono mt-0.5">10 walls, concentric infill, no grid in the light</p>
               </div>
 
               <div className="p-3 rounded-md bg-[#141924] border border-white/10">
                 <span className="text-slate-400 text-[11px] font-mono">Layer Height</span>
-                <div className="text-xs font-semibold text-white font-mono mt-0.5">0.12 mm</div>
-                <p className="text-[10px] text-slate-500 font-mono mt-0.5">Use 0.08–0.12mm for sharpest photos</p>
+                <div className="text-xs font-semibold text-white font-mono mt-0.5">0.10 mm</div>
+                <p className="text-[10px] text-slate-500 font-mono mt-0.5">0.08–0.12 mm works. The 3MF uses 0.10 mm</p>
               </div>
 
               <div className="p-3 rounded-md bg-[#141924] border border-white/10">
                 <span className="text-slate-400 text-[11px] font-mono">Print Speed</span>
-                <div className="text-xs font-semibold text-white font-mono mt-0.5">30 – 40 mm/s</div>
-                <p className="text-[10px] text-slate-500 font-mono mt-0.5">Gentle speed prevents ripples and wobble</p>
+                <div className="text-xs font-semibold text-white font-mono mt-0.5">30 mm/s</div>
+                <p className="text-[10px] text-slate-500 font-mono mt-0.5">Outer walls. Inner walls stay near 60 mm/s</p>
               </div>
 
               <div className="p-3 rounded-md bg-[#141924] border border-white/10">
                 <span className="text-slate-400 text-[11px] font-mono">Bed Adhesion</span>
-                <div className="text-xs font-semibold text-white font-mono mt-0.5">5 – 8 mm Brim</div>
-                <p className="text-[10px] text-slate-500 font-mono mt-0.5">Keeps tall prints firmly attached to bed</p>
+                <div className="text-xs font-semibold text-white font-mono mt-0.5">6 mm Brim</div>
+                <p className="text-[10px] text-slate-500 font-mono mt-0.5">Supports off. The brim holds a tall print down</p>
               </div>
             </div>
           </div>

@@ -26,7 +26,7 @@ import {
   sanitizeModelFilename,
   selectTreatstockCheckout,
 } from '../services/printOrder';
-import { DEFAULT_SETTINGS, ULTRA_FINE_RESOLUTION } from '../constants/presets';
+import { DEFAULT_SETTINGS, ULTRA_FINE_RESOLUTION, getAutoScaledThickness } from '../constants/presets';
 import { LithophaneSettings } from '../types/lithophane';
 import { borderIconCoverage, createBorderIconField } from '../services/borderIcons';
 import { runEmailExportTests } from './emailExportTests';
@@ -108,11 +108,22 @@ async function runTestSuite() {
     const lumBlack = (0.2126 * 0 + 0.7152 * 0 + 0.0722 * 0) / 255;
     assert(lumBlack === 0.0, 'Black luminance computes to 0.0');
 
-    // Standard mapping: Black => maxThickness, White => minThickness
-    const thickBlack = minTh + (1.0 - 0.0) * (maxTh - minTh);
-    const thickWhite = minTh + (1.0 - 1.0) * (maxTh - minTh);
+    // Beer-Lambert inversion: black is the thick wall, white is the thin wall, midtones stay thinner than a linear ramp.
+    const thickBlack = GeometryGenerator.thicknessFromLuminance(0, minTh, maxTh);
+    const thickWhite = GeometryGenerator.thicknessFromLuminance(1, minTh, maxTh);
+    const thickMid = GeometryGenerator.thicknessFromLuminance(0.5, minTh, maxTh);
+    const linearMid = minTh + 0.5 * (maxTh - minTh);
     assert(Math.abs(thickBlack - maxTh) < 1e-4, 'Black region maps to maxThickness (3.2mm)');
     assert(Math.abs(thickWhite - minTh) < 1e-4, 'White region maps to minThickness (0.8mm)');
+    assert(thickMid < linearMid - 0.2, `Mid gray is thinner than a linear wall (got ${thickMid.toFixed(2)}mm, linear ${linearMid.toFixed(2)}mm)`);
+    let monotonic = true;
+    let prev = thickBlack;
+    for (let i = 1; i <= 10; i++) {
+      const next = GeometryGenerator.thicknessFromLuminance(i / 10, minTh, maxTh);
+      if (next > prev + 1e-6) monotonic = false;
+      prev = next;
+    }
+    assert(monotonic, 'Thickness falls as luminance rises');
 
     // Invert mapping: Black => minThickness, White => maxThickness
     const thickBlackInv = minTh + 0.0 * (maxTh - minTh);
@@ -294,8 +305,16 @@ async function runTestSuite() {
     assert(projJson.printer_model === 'Bambu Lab A2L', `Printer model matches the saved profile (got: ${projJson.printer_model})`);
     assert(projJson.version === '02.08.02.60', `Project version matches Bambu Studio 02.08.02.60 (got: ${projJson.version})`);
     assert(projJson.print_settings_id === '0.12mm High Quality @BBL A2L', `Process profile is preserved (got: ${projJson.print_settings_id})`);
-    assert(projJson.layer_height === '0.12', `Layer height pre-set to 0.12mm (got: ${projJson.layer_height})`);
+    assert(projJson.layer_height === '0.10', `Layer height pre-set to 0.10mm (got: ${projJson.layer_height})`);
     assert(projJson.sparse_infill_density === '100%', `Infill density pre-set to 100% (got: ${projJson.sparse_infill_density})`);
+    assert(projJson.wall_loops === '10', `Ten walls fill a lithophane solid (got: ${projJson.wall_loops})`);
+    assert(projJson.wall_generator === 'arachne', `Arachne walls follow the photo thickness (got: ${projJson.wall_generator})`);
+    assert(projJson.sparse_infill_pattern === 'concentric', `Infill is concentric so it does not grid the light (got: ${projJson.sparse_infill_pattern})`);
+    assert(projJson.internal_solid_infill_pattern === 'concentric', 'Solid infill is concentric');
+    assert(projJson.enable_support === '0', `Supports are off (got: ${projJson.enable_support})`);
+    assert(projJson.brim_width === '6', `Brim is 6 mm (got: ${projJson.brim_width})`);
+    assert(JSON.stringify(projJson.outer_wall_speed) === '["30"]', `Outer wall is 30 mm/s (got: ${JSON.stringify(projJson.outer_wall_speed)})`);
+    assert(JSON.stringify(projJson.inner_wall_speed) === '["60"]', `Inner wall is 60 mm/s (got: ${JSON.stringify(projJson.inner_wall_speed)})`);
     assert(Array.isArray(projJson.nozzle_diameter) && projJson.nozzle_diameter.length === projJson.extruder_type.length, 'Nozzle and extruder lists have the same length');
     assert(Object.keys(projJson).length > 400, `Full slicer config is embedded (${Object.keys(projJson).length} keys)`);
 
@@ -380,7 +399,8 @@ async function runTestSuite() {
     assert(mini.proj.printer_model === 'Bambu Lab A1 mini', `A1 mini printer model is retargeted (got: ${mini.proj.printer_model})`);
     assert(mini.proj.printer_settings_id === 'Bambu Lab A1 mini 0.4 nozzle', 'A1 mini uses its 0.4 nozzle machine preset');
     assert(mini.proj.print_settings_id === '0.12mm High Quality @BBL A1M', 'A1 mini uses its 0.12 mm process preset');
-    assert(mini.proj.layer_height === '0.12' && mini.proj.sparse_infill_density === '100%', 'Lithophane layer height and infill survive a printer change');
+    assert(mini.proj.layer_height === '0.10' && mini.proj.sparse_infill_density === '100%', 'Lithophane layer height and infill survive a printer change');
+    assert(mini.proj.enable_support === '0' && mini.proj.brim_width === '6', 'Supports stay off and the brim stays 6 mm on another printer');
     assert(mini.proj.brim_width === projJson.brim_width, 'Brim width stays with the lithophane profile');
     assert(JSON.stringify(mini.proj.printable_area) === JSON.stringify(['0x0', '180x0', '180x180', '0x180']), 'A1 mini bed is 180 mm square');
     assert(!String(mini.proj.machine_end_gcode).includes('A2L end gcode'), 'A1 mini does not keep the A2L end G-code');
@@ -439,40 +459,45 @@ async function runTestSuite() {
   // TEST SUITE 7: Ultra Fine Mesh Standard
   console.log('\n[7] Testing Permanent Ultra Fine Mesh Resolution Standard...');
   {
-    assert(ULTRA_FINE_RESOLUTION === 440, 'ULTRA_FINE_RESOLUTION is permanently set to 440 cols');
+    assert(ULTRA_FINE_RESOLUTION === 500, 'ULTRA_FINE_RESOLUTION is the 120 mm master grid (0.24 mm pitch)');
   }
 
   // TEST SUITE 8: Quality Tiers & Uncompressed Sampling Pipeline
   console.log('\n[8] Testing Quality Tiers & Uncompressed Sampling Pipeline...');
   {
-    const { getResolutionForTier, getCylinderResolutionForTier, QUALITY_TIERS } = await import('../constants/presets');
+    const { getResolutionForTier, getCylinderResolutionForTier, getCubeResolutionForTier, QUALITY_TIERS, samplePitchMm } = await import('../constants/presets');
 
-    assert(QUALITY_TIERS.master.baseCols === 600, 'Master quality base resolution is 600 cols');
-    assert(QUALITY_TIERS.studio.baseCols === 440, 'Studio quality base resolution is 440 cols');
-    assert(QUALITY_TIERS.balanced.baseCols === 340, 'Balanced quality base resolution is 340 cols');
+    assert(QUALITY_TIERS.master.baseCols === 500, 'Master quality base resolution is 500 cols');
+    assert(QUALITY_TIERS.studio.baseCols === 375, 'Studio quality base resolution is 375 cols');
+    assert(QUALITY_TIERS.balanced.baseCols === 300, 'Balanced quality base resolution is 300 cols');
 
     const masterCols = getResolutionForTier('master', 120);
-    assert(masterCols === 600, `Master tier for 120mm yields 600 cols (got: ${masterCols})`);
+    assert(masterCols === 500, `Master tier for 120mm yields 500 cols (got: ${masterCols})`);
+    assert(masterCols === QUALITY_TIERS.master.baseCols, 'Master tier matches the published base column count');
 
     const studioCols = getResolutionForTier('studio', 120);
-    assert(studioCols === 440, `Studio tier for 120mm yields 440 cols (got: ${studioCols})`);
+    assert(studioCols === 375, `Studio tier for 120mm yields 375 cols (got: ${studioCols})`);
 
     const pitchMm = 120 / masterCols;
-    assert(pitchMm <= 0.20, `Master physical sampling pitch is <= 0.20mm (got: ${pitchMm.toFixed(3)}mm)`);
+    assert(pitchMm >= 0.15 && pitchMm <= 0.25, `Master sampling pitch stays inside 0.15–0.25 mm (got: ${pitchMm.toFixed(3)}mm)`);
+    assert(Math.abs(samplePitchMm('master', 0.4) - 0.24) < 1e-6, 'A 0.4 mm nozzle samples the master tier at 0.24 mm');
 
-    // Cylinder Tier Assertions:
+    // Cylinder and cube use the same pitch, and columns stay divisible by 12.
     const cylMasterCols = getCylinderResolutionForTier('master', 90);
-    assert(cylMasterCols >= 1400, `Cylinder master quality yields >= 1400 cols (got: ${cylMasterCols})`);
-    assert(cylMasterCols % 4 === 0, `Cylinder master cols is multiple of 4 (got: ${cylMasterCols})`);
+    assert(cylMasterCols % 12 === 0, `Cylinder master cols is a multiple of 12 (got: ${cylMasterCols})`);
     const cylCircumference = Math.PI * 90;
     const cylMasterPitch = cylCircumference / cylMasterCols;
-    assert(cylMasterPitch <= 0.21, `Cylinder master physical pitch matches flat master <= 0.21mm (got: ${cylMasterPitch.toFixed(3)}mm)`);
+    assert(cylMasterPitch >= 0.15 && cylMasterPitch <= 0.25, `Cylinder master pitch stays inside 0.15–0.25 mm (got: ${cylMasterPitch.toFixed(3)}mm)`);
 
     const cylStudioCols = getCylinderResolutionForTier('studio', 90);
-    assert(cylStudioCols >= 960 && cylStudioCols % 4 === 0, `Cylinder studio yields 960 cols divisible by 4 (got: ${cylStudioCols})`);
+    assert(cylStudioCols % 12 === 0 && cylStudioCols < cylMasterCols, `Cylinder studio is coarser than master and divisible by 12 (got: ${cylStudioCols})`);
 
     const cylDraftCols = getCylinderResolutionForTier('balanced', 90);
-    assert(cylDraftCols >= 640 && cylDraftCols % 4 === 0, `Cylinder draft yields 640 cols divisible by 4 (got: ${cylDraftCols})`);
+    assert(cylDraftCols % 12 === 0 && cylDraftCols < cylStudioCols, `Cylinder draft is coarser than studio and divisible by 12 (got: ${cylDraftCols})`);
+
+    const cubeMasterCols = getCubeResolutionForTier('master', 90);
+    const cubePitch = (4 * 90) / cubeMasterCols;
+    assert(cubeMasterCols % 12 === 0 && cubePitch >= 0.15 && cubePitch <= 0.25, `Cube master pitch stays inside 0.15–0.25 mm (got: ${cubePitch.toFixed(3)}mm)`);
   }
 
   // TEST SUITE 9: Odd Size Images & Cropped Aspect Ratio Scaling
@@ -597,8 +622,8 @@ async function runTestSuite() {
     const ths = cylGeom.thicknesses!;
     const firstColTh = ths[midRow * testCols + 0];
     const lastColTh = ths[midRow * testCols + (testCols - 1)];
-    const expectedFirstTh = DEFAULT_SETTINGS.minThickness + (1.0 - 0.2) * (DEFAULT_SETTINGS.maxThickness - DEFAULT_SETTINGS.minThickness);
-    const expectedLastTh = DEFAULT_SETTINGS.minThickness + (1.0 - 0.8) * (DEFAULT_SETTINGS.maxThickness - DEFAULT_SETTINGS.minThickness);
+    const expectedFirstTh = GeometryGenerator.thicknessFromLuminance(0.2, DEFAULT_SETTINGS.minThickness, DEFAULT_SETTINGS.maxThickness);
+    const expectedLastTh = GeometryGenerator.thicknessFromLuminance(0.8, DEFAULT_SETTINGS.minThickness, DEFAULT_SETTINGS.maxThickness);
     assert(Math.abs(firstColTh - expectedFirstTh) < 0.05, `First column thickness accurately reflects photo luminance without frame bar (got ${firstColTh.toFixed(2)}mm, expected ${expectedFirstTh.toFixed(2)}mm)`);
     assert(Math.abs(lastColTh - expectedLastTh) < 0.05, `Last column thickness accurately reflects photo luminance without frame bar (got ${lastColTh.toFixed(2)}mm, expected ${expectedLastTh.toFixed(2)}mm)`);
   }
@@ -811,7 +836,7 @@ async function runTestSuite() {
       }
     }
     assert(rimMin < 2.4 - 0.4, `Cylinder top rim has a bone cut into it (got ${rimMin.toFixed(2)}mm)`);
-    const midPhoto = 0.6 + 0.5 * (2.25 - 0.6);
+    const midPhoto = GeometryGenerator.thicknessFromLuminance(0.5, DEFAULT_SETTINGS.minThickness, DEFAULT_SETTINGS.maxThickness);
     assert(Math.abs(midMax - midPhoto) < 0.08, `Cylinder mid-height stays free of a vertical border (got ${midMax.toFixed(2)}mm)`);
 
     const cubeCols = 96;
@@ -951,6 +976,79 @@ async function runTestSuite() {
       wait: async () => {},
     });
     assert(rejected.ok === false, 'A non-Treatstock redirect is refused');
+  }
+
+  console.log('\n[14] Testing print-quality defaults: tone, feet, and concave arcs...');
+  {
+    const gray = ImageProcessor.sampleLuminance(128, 128, 128, 255, {
+      brightness: 0,
+      contrast: 0,
+      gamma: 1,
+      invert: false,
+    });
+    assert(gray < 0.25 && gray > 0.18, `sRGB 128 is linearized before the thickness curve (got ${gray.toFixed(3)})`);
+    const white = ImageProcessor.sampleLuminance(255, 255, 255, 255, {
+      brightness: 0,
+      contrast: 0,
+      gamma: 1,
+      invert: false,
+    });
+    assert(Math.abs(white - 1) < 1e-4, 'White stays white after linearization');
+    const held = ImageProcessor.applyContrast(0.98, 40);
+    assert(held < 1 && held > 0.98, `Strong contrast does not clip a highlight (got ${held.toFixed(3)})`);
+
+    const auto = getAutoScaledThickness(120, 90);
+    assert(auto.minThickness === 0.8 && auto.maxThickness === 3.0, `Standard plate is 0.80–3.00 mm (got ${auto.minThickness}–${auto.maxThickness})`);
+    assert(auto.frameThickness > auto.maxThickness, 'The frame is thicker than the darkest shadow');
+    assert(DEFAULT_SETTINGS.smoothing === 1, 'A light denoise is on by default');
+    assert(DEFAULT_SETTINGS.recommendedLayerHeight === 0.1, 'Recommended layer height matches the 0.10 mm profile');
+
+    const cols = 80;
+    const rows = 48;
+    const grid = new Float32Array(cols * rows);
+    grid.fill(0.35);
+    const flat = GeometryGenerator.generateMesh(grid, cols, rows, {
+      ...DEFAULT_SETTINGS,
+      width: 120,
+      height: 90,
+      shape: 'flat',
+      orientation: 'standing',
+      supportType: 'flange',
+      hasFrame: true,
+    });
+    const flatVal = MeshValidator.validate(flat);
+    assert(flatVal.isValid && flatVal.isWatertight, `Default flanged plate is valid (warnings: ${flatVal.warnings.join('; ')})`);
+    const photoTh = GeometryGenerator.thicknessFromLuminance(0.35, DEFAULT_SETTINGS.minThickness, DEFAULT_SETTINGS.maxThickness);
+    const photoRow = Math.round((1 - 20 / 90) * (rows - 1));
+    const centerCol = Math.floor(cols / 2);
+    const centerTh = flat.thicknesses![photoRow * cols + centerCol];
+    assert(Math.abs(centerTh - photoTh) < 0.05, `Photo 20 mm up from the bed is not thickened by the foot (got ${centerTh.toFixed(2)}mm, expected ${photoTh.toFixed(2)}mm)`);
+    const sideCol = Math.round((12 / 120) * (cols - 1));
+    const sideTh = flat.thicknesses![photoRow * cols + sideCol];
+    assert(Math.abs(sideTh - photoTh) < 0.05, `A point 12 mm in from the side is outside the buttress (got ${sideTh.toFixed(2)}mm)`);
+    const bedTh = flat.thicknesses![(rows - 1) * cols + centerCol];
+    assert(bedTh > DEFAULT_SETTINGS.frameThickness, `The bottom frame still carries a foot (got ${bedTh.toFixed(2)}mm)`);
+
+    for (const angle of [75, 120]) {
+      const whiteGrid = new Float32Array(cols * rows);
+      whiteGrid.fill(1);
+      const concave = GeometryGenerator.generateMesh(whiteGrid, cols, rows, {
+        ...DEFAULT_SETTINGS,
+        width: 120,
+        height: 90,
+        shape: 'curved',
+        curveDirection: 'concave',
+        curveAngle: angle,
+        orientation: 'standing',
+        supportType: 'none',
+        hasFrame: false,
+        minThickness: 0.8,
+        maxThickness: 3.0,
+      });
+      const concaveVal = MeshValidator.validate(concave);
+      assert(concaveVal.isValid && concaveVal.isWatertight, `Concave ${angle}° arc is a valid solid (${concaveVal.warnings.join('; ')})`);
+      assert(concaveVal.minThicknessDetected > 0.7, `Concave ${angle}° wall stays near the 0.8 mm highlight (got ${concaveVal.minThicknessDetected}mm)`);
+    }
   }
 
   await runEmailExportTests(assert);
