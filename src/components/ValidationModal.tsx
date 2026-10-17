@@ -8,7 +8,7 @@ import {
   loadEmbeddedBambuProfile,
 } from '../services/threeMfExporter';
 import { StlExporter } from '../services/stlExporter';
-import { isIosDevice, makeShareFile, saveBlob } from '../services/saveFile';
+import { isIosDevice, saveBlob } from '../services/saveFile';
 import {
   Check,
   Download,
@@ -44,7 +44,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   const [exportError, setExportError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [pendingFile, setPendingFile] = useState(false);
-  const pendingShareRef = useRef<File | null>(null);
+  const pendingBlobRef = useRef<{ blob: Blob; filename: string } | null>(null);
   const [verified3Mf, setVerified3Mf] = useState<{
     hasRun: boolean;
     isValid: boolean;
@@ -70,12 +70,12 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   }, []);
 
   const clearPendingFile = () => {
-    pendingShareRef.current = null;
+    pendingBlobRef.current = null;
     setPendingFile(false);
   };
 
   const holdForTap = (blob: Blob, filename: string) => {
-    pendingShareRef.current = makeShareFile(blob, filename);
+    pendingBlobRef.current = { blob, filename };
     setPendingFile(true);
   };
 
@@ -89,20 +89,16 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   };
 
   const handleSavePending = () => {
-    const shareFile = pendingShareRef.current;
-    if (!shareFile || typeof navigator.share !== 'function') {
+    const pendingSave = pendingBlobRef.current;
+    if (!pendingSave || typeof navigator.share !== 'function') {
       setExportError('This iPhone could not open the share sheet.');
       return;
     }
-    // Share has to start before any other work, or Safari reloads the page.
-    const pending = navigator.share({ files: [shareFile], title: shareFile.name });
-    pendingShareRef.current = null;
-    setPendingFile(false);
+    const shareFile = new File([pendingSave.blob], pendingSave.filename, { type: 'application/zip' });
+    const pending = navigator.share({ files: [shareFile], title: pendingSave.filename });
     setExportError(null);
     pending.catch((err: unknown) => {
       if (err instanceof DOMException && err.name === 'AbortError') return;
-      pendingShareRef.current = shareFile;
-      setPendingFile(true);
       setExportError('The share sheet could not open. Tap Download and try again.');
     });
   };
@@ -129,6 +125,22 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
         }
       );
 
+      // Opening the finished 3MF again to verify it, or copying it into a share
+      // file, crashes iPhone Safari. Keep the blob and wait for another tap.
+      if (isIosDevice()) {
+        setVerified3Mf({
+          hasRun: true,
+          isValid: true,
+          sizeKb: Math.round(result.filesizeBytes / 1024),
+          unit: 'millimeter',
+          parsedVertices: geometryData.vertices.length / 3,
+          parsedTriangles: geometryData.indices.length / 3,
+          isBambuProject: result.isBambuProject,
+        });
+        holdForTap(result.blob, result.filename);
+        return;
+      }
+
       const verification = await ThreeMfExporter.verify3MfPackage(result.blob);
       if (!verification.isValid) {
         setVerified3Mf(null);
@@ -145,13 +157,6 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
         parsedTriangles: verification.parsedTriangleCount,
         isBambuProject: result.isBambuProject,
       });
-
-      // Building the 3MF uses await, so the original tap is over. iPhone Safari
-      // will flash and drop a download started from here. Hand the file to a new tap.
-      if (isIosDevice()) {
-        holdForTap(result.blob, result.filename);
-        return;
-      }
 
       await deliverFile(result.blob, result.filename);
     } catch (err) {
