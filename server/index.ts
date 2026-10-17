@@ -1,9 +1,9 @@
 import dotenv from 'dotenv';
-import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { isEmailExportConfigured } from '../src/services/emailExport';
 import { createApp } from './app';
+import { mountStaticSite } from './staticSite';
 
 dotenv.config();
 
@@ -20,20 +20,7 @@ const app = createApp();
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = path.join(root, 'dist');
-app.use(express.static(dist));
-app.use((req, res, next) => {
-  if (req.method !== 'GET' && req.method !== 'HEAD') {
-    next();
-    return;
-  }
-  if (req.path.startsWith('/api/')) {
-    next();
-    return;
-  }
-  res.sendFile(path.join(dist, 'index.html'), (err) => {
-    if (err) next();
-  });
-});
+mountStaticSite(app, dist);
 
 const port = Number(process.env.PORT) || 3000;
 const host = process.env.HOST || '0.0.0.0';
