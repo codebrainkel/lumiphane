@@ -8,7 +8,7 @@ import {
   loadEmbeddedBambuProfile,
 } from '../services/threeMfExporter';
 import { StlExporter } from '../services/stlExporter';
-import { isIosDevice, saveBlob } from '../services/saveFile';
+import { isIosDevice, saveBlob, type SaveOutcome } from '../services/saveFile';
 import {
   emailTooLargeMessage,
   formatByteSize,
@@ -25,6 +25,7 @@ import {
   FileCheck,
   AlertTriangle,
   Mail,
+  Check,
 } from 'lucide-react';
 
 interface ValidationModalProps {
@@ -36,7 +37,20 @@ interface ValidationModalProps {
   printOrderingEnabled?: boolean;
   orderReady?: boolean;
   onOrderPrint?: () => void;
+  onOpenPrintGuide?: () => void;
   onClose: () => void;
+}
+
+/** Shown once, without cancelling the export. Confirmed from phone export timings. */
+export const SLOW_EXPORT_NOTICE_MS = 15000;
+
+const EXPORT_FAILED_FALLBACK = 'Something went wrong building this file.';
+
+function humanExportError(err: unknown): string {
+  if (!(err instanceof Error)) return EXPORT_FAILED_FALLBACK;
+  const message = err.message.trim();
+  if (!message || message.length > 160) return EXPORT_FAILED_FALLBACK;
+  return message;
 }
 
 export type ExportFormatType = 'bambu-project' | 'universal' | 'stl';
@@ -65,6 +79,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   printOrderingEnabled = false,
   orderReady = false,
   onOrderPrint,
+  onOpenPrintGuide,
   onClose,
 }) => {
   const [exportFormat, setExportFormat] = useState<ExportFormatType>('bambu-project');
@@ -79,9 +94,17 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   const [exportError, setExportError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [pendingFile, setPendingFile] = useState(false);
+  const [exportFailure, setExportFailure] = useState<string | null>(null);
+  const [savedFile, setSavedFile] = useState<{ filename: string; bytes: number } | null>(null);
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const [slowExport, setSlowExport] = useState(false);
   const pendingBlobRef = useRef<{ blob: Blob; filename: string } | null>(null);
   const emailAbortRef = useRef<AbortController | null>(null);
   const exportAbortRef = useRef<AbortController | null>(null);
+  const busyTitleRef = useRef<HTMLHeadingElement>(null);
+  const tryAgainRef = useRef<HTMLButtonElement>(null);
+  const successRef = useRef<HTMLDivElement>(null);
+  const downloadBtnRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,7 +112,8 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
       .then((profile) => {
         if (!cancelled) setBambuProfile(profile);
       })
-      .catch(() => {
+      .catch((err: unknown) => {
+        console.error(err);
         if (!cancelled) setExportError('The saved Bambu Studio profile could not be loaded.');
       });
     return () => {
@@ -103,6 +127,36 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
       exportAbortRef.current?.abort();
     };
   }, []);
+
+  const busyNow = isExporting || isEmailing;
+  useEffect(() => {
+    if (!busyNow) return;
+    const started = Date.now();
+    setElapsedSec(0);
+    setSlowExport(false);
+    const tick = window.setInterval(() => {
+      setElapsedSec(Math.floor((Date.now() - started) / 1000));
+    }, 250);
+    const slowTimer = window.setTimeout(() => setSlowExport(true), SLOW_EXPORT_NOTICE_MS);
+    const focusTimer = window.setTimeout(() => busyTitleRef.current?.focus(), 0);
+    return () => {
+      window.clearInterval(tick);
+      window.clearTimeout(slowTimer);
+      window.clearTimeout(focusTimer);
+    };
+  }, [busyNow]);
+
+  useEffect(() => {
+    if (!exportFailure || busyNow) return;
+    tryAgainRef.current?.focus();
+  }, [exportFailure, busyNow]);
+
+  useEffect(() => {
+    if (!savedFile) return;
+    successRef.current?.focus();
+    const hide = window.setTimeout(() => setSavedFile(null), 6000);
+    return () => window.clearTimeout(hide);
+  }, [savedFile]);
 
   useEffect(() => {
     if (!specsPinned) return;
@@ -121,13 +175,19 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
     setPendingFile(true);
   };
 
-  const deliverFile = async (blob: Blob, filename: string) => {
+  const deliverFile = async (blob: Blob, filename: string): Promise<SaveOutcome> => {
     const outcome = await saveBlob(blob, filename);
     if (outcome === 'needs-tap') {
       holdForTap(blob, filename);
-      return;
+      return outcome;
     }
-    clearPendingFile();
+    if (outcome === 'saved') clearPendingFile();
+    return outcome;
+  };
+
+  const noteSavedFile = (filename: string, bytes: number) => {
+    setExportFailure(null);
+    setSavedFile({ filename, bytes });
   };
 
   const handleSavePending = () => {
@@ -139,10 +199,15 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
     const shareFile = new File([pendingSave.blob], pendingSave.filename, { type: 'application/zip' });
     const pending = navigator.share({ files: [shareFile], title: pendingSave.filename });
     setExportError(null);
-    pending.catch((err: unknown) => {
-      if (err instanceof DOMException && err.name === 'AbortError') return;
-      setExportError('The share sheet could not open. Tap Download and try again.');
-    });
+    pending
+      .then(() => {
+        noteSavedFile(pendingSave.filename, pendingSave.blob.size);
+      })
+      .catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        console.error(err);
+        setExportError('The share sheet could not open. Tap Download and try again.');
+      });
   };
 
   const selectDownloadFormat = (format: ExportFormatType) => {
@@ -158,7 +223,20 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
     emailAbortRef.current?.abort();
     setIsExporting(false);
     setIsEmailing(false);
+    setExportFailure(null);
     clearPendingFile();
+    window.requestAnimationFrame(() => downloadBtnRef.current?.focus());
+  };
+
+  const downloadStlInstead = async () => {
+    try {
+      const result = StlExporter.exportBinaryStl(geometryData, imageName);
+      const outcome = await deliverFile(result.blob, result.filename);
+      if (outcome === 'saved' && !isExporting) noteSavedFile(result.filename, result.blob.size);
+    } catch (err) {
+      console.error(err);
+      setExportFailure(humanExportError(err));
+    }
   };
 
   const createModelFile = async (format: ExportFormatType, signal?: AbortSignal): Promise<
@@ -196,31 +274,29 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
       setIsExporting(true);
       clearPendingFile();
       setExportError(null);
+      setExportFailure(null);
 
       const built = await createModelFile(exportFormat, signal);
       if (signal.aborted) return;
       if (!built.ok) {
-        setExportError(built.message);
-        return;
-      }
-
-      if (exportFormat === 'stl') {
-        await deliverFile(built.blob, built.filename);
-        return;
-      }
-
-      if (isIosDevice()) {
-        if (signal.aborted) return;
-        holdForTap(built.blob, built.filename);
+        console.error(built.message);
+        setExportFailure(built.message || EXPORT_FAILED_FALLBACK);
         return;
       }
 
       if (signal.aborted) return;
-      await deliverFile(built.blob, built.filename);
+      if (isIosDevice() && exportFormat !== 'stl') {
+        holdForTap(built.blob, built.filename);
+        return;
+      }
+
+      const outcome = await deliverFile(built.blob, built.filename);
+      if (signal.aborted || outcome !== 'saved') return;
+      noteSavedFile(built.filename, built.blob.size);
     } catch (err) {
       if (signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) return;
       console.error('Export failed:', err);
-      setExportError(err instanceof Error ? err.message : 'Export failed.');
+      setExportFailure(humanExportError(err));
     } finally {
       if (exportAbortRef.current === controller) setIsExporting(false);
     }
@@ -247,6 +323,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
       const built = await createModelFile(format, controller.signal);
       if (controller.signal.aborted) return;
       if (!built.ok) {
+        console.error(built.message);
         setEmailError(built.message);
         return;
       }
@@ -306,10 +383,14 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   const showEmail = emailExportEnabled;
   const path: 'download' | 'email' = showEmail && delivery === 'email' ? 'email' : 'download';
   const busy = isExporting || isEmailing;
-  const busyTitle = isEmailing ? 'Sending your file' : 'Preparing your file';
+  const showSlow = isExporting && slowExport && !isEmailing;
+  const showOverlay = busy || Boolean(exportFailure);
+  const busyTitle = isEmailing ? 'Sending your file' : showSlow ? 'Still working…' : 'Preparing your file';
   const busyDetail = isEmailing
     ? `Attaching the ${exportFileLabel(emailedFormat, bambuPrinterId)} for ${emailAddress.trim()}.`
-    : `Building the ${exportFileLabel(exportFormat, bambuPrinterId)}.`;
+    : showSlow
+      ? 'Big models can take a minute on phones. You can keep waiting or grab the STL instead.'
+      : `Building the ${exportFileLabel(exportFormat, bambuPrinterId)}.`;
   const statusLabel = !validationResult.isValid
     ? 'Check'
     : validationResult.warnings.length > 0
@@ -321,7 +402,12 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
       ? 'text-amber-400'
       : 'text-emerald-400';
 
-  const printerBlock = exportFormat === 'bambu-project' ? (
+  const printerBlock = (
+    <div
+      className={`export-printer-slot${exportFormat === 'bambu-project' ? '' : ' is-reserved'}`}
+      aria-hidden={exportFormat === 'bambu-project' ? undefined : true}
+      inert={exportFormat === 'bambu-project' ? undefined : true}
+    >
     <div className="p-3 rounded-md bg-[#141924] border border-white/10 space-y-2.5">
       <label className="block">
         <span className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
@@ -351,18 +437,19 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
           : 'Loading the saved Bambu Studio profile…'}
       </div>
     </div>
-  ) : null;
+    </div>
+  );
 
   return (
-    <div className="modal-scrim">
+    <div className="modal-scrim export-scrim">
       <div
-        className="modal-dialog relative"
+        className="modal-dialog export-sheet relative"
         role="dialog"
         aria-modal="true"
         aria-busy={busy}
-        aria-labelledby={busy ? 'export-busy-title' : 'export-title'}
+        aria-labelledby={showOverlay ? 'export-busy-title' : 'export-title'}
       >
-        <div className={`export-shell ${busy ? 'pointer-events-none' : ''}`} aria-hidden={busy || undefined}>
+        <div className={`export-shell ${showOverlay ? 'pointer-events-none' : ''}`} aria-hidden={showOverlay || undefined}>
           <div className="relative z-10 flex items-center justify-between px-5 py-3.5 border-b border-white/10">
             <div className="flex items-center gap-1.5">
               <h2 id="export-title" className="text-base font-semibold text-white tracking-tight">
@@ -539,6 +626,18 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
               {emailNotice}
             </div>
           )}
+          {savedFile && (
+            <div ref={successRef} className="export-saved" role="status" tabIndex={-1}>
+              <Check className="export-saved-icon" aria-hidden="true" />
+              <p>Saved {savedFile.filename} ({formatByteSize(savedFile.bytes)})</p>
+              <button type="button" className="export-text-link" onClick={() => onOpenPrintGuide?.()}>
+                How to print it
+              </button>
+              <button type="button" className="export-text-link" onClick={() => setSavedFile(null)}>
+                Dismiss
+              </button>
+            </div>
+          )}
           {path === 'download' && exportError && (
             <div className="px-5 pt-3 text-xs text-red-300" role="alert">
               {exportError}
@@ -564,6 +663,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
             ) : (
               <button
                 type="button"
+                ref={downloadBtnRef}
                 onClick={pendingFile ? handleSavePending : handleExport}
                 disabled={isExporting || isEmailing}
                 className="btn-primary"
@@ -584,27 +684,75 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
           </div>
         </div>
 
-        {busy && (
+        {showOverlay && (
           <div className="export-busy" role="status" aria-live="polite">
             <div className="export-busy-bar" aria-hidden="true">
               <span />
             </div>
             <button
               type="button"
-              onClick={cancelBusyWork}
+              onClick={() => {
+                if (exportFailure && !busy) {
+                  setExportFailure(null);
+                  window.requestAnimationFrame(() => downloadBtnRef.current?.focus());
+                  return;
+                }
+                cancelBusyWork();
+              }}
               className="export-busy-close"
               aria-label="Close"
             >
               <X className="w-4 h-4" />
             </button>
-            <div className="export-busy-mark" aria-hidden="true">
-              <span className="export-busy-spin" />
-            </div>
-            <p className="export-busy-kicker">Export</p>
-            <h2 id="export-busy-title" className="export-busy-title">
-              {busyTitle}
-            </h2>
-            <p className="export-busy-detail">{busyDetail}</p>
+            {exportFailure && !busy ? (
+              <>
+                <div className="export-busy-mark" aria-hidden="true">
+                  <AlertTriangle className="export-busy-alert" />
+                </div>
+                <p className="export-busy-kicker">Export</p>
+                <h2 id="export-busy-title" className="export-busy-title" tabIndex={-1}>
+                  Export didn't finish
+                </h2>
+                <p className="export-busy-detail">{exportFailure}</p>
+                <div className="export-busy-actions">
+                  <button
+                    type="button"
+                    ref={tryAgainRef}
+                    className="btn-primary"
+                    onClick={() => void handleExport()}
+                  >
+                    Try again
+                  </button>
+                  {exportFormat !== 'stl' && (
+                    <button type="button" className="btn-secondary" onClick={() => void downloadStlInstead()}>
+                      Download STL instead
+                    </button>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="export-busy-mark" aria-hidden="true">
+                  <span className="export-busy-spin" />
+                </div>
+                <p className="export-busy-kicker">Export</p>
+                <h2 id="export-busy-title" ref={busyTitleRef} className="export-busy-title" tabIndex={-1}>
+                  {busyTitle}
+                </h2>
+                <p className="export-busy-detail">{busyDetail}</p>
+                <p className="export-busy-elapsed" aria-hidden="true">{elapsedSec}s</p>
+                <div className="export-busy-actions">
+                  {showSlow && exportFormat !== 'stl' && (
+                    <button type="button" className="btn-primary" onClick={() => void downloadStlInstead()}>
+                      Download STL instead
+                    </button>
+                  )}
+                  <button type="button" className="btn-secondary" onClick={cancelBusyWork}>
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>

@@ -981,6 +981,7 @@ export default function App() {
             setShowValidationModal(false);
             setShowOrderModal(true);
           }}
+          onOpenPrintGuide={() => setShowSlicingModal(true)}
           onClose={() => setShowValidationModal(false)}
         />
       )}
