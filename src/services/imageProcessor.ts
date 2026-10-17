@@ -229,7 +229,7 @@ export class ImageProcessor {
     if (pCtx) {
       const pImgData = pCtx.createImageData(cols, rows);
       for (let i = 0; i < cols * rows; i++) {
-        const v = Math.round(luminanceGrid[i] * 255);
+        const v = Math.round(this.linearToSrgb(luminanceGrid[i]) * 255);
         const pIdx = i * 4;
         pImgData.data[pIdx] = v;
         pImgData.data[pIdx + 1] = v;
@@ -306,10 +306,6 @@ export class ImageProcessor {
     previewCanvas.height = pH;
     const pCtx = previewCanvas.getContext('2d');
 
-    const bFactor = settings.brightness / 100;
-    const cFactor = 1 + settings.contrast / 50;
-    const gammaExp = 1 / Math.max(0.1, settings.gamma);
-
     // 2. Sample and map each slot onto its angular sector
     for (let s = 0; s < numPanels; s++) {
       const slot = validSlots[s] || validSlots[0];
@@ -341,25 +337,13 @@ export class ImageProcessor {
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < panelCols; c++) {
           const pIdx = (r * panelCols + c) * 4;
-          const rVal = pPixels[pIdx];
-          const gVal = pPixels[pIdx + 1];
-          const bVal = pPixels[pIdx + 2];
-          const alpha = pPixels[pIdx + 3] / 255;
-
-          // ITU-R BT.709 Luminance
-          let lum = (0.2126 * rVal + 0.7152 * gVal + 0.0722 * bVal) / 255.0;
-          if (alpha < 1) {
-            lum = lum * alpha + 1.0 * (1 - alpha);
-          }
-
-          lum += bFactor;
-          lum = (lum - 0.5) * cFactor + 0.5;
-          lum = Math.max(0, Math.min(1, lum));
-          lum = Math.pow(lum, gammaExp);
-
-          if (settings.invert) {
-            lum = 1.0 - lum;
-          }
+          const lum = this.sampleLuminance(
+            pPixels[pIdx],
+            pPixels[pIdx + 1],
+            pPixels[pIdx + 2],
+            pPixels[pIdx + 3],
+            settings
+          );
 
           const destCol = s * panelCols + c;
           if (destCol < cols) {
@@ -378,16 +362,7 @@ export class ImageProcessor {
     }
 
     // 3. Post-process full 360° grid with seamless horizontal circular wrapping
-    if (settings.autoLevels) {
-      this.applyAutoLevels(luminanceGrid, N);
-    }
-    const sharpnessAmount = typeof settings.sharpness === 'number' ? settings.sharpness : 20;
-    if (sharpnessAmount > 0) {
-      this.applyUnsharpMask(luminanceGrid, cols, rows, sharpnessAmount, true);
-    }
-    if (settings.smoothing > 0) {
-      this.applySmoothing(luminanceGrid, cols, rows, settings.smoothing, true);
-    }
+    this.postProcessGrid(luminanceGrid, cols, rows, settings, true, circumference / cols);
 
     const physicalPitchMm = Math.round((circumference / cols) * 1000) / 1000;
 
@@ -449,10 +424,6 @@ export class ImageProcessor {
     previewCanvas.height = pH;
     const pCtx = previewCanvas.getContext('2d');
 
-    const bFactor = settings.brightness / 100;
-    const cFactor = 1 + settings.contrast / 50;
-    const gammaExp = 1 / Math.max(0.1, settings.gamma);
-
     for (let s = 0; s < numPanels; s++) {
       const slot = validSlots[s] || validSlots[0];
       if (!slot || !slot.img) continue;
@@ -481,24 +452,13 @@ export class ImageProcessor {
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < panelCols; c++) {
           const pIdx = (r * panelCols + c) * 4;
-          const rVal = pPixels[pIdx];
-          const gVal = pPixels[pIdx + 1];
-          const bVal = pPixels[pIdx + 2];
-          const alpha = pPixels[pIdx + 3] / 255;
-
-          let lum = (0.2126 * rVal + 0.7152 * gVal + 0.0722 * bVal) / 255.0;
-          if (alpha < 1) {
-            lum = lum * alpha + 1.0 * (1 - alpha);
-          }
-
-          lum += bFactor;
-          lum = (lum - 0.5) * cFactor + 0.5;
-          lum = Math.max(0, Math.min(1, lum));
-          lum = Math.pow(lum, gammaExp);
-
-          if (settings.invert) {
-            lum = 1.0 - lum;
-          }
+          const lum = this.sampleLuminance(
+            pPixels[pIdx],
+            pPixels[pIdx + 1],
+            pPixels[pIdx + 2],
+            pPixels[pIdx + 3],
+            settings
+          );
 
           const destCol = s * panelCols + c;
           if (destCol < cols) {
@@ -515,16 +475,7 @@ export class ImageProcessor {
       }
     }
 
-    if (settings.autoLevels) {
-      this.applyAutoLevels(luminanceGrid, N);
-    }
-    const sharpnessAmount = typeof settings.sharpness === 'number' ? settings.sharpness : 20;
-    if (sharpnessAmount > 0) {
-      this.applyUnsharpMask(luminanceGrid, cols, rows, sharpnessAmount, true);
-    }
-    if (settings.smoothing > 0) {
-      this.applySmoothing(luminanceGrid, cols, rows, settings.smoothing, true);
-    }
+    this.postProcessGrid(luminanceGrid, cols, rows, settings, true, perimeter / cols);
 
     const physicalPitchMm = Math.round((perimeter / cols) * 1000) / 1000;
 
@@ -586,10 +537,6 @@ export class ImageProcessor {
     previewCanvas.height = pH;
     const pCtx = previewCanvas.getContext('2d');
 
-    const bFactor = settings.brightness / 100;
-    const cFactor = 1 + settings.contrast / 50;
-    const gammaExp = 1 / Math.max(0.1, settings.gamma);
-
     for (let s = 0; s < numPanels; s++) {
       const slot = validSlots[s] || validSlots[0];
       const block = cells[s] || cells[0];
@@ -623,24 +570,13 @@ export class ImageProcessor {
       for (let r = 0; r < blockRows; r++) {
         for (let c = 0; c < blockCols; c++) {
           const pIdx = (r * blockCols + c) * 4;
-          const rVal = pPixels[pIdx];
-          const gVal = pPixels[pIdx + 1];
-          const bVal = pPixels[pIdx + 2];
-          const alpha = pPixels[pIdx + 3] / 255;
-
-          let lum = (0.2126 * rVal + 0.7152 * gVal + 0.0722 * bVal) / 255.0;
-          if (alpha < 1) {
-            lum = lum * alpha + 1.0 * (1 - alpha);
-          }
-
-          lum += bFactor;
-          lum = (lum - 0.5) * cFactor + 0.5;
-          lum = Math.max(0, Math.min(1, lum));
-          lum = Math.pow(lum, gammaExp);
-
-          if (settings.invert) {
-            lum = 1.0 - lum;
-          }
+          const lum = this.sampleLuminance(
+            pPixels[pIdx],
+            pPixels[pIdx + 1],
+            pPixels[pIdx + 2],
+            pPixels[pIdx + 3],
+            settings
+          );
 
           const destR = destR0 + r;
           const destC = destC0 + c;
@@ -661,16 +597,7 @@ export class ImageProcessor {
       }
     }
 
-    if (settings.autoLevels) {
-      this.applyAutoLevels(luminanceGrid, N);
-    }
-    const sharpnessAmount = typeof settings.sharpness === 'number' ? settings.sharpness : 20;
-    if (sharpnessAmount > 0) {
-      this.applyUnsharpMask(luminanceGrid, cols, rows, sharpnessAmount, false);
-    }
-    if (settings.smoothing > 0) {
-      this.applySmoothing(luminanceGrid, cols, rows, settings.smoothing, false);
-    }
+    this.postProcessGrid(luminanceGrid, cols, rows, settings, false, width / cols);
 
     const physicalPitchMm = Math.round((width / cols) * 1000) / 1000;
 
@@ -724,48 +651,20 @@ export class ImageProcessor {
     const pixels = imgData.data;
     const luminanceGrid = new Float32Array(cols * rows);
 
-    const bFactor = settings.brightness / 100;
-    const cFactor = 1 + settings.contrast / 50;
-    const gammaExp = 1 / Math.max(0.1, settings.gamma);
-
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const idx = (r * cols + c) * 4;
-        const red = pixels[idx];
-        const green = pixels[idx + 1];
-        const blue = pixels[idx + 2];
-        const alpha = pixels[idx + 3] / 255;
-
-        let lum = (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255;
-        if (alpha < 1) {
-          lum = lum * alpha + 1.0 * (1 - alpha);
-        }
-
-        lum += bFactor;
-        lum = (lum - 0.5) * cFactor + 0.5;
-        lum = Math.max(0, Math.min(1, lum));
-        lum = Math.pow(lum, gammaExp);
-
-        if (settings.invert) {
-          lum = 1.0 - lum;
-        }
-
-        luminanceGrid[r * cols + c] = lum;
+        luminanceGrid[r * cols + c] = this.sampleLuminance(
+          pixels[idx],
+          pixels[idx + 1],
+          pixels[idx + 2],
+          pixels[idx + 3],
+          settings
+        );
       }
     }
 
-    if (settings.autoLevels) {
-      this.applyAutoLevels(luminanceGrid, cols * rows);
-    }
-
-    const sharpnessAmount = typeof settings.sharpness === 'number' ? settings.sharpness : 20;
-    if (sharpnessAmount > 0) {
-      this.applyUnsharpMask(luminanceGrid, cols, rows, sharpnessAmount);
-    }
-
-    if (settings.smoothing > 0) {
-      this.applySmoothing(luminanceGrid, cols, rows, settings.smoothing);
-    }
+    this.postProcessGrid(luminanceGrid, cols, rows, settings, false, Math.max(10, settings.width) / cols);
 
     return luminanceGrid;
   }
@@ -850,22 +749,91 @@ export class ImageProcessor {
   }
 
   /**
-   * Dynamic Range / Histogram Optimization:
-   * Maps image luminance to fully exploit white PLA's optical dynamic range (0.6mm to 2.25mm)
-   * without crushing subtle shadows or blowing highlights.
+   * sRGB byte (0–255) to linear light. Lithophane thickness has to follow light, not the file encoding.
+   */
+  static srgbByteToLinear(byte: number): number {
+    const c = Math.max(0, Math.min(255, byte)) / 255;
+    return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  }
+
+  /** Linear light to sRGB, so the flat preview still looks like the photograph. */
+  static linearToSrgb(linear: number): number {
+    const x = Math.max(0, Math.min(1, linear));
+    return x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055;
+  }
+
+  /**
+   * Contrast that holds onto 0 and 1. The old (x-0.5)*gain+0.5 curve clipped
+   * highlights onto the minimum wall and punched pinholes.
+   */
+  static applyContrast(lum: number, contrast: number): number {
+    const x = Math.max(0, Math.min(1, lum));
+    if (!contrast || x === 0 || x === 1) return x;
+    const c = Math.max(0.25, 1 + contrast / 50);
+    const delta = x - 0.5;
+    return 0.5 + 0.5 * Math.sign(delta) * Math.pow(Math.abs(delta) * 2, 1 / c);
+  }
+
+  /**
+   * One pixel to linear luminance in [0, 1], after the brightness, contrast, gamma, and invert controls.
+   * Alpha is a 0–255 coverage. Clear pixels become white so a missing photo does not print as a black slab.
+   */
+  static sampleLuminance(
+    red: number,
+    green: number,
+    blue: number,
+    alpha: number,
+    settings: Pick<LithophaneSettings, 'brightness' | 'contrast' | 'gamma' | 'invert'>
+  ): number {
+    const a = Math.max(0, Math.min(255, alpha)) / 255;
+    let lum =
+      0.2126 * this.srgbByteToLinear(red) +
+      0.7152 * this.srgbByteToLinear(green) +
+      0.0722 * this.srgbByteToLinear(blue);
+    if (a < 1) lum = lum * a + (1 - a);
+    lum += (settings.brightness || 0) / 100;
+    lum = this.applyContrast(Math.max(0, Math.min(1, lum)), settings.contrast || 0);
+    const gamma = Math.max(0.1, settings.gamma || 1);
+    lum = Math.pow(Math.max(0, lum), 1 / gamma);
+    if (settings.invert) lum = 1 - lum;
+    return Math.max(0, Math.min(1, lum));
+  }
+
+  /**
+   * Levels, a light denoise, then a sharpen whose blur is about one nozzle wide.
+   * A 1-pixel unsharp on a 0.2 mm grid was boosting detail a 0.4 mm nozzle smears away.
+   */
+  static postProcessGrid(
+    grid: Float32Array,
+    cols: number,
+    rows: number,
+    settings: LithophaneSettings,
+    wrapX = false,
+    pitchMm = 0.24
+  ): void {
+    if (settings.autoLevels) this.applyAutoLevels(grid, cols * rows);
+    if (settings.smoothing > 0) this.applySmoothing(grid, cols, rows, settings.smoothing, wrapX);
+    const sharpness = typeof settings.sharpness === 'number' ? settings.sharpness : 20;
+    if (sharpness > 0) {
+      this.applyUnsharpMask(grid, cols, rows, sharpness, wrapX, pitchMm, settings.nozzleDiameter || 0.4);
+    }
+  }
+
+  /**
+   * Dynamic range stretch. The outer 1% is the clip, and the result keeps a
+   * hair of headroom so a specular highlight is not forced to the thinnest wall.
    */
   private static applyAutoLevels(grid: Float32Array, totalPixels: number): void {
     if (totalPixels === 0) return;
 
-    // Build histogram to find 0.5% and 99.5% percentile bounds
     const hist = new Int32Array(256);
     for (let i = 0; i < totalPixels; i++) {
       const bin = Math.max(0, Math.min(255, Math.round(grid[i] * 255)));
       hist[bin]++;
     }
 
-    const lowerTarget = Math.floor(totalPixels * 0.005);
-    const upperTarget = Math.floor(totalPixels * 0.995);
+    const lowerTarget = Math.floor(totalPixels * 0.01);
+    const upperTarget = Math.floor(totalPixels * 0.99);
 
     let count = 0;
     let minBin = 0;
@@ -891,60 +859,94 @@ export class ImageProcessor {
     const maxLum = maxBin / 255;
     const span = maxLum - minLum;
 
-    // Only apply if the histogram is compressed and needs expansion
-    if (span > 0.05 && (minLum > 0.03 || maxLum < 0.97)) {
+    // Only apply if the histogram is compressed and needs expansion.
+    // 0.02–0.98 keeps a little plastic in the highlights and a little light in the shadows.
+    if (span > 0.05 && (minLum > 0.02 || maxLum < 0.98)) {
       for (let i = 0; i < totalPixels; i++) {
-        let val = (grid[i] - minLum) / span;
-        grid[i] = Math.max(0, Math.min(1, val));
+        const val = Math.max(0, Math.min(1, (grid[i] - minLum) / span));
+        grid[i] = 0.02 + 0.96 * val;
       }
     }
   }
 
   /**
-   * Unsharp Mask (Micro-Contrast):
-   * Boosts high-frequency photographic transitions (hair, eyes, textural detail)
-   * to counteract optical light diffusion inside 3D printed translucent plastic.
+   * Band-pass sharpen matched to the nozzle.
+   * Fine blur removes speckle smaller than the extrusion. The wider blur is the
+   * local tone. Their difference is an edge the printer can actually reproduce.
    */
   private static applyUnsharpMask(
     grid: Float32Array,
     cols: number,
     rows: number,
     sharpness: number,
-    wrapX: boolean = false
+    wrapX: boolean = false,
+    pitchMm = 0.24,
+    nozzleMm = 0.4
   ): void {
-    const factor = (sharpness / 100) * 1.4;
-    if (factor <= 0) return;
+    const amount = (sharpness / 100) * 1.15;
+    if (amount <= 0) return;
 
-    const copy = new Float32Array(grid);
+    const pitch = Math.max(0.05, pitchMm);
+    const sigmaCoarse = Math.max(1.15, Math.min(4, nozzleMm / pitch));
+    const sigmaFine = Math.max(0.55, sigmaCoarse * 0.4);
+    const fine = this.gaussianBlur(grid, cols, rows, sigmaFine, wrapX);
+    const coarse = this.gaussianBlur(fine, cols, rows, sigmaCoarse, wrapX);
+    const n = cols * rows;
+    for (let i = 0; i < n; i++) {
+      const delta = Math.max(-0.15, Math.min(0.15, (fine[i] - coarse[i]) * amount));
+      const sharpened = fine[i] + delta;
+      grid[i] = sharpened < 0 ? 0 : sharpened > 1 ? 1 : sharpened;
+    }
+  }
 
-    // 3x3 Gaussian-weighted low-pass filter
+  /** Separable gaussian. Horizontal axis wraps for a cylinder or cube. */
+  private static gaussianBlur(
+    grid: Float32Array,
+    cols: number,
+    rows: number,
+    sigma: number,
+    wrapX: boolean
+  ): Float32Array {
+    const radius = Math.max(1, Math.min(8, Math.ceil(sigma * 2.5)));
+    const kernel = new Float32Array(radius * 2 + 1);
+    let weight = 0;
+    const inv = 1 / (2 * sigma * sigma);
+    for (let i = -radius; i <= radius; i++) {
+      const w = Math.exp(-i * i * inv);
+      kernel[i + radius] = w;
+      weight += w;
+    }
+    for (let i = 0; i < kernel.length; i++) kernel[i] /= weight;
+
+    const temp = new Float32Array(grid.length);
+    const out = new Float32Array(grid.length);
     for (let r = 0; r < rows; r++) {
+      const row = r * cols;
       for (let c = 0; c < cols; c++) {
-        let sum = 0;
-        let weightSum = 0;
-
-        for (let dr = -1; dr <= 1; dr++) {
-          for (let dc = -1; dc <= 1; dc++) {
-            const nr = r + dr;
-            let nc = c + dc;
-            if (wrapX) {
-              nc = (nc + cols) % cols;
-            }
-            if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
-              const w = (dr === 0 && dc === 0) ? 4 : (dr === 0 || dc === 0) ? 2 : 1;
-              sum += copy[nr * cols + nc] * w;
-              weightSum += w;
-            }
-          }
+        let acc = 0;
+        for (let k = -radius; k <= radius; k++) {
+          let nc = c + k;
+          if (wrapX) nc = ((nc % cols) + cols) % cols;
+          else if (nc < 0) nc = 0;
+          else if (nc >= cols) nc = cols - 1;
+          acc += grid[row + nc] * kernel[k + radius];
         }
-
-        const lowPass = sum / weightSum;
-        const highPass = copy[r * cols + c] - lowPass;
-        // Accentuate high frequencies
-        const sharpened = copy[r * cols + c] + highPass * factor;
-        grid[r * cols + c] = Math.max(0, Math.min(1, sharpened));
+        temp[row + c] = acc;
       }
     }
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        let acc = 0;
+        for (let k = -radius; k <= radius; k++) {
+          let nr = r + k;
+          if (nr < 0) nr = 0;
+          else if (nr >= rows) nr = rows - 1;
+          acc += temp[nr * cols + c] * kernel[k + radius];
+        }
+        out[r * cols + c] = acc;
+      }
+    }
+    return out;
   }
 
   /**

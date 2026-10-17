@@ -7,12 +7,12 @@ export const DEFAULT_SETTINGS: LithophaneSettings = {
   cylinderPanelCount: 4, // 1 to 4 photos around cylinder (default 4)
   cubeWidth: 90, // mm (width of each face of hollow cube)
   cubePanelCount: 4, // 1 to 4 photos around cube (default 4)
-  minThickness: 0.6, // mm (0.60mm highlights — 25% thinner, full tonal range kept)
-  maxThickness: 2.25, // mm (2.25mm shadows — 25% thinner than 3.0mm)
+  minThickness: 0.8, // mm highlights — two 0.4 mm lines, bright but not a pinhole
+  maxThickness: 3.0, // mm shadows — deep enough for white PLA without a bulky wall
 
   // Quality & Resolution Pipeline (Uncompressed Master Quality)
   qualityTier: 'master',
-  sharpness: 20, // 20% micro-contrast boost for crisp details in translucent PLA
+  sharpness: 20, // nozzle-scale edge boost (see ImageProcessor), not sub-nozzle speckle
   autoLevels: true, // Auto dynamic range expansion for maximum tonal gamut
 
   shape: 'flat',
@@ -21,31 +21,30 @@ export const DEFAULT_SETTINGS: LithophaneSettings = {
   curveDirection: 'convex',
   hasFrame: true,
   frameWidth: 5.0, // mm
-  frameThickness: 2.4, // mm
+  frameThickness: 3.6, // mm — darker than the deepest shadow so the border reads as a frame
   borderIcon: 'none',
 
   orientation: 'standing', // Print-ready vertical on Z axis
-  supportType: 'flange', // Wide stabilizing base footing
-  supportBaseDepth: 14.0, // mm
-  supportHeight: 8.0, // mm
+  supportType: 'flange', // Footing stays inside the frame, out of the photo
+  supportBaseDepth: 10.0, // mm
+  supportHeight: 5.0, // mm — matches the frame so the taper ends at the picture
 
   brightness: 0,
   contrast: 8,
   gamma: 1.0,
   invert: false,
-  smoothing: 0,
+  smoothing: 1, // one light edge-preserving pass before nozzle-scale sharpening
 
-  recommendedLayerHeight: 0.12,
+  recommendedLayerHeight: 0.1,
   nozzleDiameter: 0.4,
 };
 
 /**
- * Calculates optimal lithophane thickness and structural parameters automatically.
- * Baseline at standard size (<= 120mm): 0.60mm min thickness (highlights) and 2.25mm max thickness (shadows).
- * That is 25% thinner than the previous 0.80–3.00mm wall. Min and max scale together so the
- * relief that carries image detail stays proportional.
- * Auto-scales appropriately when size is scaled up or adjusted to ensure high optical contrast,
- * proper light diffusion, and warp-free bed adhesion during tall vertical 3D printing.
+ * Thickness and frame for white PLA on a 0.4 mm nozzle.
+ * At a standard size (<= 120 mm): 0.80 mm highlights and 3.00 mm shadows.
+ * That span is what white PLA can actually show — thinner than 0.8 mm pinholes,
+ * and past ~3.2 mm extra plastic barely blocks more light. The frame is thicker
+ * than the darkest shadow. Larger plates gain a little stiffness, not a new look.
  */
 export function getAutoScaledThickness(width: number, height: number): {
   minThickness: number;
@@ -60,32 +59,32 @@ export function getAutoScaledThickness(width: number, height: number): {
 
   if (maxDim <= baseDim) {
     return {
-      minThickness: 0.60,
-      maxThickness: 2.25,
+      minThickness: 0.8,
+      maxThickness: 3.0,
       frameWidth: 5.0,
-      frameThickness: 2.4,
-      supportBaseDepth: 14.0,
-      supportHeight: 8.0,
+      frameThickness: 3.6,
+      supportBaseDepth: 10.0,
+      supportHeight: 5.0,
     };
   }
 
   // Size is increased from defaults (e.g. 130mm - 280mm):
   const scaleRatio = (maxDim - baseDim) / baseDim; // 0 at 120mm, 0.33 at 160mm, 1.0 at 240mm
 
-  // minThickness gently scales (0.60mm -> 0.69mm) to maintain stiffness during tall printing
-  const minThickness = Math.round((0.60 + Math.min(0.15, scaleRatio * 0.09)) * 100) / 100;
+  // minThickness gently scales (0.80mm -> 0.95mm) so a tall sheet stays stiff
+  const minThickness = Math.round((0.8 + Math.min(0.2, scaleRatio * 0.15)) * 100) / 100;
 
-  // maxThickness scales smoothly (2.25mm -> 2.44mm) so shadows stay deep without a bulky wall
-  const maxThickness = Math.round((2.25 + Math.min(0.30, scaleRatio * 0.1875)) * 100) / 100;
+  // maxThickness scales smoothly (3.00mm -> 3.30mm) and stays in the useful optical range
+  const maxThickness = Math.round((3.0 + Math.min(0.4, scaleRatio * 0.3)) * 100) / 100;
 
   // Frame width and depth adapt proportionally to structural size
   const frameWidth = Math.round((5.0 + Math.min(2.0, scaleRatio * 1.5)) * 10) / 10;
-  const frameThickness = Math.round((maxThickness + 0.15) * 10) / 10;
+  const frameThickness = Math.round((maxThickness + 0.6) * 10) / 10;
 
-  // Support footing deepens for taller prints to ensure 100% bed adhesion stability
+  // Support footing deepens for taller prints, and stays inside the frame band
   const heightRatio = Math.max(1, height / 90);
-  const supportBaseDepth = Math.round(Math.min(24, 14 * Math.pow(heightRatio, 0.6)) * 10) / 10;
-  const supportHeight = Math.round(Math.min(14, 8 * Math.pow(heightRatio, 0.5)) * 10) / 10;
+  const supportBaseDepth = Math.round(Math.min(18, 10 * Math.pow(heightRatio, 0.6)) * 10) / 10;
+  const supportHeight = Math.round(Math.min(10, 5 * Math.pow(heightRatio, 0.5)) * 10) / 10;
 
   return {
     minThickness,
@@ -97,8 +96,33 @@ export function getAutoScaledThickness(width: number, height: number): {
   };
 }
 
-// Permanent ultra fine mesh resolution (440 points wide, ~380k triangles) for high-precision 3D files
-export const ULTRA_FINE_RESOLUTION = 440;
+// Master grid at the 120 mm reference width: 0.24 mm pitch, about 750k triangles for a 120×90 plate.
+export const ULTRA_FINE_RESOLUTION = 500;
+
+/**
+ * Millimetres between mesh samples for a 0.4 mm nozzle.
+ * Master is 0.24 mm — inside the 0.15–0.25 mm band a 0.4 mm nozzle can actually hold.
+ */
+export const SAMPLE_PITCH_MM: Record<QualityTier, number> = {
+  master: 0.24,
+  studio: 0.32,
+  balanced: 0.4,
+};
+
+/** Pitch for a tier. A different nozzle scales the spacing and stays inside a sane band. */
+export function samplePitchMm(tier: QualityTier = 'master', nozzleMm = 0.4): number {
+  const nozzle = Math.min(1.2, Math.max(0.2, nozzleMm || 0.4));
+  const scaled = SAMPLE_PITCH_MM[tier] * (nozzle / 0.4);
+  const limits: [number, number] =
+    tier === 'master' ? [0.15, 0.25] : tier === 'studio' ? [0.26, 0.4] : [0.34, 0.55];
+  return Math.round(Math.min(limits[1], Math.max(limits[0], scaled)) * 1000) / 1000;
+}
+
+function colsForLength(lengthMm: number, pitchMm: number, multiple = 1): number {
+  const raw = Math.max(pitchMm, lengthMm) / pitchMm;
+  if (multiple <= 1) return Math.max(8, Math.round(raw));
+  return Math.max(multiple, Math.round(raw / multiple) * multiple);
+}
 
 export interface QualityTierInfo {
   id: QualityTier;
@@ -113,36 +137,37 @@ export const QUALITY_TIERS: Record<QualityTier, QualityTierInfo> = {
     id: 'master',
     label: 'High Detail',
     badge: 'Sharpest',
-    description: 'Ultra-fine surface resolution for crisp, detailed photo prints.',
-    baseCols: 600,
+    description: 'Photo sampling matched to a 0.4 mm nozzle, for crisp prints that still open on a phone.',
+    baseCols: 500,
   },
   studio: {
     id: 'studio',
     label: 'Standard',
     badge: 'Recommended',
     description: 'Clean, smooth photo prints with fast processing and smaller file size.',
-    baseCols: 440,
+    baseCols: 375,
   },
   balanced: {
     id: 'balanced',
     label: 'Fast',
     badge: 'Draft',
     description: 'Quickest preview and smallest file size for testing.',
-    baseCols: 340,
+    baseCols: 300,
   },
 };
 
 /**
- * Computes optimal grid columns for chosen quality tier and physical model width
+ * Grid columns for a flat or curved plate. Default master pitch is 0.24 mm.
  */
-export function getResolutionForTier(tier: QualityTier = 'master', widthMm: number = 120): number {
-  if (tier === 'master') {
-    return Math.max(520, Math.min(720, Math.round(widthMm * (600 / 120))));
-  }
-  if (tier === 'studio') {
-    return Math.max(380, Math.min(540, Math.round(widthMm * (440 / 120))));
-  }
-  return Math.max(280, Math.min(420, Math.round(widthMm * (340 / 120))));
+export function getResolutionForTier(
+  tier: QualityTier = 'master',
+  widthMm: number = 120,
+  nozzleMm: number = 0.4
+): number {
+  const cols = colsForLength(Math.max(10, widthMm), samplePitchMm(tier, nozzleMm));
+  if (tier === 'master') return Math.max(320, Math.min(1100, cols));
+  if (tier === 'studio') return Math.max(240, Math.min(820, cols));
+  return Math.max(160, Math.min(640, cols));
 }
 
 /**
@@ -150,19 +175,16 @@ export function getResolutionForTier(tier: QualityTier = 'master', widthMm: numb
  * Guarantees cols is a multiple of 12 (divisible by 1, 2, 3, and 4 panels)
  * and scales to maintain high sampling density around the full 360° perimeter.
  */
-export function getCylinderResolutionForTier(tier: QualityTier = 'master', diameterMm: number = 90): number {
+export function getCylinderResolutionForTier(
+  tier: QualityTier = 'master',
+  diameterMm: number = 90,
+  nozzleMm: number = 0.4
+): number {
   const circumference = Math.PI * Math.max(40, diameterMm);
-  let cols: number;
-  if (tier === 'master') {
-    cols = Math.round((circumference * 5.0) / 12) * 12;
-    return Math.max(1020, Math.min(2160, cols));
-  }
-  if (tier === 'studio') {
-    cols = Math.round((circumference * 3.4) / 12) * 12;
-    return Math.max(768, Math.min(1440, cols));
-  }
-  cols = Math.round((circumference * 2.3) / 12) * 12;
-  return Math.max(516, Math.min(960, cols));
+  const cols = colsForLength(circumference, samplePitchMm(tier, nozzleMm), 12);
+  if (tier === 'master') return Math.max(576, Math.min(1680, cols));
+  if (tier === 'studio') return Math.max(432, Math.min(1200, cols));
+  return Math.max(360, Math.min(960, cols));
 }
 
 /**
@@ -170,19 +192,16 @@ export function getCylinderResolutionForTier(tier: QualityTier = 'master', diame
  * Guarantees cols is a multiple of 12 (divisible by 1, 2, 3, and 4 panels)
  * and scales to maintain high sampling density around the 4 sides of the hollow cube.
  */
-export function getCubeResolutionForTier(tier: QualityTier = 'master', cubeWidthMm: number = 90): number {
+export function getCubeResolutionForTier(
+  tier: QualityTier = 'master',
+  cubeWidthMm: number = 90,
+  nozzleMm: number = 0.4
+): number {
   const perimeter = 4 * Math.max(40, cubeWidthMm);
-  let cols: number;
-  if (tier === 'master') {
-    cols = Math.round((perimeter * 4.2) / 12) * 12;
-    return Math.max(960, Math.min(2160, cols));
-  }
-  if (tier === 'studio') {
-    cols = Math.round((perimeter * 3.0) / 12) * 12;
-    return Math.max(720, Math.min(1440, cols));
-  }
-  cols = Math.round((perimeter * 2.0) / 12) * 12;
-  return Math.max(480, Math.min(960, cols));
+  const cols = colsForLength(perimeter, samplePitchMm(tier, nozzleMm), 12);
+  if (tier === 'master') return Math.max(576, Math.min(1920, cols));
+  if (tier === 'studio') return Math.max(432, Math.min(1440, cols));
+  return Math.max(360, Math.min(1080, cols));
 }
 
 /**
@@ -606,16 +625,16 @@ export const SLICER_PRESETS = [
   {
     name: 'Bambu Studio / OrcaSlicer',
     icon: 'Printer',
-    notes: 'Open the .3mf file directly in Bambu Studio. 100% solid infill, 0.12mm layers, and brim settings are pre-configured.',
+    notes: 'Open the .3mf in Bambu Studio. It is already standing, with 0.10 mm layers, 10 walls, 100% concentric infill, a 6 mm brim, and supports off.',
   },
   {
     name: 'PrusaSlicer',
     icon: 'Gauge',
-    notes: 'Set perimeters to 99 for a solid print. Use 0.10–0.12mm layer height and add a 5mm outer brim for stability.',
+    notes: 'Use 10 perimeters and 100% concentric infill so the wall is solid. 0.10 mm layers, 6 mm brim, supports off, outer wall about 30 mm/s.',
   },
   {
     name: 'UltiMaker Cura',
     icon: 'Layers',
-    notes: 'Set infill to 100% and outer wall speed to 30–35 mm/s. Align the model along your print bed Y-axis.',
+    notes: '10 walls, 100% concentric infill, outer wall 30 mm/s, 6 mm brim, supports off. Print the model standing upright.',
   },
 ];

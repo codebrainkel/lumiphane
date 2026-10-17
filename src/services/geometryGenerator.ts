@@ -1,7 +1,78 @@
-import { LithophaneSettings, MeshGeometryData } from '../types/lithophane';
+import { LithophaneSettings, MeshGeometryData, SupportType } from '../types/lithophane';
 import { clampBorderWidthMm, createBorderIconField } from './borderIcons';
 
+/**
+ * White-PLA extinction used by the on-screen lithophane preview (Beer-Lambert).
+ * Inverting it makes a mid-gray transmit about half as much light as a white,
+ * instead of landing on the arithmetic middle of the wall.
+ */
+export const WHITE_PLA_EXTINCTION_PER_MM = 1.15;
+
 export class GeometryGenerator {
+  /**
+   * Maps luminance to wall thickness.
+   * 1 is white (thinnest) and 0 is black (thickest). Transmission of white PLA
+   * falls off exponentially, so the curve is the inverse of Beer's law between
+   * min and max. Endpoints are exact: white is minThickness, black is maxThickness.
+   */
+  static thicknessFromLuminance(lum: number, minTh: number, maxTh: number): number {
+    const L = Math.max(0, Math.min(1, lum));
+    if (L <= 0) return maxTh;
+    if (L >= 1) return minTh;
+    const k = WHITE_PLA_EXTINCTION_PER_MM;
+    const tBright = Math.exp(-k * minTh);
+    const tDark = Math.exp(-k * maxTh);
+    const transmission = tDark + (tBright - tDark) * L;
+    const thickness = -Math.log(Math.max(1e-8, transmission)) / k;
+    return Math.max(minTh, Math.min(maxTh, thickness));
+  }
+
+  /**
+   * Extra plastic for a standing flat plate. Only the frame band gets it,
+   * so the photograph itself keeps the thickness the tone curve asked for.
+   */
+  private static flatFoot(
+    supportType: SupportType,
+    hasFrame: boolean,
+    frameW: number,
+    supportBaseDepth: number,
+    supportHeight: number,
+    distX: number,
+    pz: number,
+    height: number
+  ): { front: number; back: number } {
+    if (!hasFrame || supportType === 'none' || frameW <= 0) return { front: 0, back: 0 };
+    let front = 0;
+    let back = 0;
+    if ((supportType === 'flange' || supportType === 'full') && pz <= frameW) {
+      const edge = 1 - pz / frameW;
+      const t = edge * edge;
+      front = supportBaseDepth * 0.3 * t;
+      back = supportBaseDepth * 0.55 * t;
+    }
+    if ((supportType === 'buttress' || supportType === 'full') && distX <= frameW) {
+      const maxH = Math.min(height * 0.4, Math.max(frameW, supportHeight * 2.2));
+      if (pz <= maxH) {
+        const side = Math.pow(1 - distX / frameW, 1.5);
+        const heightFactor = Math.pow(1 - pz / maxH, 2);
+        back += supportBaseDepth * 0.65 * side * heightFactor;
+      }
+    }
+    return { front, back };
+  }
+
+  /** Short bed lip inside the bottom frame of a curve, cylinder, or cube. */
+  private static baseLip(
+    supportType: SupportType,
+    hasFrame: boolean,
+    frameW: number,
+    pz: number
+  ): number {
+    if (!hasFrame || supportType === 'none' || frameW <= 0 || pz >= frameW) return 0;
+    const t = 1 - pz / frameW;
+    return 0.8 * t * t;
+  }
+
   /**
    * Generates a watertight 2-manifold solid mesh from a normalized luminance grid.
    * Default orientation is 'standing' (vertical along Z-axis, base at Z=0 on print bed),
@@ -103,10 +174,10 @@ export class GeometryGenerator {
         const u = c / (cols - 1);
         const distX = Math.min(u, 1.0 - u) * W;
 
-        // Luminance to thickness mapping
+        // Luminance to thickness. White (1) is thin, black (0) is thick.
+        // The curve inverts Beer-Lambert so midtones are not crushed.
         const lum = luminanceGrid[r * cols + c];
-        // Standard: dark (lum 0) => maxThickness; bright (lum 1) => minThickness
-        let th = minTh + (1.0 - lum) * (maxTh - minTh);
+        let th = this.thicknessFromLuminance(lum, minTh, maxTh);
 
         // Frame reinforcement (for continuous perimeter shapes, frame applies only to top/bottom rims; zero seam gap)
         if (hasFrame) {
@@ -139,12 +210,8 @@ export class GeometryGenerator {
           const sideIdx = Math.min(3, Math.floor(c / sideCols));
           const uSide = (c - sideIdx * sideCols) / sideCols; // [0, 1)
 
-          let brimExtra = 0;
-          if (supportType !== 'none' && pz < 4.0) {
-            const tBrim = Math.pow(1.0 - pz / 4.0, 2);
-            brimExtra = 2.0 * tBrim;
-          }
-          localThickness = th + brimExtra;
+          const lip = this.baseLip(supportType, hasFrame, frameW, pz);
+          localThickness = th + lip;
 
           if (sideIdx === 0) {
             // Face 0: Front (+Y)
@@ -186,12 +253,8 @@ export class GeometryGenerator {
           const sinPhi = Math.sin(phi);
           const cosPhi = Math.cos(phi);
 
-          let brimExtra = 0;
-          if (supportType !== 'none' && pz < 4.0) {
-            const tBrim = Math.pow(1.0 - pz / 4.0, 2);
-            brimExtra = 2.0 * tBrim;
-          }
-          localThickness = th + brimExtra;
+          const lip = this.baseLip(supportType, hasFrame, frameW, pz);
+          localThickness = th + lip;
 
           // Inner smooth bore (facing center (0,0,z))
           bx = cylinderRadius * sinPhi;
@@ -213,61 +276,50 @@ export class GeometryGenerator {
             const sinPhi = Math.sin(phi);
             const cosPhi = Math.cos(phi);
 
-            // Stabilizing brim at bed contact
-            let brimExtra = 0;
-            if (supportType !== 'none' && pz < 4.0) {
-              const tBrim = Math.pow(1.0 - pz / 4.0, 2);
-              brimExtra = 2.5 * tBrim;
-            }
-            localThickness = th + brimExtra;
+            // Lip stays in the bottom frame. Offset follows the true arc normal
+            // so the wall keeps a constant thickness out to the edges.
+            const lip = this.baseLip(supportType, hasFrame, frameW, pz);
+            const wall = th + lip;
+            localThickness = wall;
 
             if (isConvex) {
-              // Convex: center bows forward, edges sweep backward in Y
+              // Convex: center bows toward +Y. Arc center sits at (0, -R).
               bx = arcRadius * sinPhi;
-              by = -arcRadius * (1.0 - cosPhi) - brimExtra;
+              by = -arcRadius * (1.0 - cosPhi);
               bz = pz;
 
-              fx = bx + sinPhi * (th + brimExtra);
-              fy = by + cosPhi * (th + brimExtra);
+              fx = bx + sinPhi * wall;
+              fy = by + cosPhi * wall;
               fz = pz;
             } else {
-              // Concave: edges sweep forward in Y
+              // Concave: edges sweep toward +Y. Arc center sits at (0, +R).
+              // The camera-facing normal is (-sin, +cos); the old (+sin, +cos)
+              // offset ran tangent at the edges and crossed the back face.
               bx = arcRadius * sinPhi;
-              by = arcRadius * (1.0 - cosPhi) - brimExtra;
+              by = arcRadius * (1.0 - cosPhi);
               bz = pz;
 
-              fx = bx + sinPhi * (th + brimExtra);
-              fy = by + cosPhi * (th + brimExtra);
+              fx = bx - sinPhi * wall;
+              fy = by + cosPhi * wall;
               fz = pz;
             }
           } else {
             // Flat Plate Lithophane Standing on Build Plate
             const px = -W / 2 + u * W;
 
-            // Stabilizing supports for tall thin item
-            let flangeBack = 0;
-            let flangeFront = 0;
-
-            if (supportType === 'flange' || supportType === 'full') {
-              if (pz <= supportHeight) {
-                // Smooth parabolic taper to wide footing at bed contact (pz=0)
-                const t = Math.pow(1.0 - pz / supportHeight, 2);
-                flangeBack = (supportBaseDepth * 0.55) * t;
-                flangeFront = (supportBaseDepth * 0.45) * t;
-              }
-            }
-
-            if (supportType === 'buttress' || supportType === 'full') {
-              // Triangular buttress ribs on outer 15% edges for lateral stability
-              const edgeSpan = 0.16;
-              const distFromSide = Math.min(u, 1.0 - u) / edgeSpan;
-              if (distFromSide <= 1.0 && pz <= supportHeight * 2.8) {
-                const sideFactor = Math.pow(1.0 - distFromSide, 1.5);
-                const heightFactor = Math.pow(1.0 - pz / (supportHeight * 2.8), 2);
-                const buttressDepth = (supportBaseDepth * 0.75) * sideFactor * heightFactor;
-                flangeBack += buttressDepth;
-              }
-            }
+            // Feet live in the frame. The photograph above that band is untouched.
+            const foot = this.flatFoot(
+              supportType,
+              hasFrame,
+              frameW,
+              supportBaseDepth,
+              supportHeight,
+              distX,
+              pz,
+              H
+            );
+            const flangeBack = foot.back;
+            const flangeFront = foot.front;
 
             localThickness = th + flangeFront + flangeBack;
 
@@ -303,13 +355,14 @@ export class GeometryGenerator {
               fy = pyFlat;
               fz = bz + nz * th;
             } else {
+              // Same normal fix as the standing concave arc, in the XZ plane.
               bx = arcRadius * sinPhi;
               by = pyFlat;
               bz = arcRadius * (1.0 - cosPhi);
 
-              fx = bx + nx * th;
+              fx = bx - sinPhi * th;
               fy = pyFlat;
-              fz = bz + nz * th;
+              fz = bz + cosPhi * th;
             }
           } else {
             fx = px;
