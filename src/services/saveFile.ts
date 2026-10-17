@@ -36,18 +36,38 @@ export async function sharePreparedFile(file: File): Promise<'saved' | 'cancelle
 }
 
 export function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.rel = 'noopener';
-  a.style.display = 'none';
-  document.body.appendChild(a);
-  a.click();
-  window.setTimeout(() => {
-    a.remove();
-    URL.revokeObjectURL(url);
-  }, 60_000);
+  const prepared = prepareDownload(blob, filename);
+  triggerPreparedDownload(prepared);
+}
+
+export interface PreparedDownload {
+  filename: string;
+  url: string;
+  anchor: HTMLAnchorElement;
+}
+
+/** Build the link before the tap so iPhone Safari still counts the click as a user gesture. */
+export function prepareDownload(blob: Blob, filename: string): PreparedDownload {
+  const url = URL.createObjectURL(new Blob([blob], { type: 'application/octet-stream' }));
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.rel = 'noopener';
+  anchor.setAttribute('download', filename);
+  anchor.style.position = 'fixed';
+  anchor.style.left = '-9999px';
+  document.body.appendChild(anchor);
+  return { filename, url, anchor };
+}
+
+export function triggerPreparedDownload(prepared: PreparedDownload) {
+  prepared.anchor.click();
+  window.setTimeout(() => releasePreparedDownload(prepared), 180_000);
+}
+
+export function releasePreparedDownload(prepared: PreparedDownload) {
+  prepared.anchor.remove();
+  URL.revokeObjectURL(prepared.url);
 }
 
 /**

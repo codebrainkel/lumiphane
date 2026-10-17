@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { MeshValidationResult, MeshGeometryData, LithophaneSettings } from '../types/lithophane';
 import { BAMBU_PRINTERS, DEFAULT_BAMBU_PRINTER_ID, getBambuPrinter } from '../constants/bambuPrinters';
 import {
@@ -8,7 +8,14 @@ import {
   loadEmbeddedBambuProfile,
 } from '../services/threeMfExporter';
 import { StlExporter } from '../services/stlExporter';
-import { downloadBlob, makeShareFile, saveBlob, sharePreparedFile } from '../services/saveFile';
+import {
+  isIosDevice,
+  makeShareFile,
+  prepareDownload,
+  releasePreparedDownload,
+  saveBlob,
+  type PreparedDownload,
+} from '../services/saveFile';
 import {
   Check,
   Download,
@@ -43,7 +50,9 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   const [bambuProfile, setBambuProfile] = useState<EmbeddedBambuProfile | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
-  const [pendingFile, setPendingFile] = useState<{ blob: Blob; filename: string } | null>(null);
+  const [pendingFile, setPendingFile] = useState<PreparedDownload | null>(null);
+  const pendingRef = useRef<PreparedDownload | null>(null);
+  const pendingShareRef = useRef<File | null>(null);
   const [verified3Mf, setVerified3Mf] = useState<{
     hasRun: boolean;
     isValid: boolean;
@@ -68,38 +77,69 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
     };
   }, []);
 
-  const deliverFile = async (blob: Blob, filename: string) => {
-    const outcome = await saveBlob(blob, filename);
-    if (outcome === 'needs-tap') {
-      setPendingFile({ blob, filename });
-      return;
-    }
+  const clearPendingFile = () => {
+    const current = pendingRef.current;
+    pendingRef.current = null;
+    pendingShareRef.current = null;
+    if (current) releasePreparedDownload(current);
     setPendingFile(null);
   };
 
-  const handleSavePending = async () => {
-    if (!pendingFile) return;
-    const file = makeShareFile(pendingFile.blob, pendingFile.filename);
-    try {
-      setExportError(null);
-      if (typeof navigator.share === 'function') {
-        await sharePreparedFile(file);
-        setPendingFile(null);
-        return;
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return;
-      setExportError('The share sheet could not open. Tap Save to Files and try again.');
+  useEffect(() => {
+    return () => {
+      if (pendingRef.current) releasePreparedDownload(pendingRef.current);
+    };
+  }, []);
+
+  const holdForTap = (blob: Blob, filename: string) => {
+    if (pendingRef.current) releasePreparedDownload(pendingRef.current);
+    const prepared = prepareDownload(blob, filename);
+    pendingRef.current = prepared;
+    pendingShareRef.current = makeShareFile(blob, filename);
+    setPendingFile(prepared);
+  };
+
+  const deliverFile = async (blob: Blob, filename: string) => {
+    const outcome = await saveBlob(blob, filename);
+    if (outcome === 'needs-tap') {
+      holdForTap(blob, filename);
       return;
     }
-    downloadBlob(pendingFile.blob, pendingFile.filename);
+    clearPendingFile();
+  };
+
+  const handleSavePending = () => {
+    const prepared = pendingRef.current;
+    const shareFile = pendingShareRef.current;
+    if (!prepared) return;
+    pendingRef.current = null;
+    pendingShareRef.current = null;
     setPendingFile(null);
+    setExportError(null);
+
+    const canShare =
+      !!shareFile &&
+      typeof navigator.share === 'function' &&
+      typeof navigator.canShare === 'function' &&
+      navigator.canShare({ files: [shareFile] });
+
+    if (canShare && shareFile) {
+      navigator.share({ files: [shareFile], title: shareFile.name }).catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        setExportError('The share sheet could not open. Tap Download and try again.');
+      });
+      releasePreparedDownload(prepared);
+      return;
+    }
+
+    prepared.anchor.click();
+    window.setTimeout(() => releasePreparedDownload(prepared), 180_000);
   };
 
   const handleExport = async () => {
     try {
       setIsExporting(true);
-      setPendingFile(null);
+      clearPendingFile();
       setExportError(null);
 
       if (exportFormat === 'stl') {
@@ -134,6 +174,13 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
         parsedTriangles: verification.parsedTriangleCount,
         isBambuProject: result.isBambuProject,
       });
+
+      // Building the 3MF uses await, so the original tap is over. iPhone Safari
+      // will flash and drop a download started from here. Hand the file to a new tap.
+      if (isIosDevice()) {
+        holdForTap(result.blob, result.filename);
+        return;
+      }
 
       await deliverFile(result.blob, result.filename);
     } catch (err) {
@@ -233,7 +280,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
                 type="button"
                 onClick={() => {
                   setExportFormat('bambu-project');
-                  setPendingFile(null);
+                  clearPendingFile();
                 }}
                 className={`p-3 text-left rounded-md border transition-colors ${
                   exportFormat === 'bambu-project'
@@ -258,7 +305,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
                 type="button"
                 onClick={() => {
                   setExportFormat('universal');
-                  setPendingFile(null);
+                  clearPendingFile();
                 }}
                 className={`p-3 text-left rounded-md border transition-colors ${
                   exportFormat === 'universal'
@@ -283,7 +330,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
                 type="button"
                 onClick={() => {
                   setExportFormat('stl');
-                  setPendingFile(null);
+                  clearPendingFile();
                 }}
                 className={`p-3 text-left rounded-md border transition-colors ${
                   exportFormat === 'stl'
@@ -317,7 +364,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
                       setBambuPrinterId(event.target.value);
                       setVerified3Mf(null);
                       setExportError(null);
-                      setPendingFile(null);
+                      clearPendingFile();
                     }}
                     className="mt-1.5 w-full rounded-md border border-white/10 bg-[#10141d] px-2.5 py-2 text-xs text-slate-200 outline-none focus:border-amber-400"
                     style={{ colorScheme: 'dark' }}
@@ -384,7 +431,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
 
           {pendingFile && (
             <div className="p-3 rounded-md bg-[#141924] border border-amber-400/40 text-xs text-slate-200">
-              The file is ready. Tap <span className="font-semibold text-white">Save to Files</span>, then choose Save to Files in the iPhone share sheet.
+              The 3MF is ready. Tap <span className="font-semibold text-white">Download</span>, then choose Save to Files.
             </div>
           )}
 
@@ -421,7 +468,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
               {isExporting
                 ? 'Preparing file…'
                 : pendingFile
-                ? 'Save to Files'
+                ? 'Download'
                 : exportFormat === 'bambu-project'
                 ? 'Download Bambu Studio File (.3mf)'
                 : exportFormat === 'universal'
