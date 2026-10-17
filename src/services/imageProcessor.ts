@@ -120,7 +120,23 @@ export function readJpegSize(bytes: Uint8Array): { width: number; height: number
   return null;
 }
 
-/** Bakes an EXIF orientation into pixels. Orientation 6 is 90° clockwise. */
+/**
+ * Pixels from createImageBitmap or a canvas are already EXIF-oriented.
+ * Chrome ignores imageOrientation 'none' and decodes upright, so running
+ * orientRgba on those pixels applies orientations 2, 3, and 4 a second time.
+ * `orientation` is accepted so callers record which tag the browser applied.
+ */
+export function adoptBrowserOrientedPixels(
+  rgba: Uint8ClampedArray,
+  width: number,
+  height: number,
+  orientation: number,
+): { rgba: Uint8ClampedArray; width: number; height: number } {
+  void orientation;
+  return { rgba, width, height };
+}
+
+/** Bakes an EXIF orientation into raw sensor pixels. Orientation 6 is 90° clockwise. */
 export function orientRgba(
   src: ArrayLike<number>,
   width: number,
@@ -297,44 +313,32 @@ export function lanczosResize(
   return out;
 }
 
-/**
- * Lanczos-3 of Rec.709 sRGB luminance, alpha composited on white first.
- * Same color space the tone map already consumes. Output is clamped to [0, 1].
- */
-export function lanczosResizeLuminance(
-  rgba: ArrayLike<number>,
-  sw: number,
-  sh: number,
-  dw: number,
-  dh: number,
-  originX = 0,
-  originY = 0,
-  stride = sw,
-): Float32Array {
-  const cropW = Math.max(1, sw | 0);
-  const cropH = Math.max(1, sh | 0);
-  const outW = Math.max(1, dw | 0);
-  const outH = Math.max(1, dh | 0);
+/** Exact 2× box. Both dimensions must be even. Each output pixel is the mean of a 2×2 block. */
+function boxDown2(src: Float32Array, width: number, height: number): Float32Array {
+  const dw = width >> 1;
+  const dh = height >> 1;
+  const out = new Float32Array(dw * dh);
+  for (let y = 0; y < dh; y++) {
+    const r0 = (y * 2) * width;
+    const r1 = r0 + width;
+    const dst = y * dw;
+    for (let x = 0; x < dw; x++) {
+      const x2 = x * 2;
+      out[dst + x] = (src[r0 + x2] + src[r0 + x2 + 1] + src[r1 + x2] + src[r1 + x2 + 1]) * 0.25;
+    }
+  }
+  return out;
+}
+
+function lanczosFromLuminance(lum: Float32Array, cropW: number, cropH: number, outW: number, outH: number): Float32Array {
   const wx = lanczosWeights(cropW, outW);
   const wy = lanczosWeights(cropH, outH);
-  // Luminance once, then a single-channel convolution. Same Rec.709 composite
-  // as weighting RGB inside the kernel, without repeating it on every tap.
-  // Each row is padded by a full tap so a border window (shorter than the
-  // widest tap, with trailing zero weights) never reads the next row or past
-  // the buffer. Those padded reads are multiplied by zero.
+  // Pad each row by a full tap so a short border window never reads the next row.
   const xtaps = wx.taps;
   const rowStride = cropW + xtaps;
   const lumSrc = new Float32Array(rowStride * cropH);
   for (let y = 0; y < cropH; y++) {
-    const row = ((originY + y) * stride + originX) * 4;
-    const dst = y * rowStride;
-    for (let x = 0; x < cropW; x++) {
-      const i = row + x * 4;
-      const alpha = rgba[i + 3] / 255;
-      let sample = (0.2126 * rgba[i] + 0.7152 * rgba[i + 1] + 0.0722 * rgba[i + 2]) / 255;
-      if (alpha < 1) sample = sample * alpha + (1 - alpha);
-      lumSrc[dst + x] = sample;
-    }
+    lumSrc.set(lum.subarray(y * cropW, y * cropW + cropW), y * rowStride);
   }
   const tmp = new Float32Array(outW * cropH);
   const xcoeff = wx.coeffs;
@@ -345,18 +349,18 @@ export function lanczosResizeLuminance(
     for (let x = 0; x < outW; x++) {
       const base = xlo[x];
       const coeff = x * xtaps;
-      let lum = 0;
+      let acc = 0;
       let k = 0;
       const n = xtaps;
       for (; k + 3 < n; k += 4) {
-        lum +=
+        acc +=
           lumSrc[row + base + k] * xcoeff[coeff + k] +
           lumSrc[row + base + k + 1] * xcoeff[coeff + k + 1] +
           lumSrc[row + base + k + 2] * xcoeff[coeff + k + 2] +
           lumSrc[row + base + k + 3] * xcoeff[coeff + k + 3];
       }
-      for (; k < n; k++) lum += lumSrc[row + base + k] * xcoeff[coeff + k];
-      tmp[tmpRow + x] = lum;
+      for (; k < n; k++) acc += lumSrc[row + base + k] * xcoeff[coeff + k];
+      tmp[tmpRow + x] = acc;
     }
   }
   const out = new Float32Array(outW * outH);
@@ -365,21 +369,78 @@ export function lanczosResizeLuminance(
     const coeff = y * wy.taps;
     const dst = y * outW;
     for (let x = 0; x < outW; x++) {
-      let lum = 0;
+      let acc = 0;
       for (let k = 0; k < wy.taps; k++) {
         const wk = wy.coeffs[coeff + k];
         if (wk === 0) continue;
-        lum += tmp[(base + k) * outW + x] * wk;
+        acc += tmp[(base + k) * outW + x] * wk;
       }
-      out[dst + x] = lum < 0 ? 0 : lum > 1 ? 1 : lum;
+      out[dst + x] = acc < 0 ? 0 : acc > 1 ? 1 : acc;
     }
   }
   return out;
 }
 
-const resampleCache = new WeakMap<object, Map<string, Float32Array>>();
+/**
+ * Lanczos-3 of Rec.709 sRGB luminance, alpha composited on white first.
+ * Same color space the tone map already consumes. Output is clamped to [0, 1].
+ * Exact 2× box reductions run while halving would still leave the crop at
+ * least 3× the grid, then one Lanczos-3 pass. Pass prefilter=false for the
+ * single-pass kernel.
+ */
+export function lanczosResizeLuminance(
+  rgba: ArrayLike<number>,
+  sw: number,
+  sh: number,
+  dw: number,
+  dh: number,
+  originX = 0,
+  originY = 0,
+  stride = sw,
+  prefilter = true,
+): Float32Array {
+  const cropW = Math.max(1, sw | 0);
+  const cropH = Math.max(1, sh | 0);
+  const outW = Math.max(1, dw | 0);
+  const outH = Math.max(1, dh | 0);
+  let lum = new Float32Array(cropW * cropH);
+  for (let y = 0; y < cropH; y++) {
+    const row = ((originY + y) * stride + originX) * 4;
+    const dst = y * cropW;
+    for (let x = 0; x < cropW; x++) {
+      const i = row + x * 4;
+      const alpha = rgba[i + 3] / 255;
+      let sample = (0.2126 * rgba[i] + 0.7152 * rgba[i + 1] + 0.0722 * rgba[i + 2]) / 255;
+      if (alpha < 1) sample = sample * alpha + (1 - alpha);
+      lum[dst + x] = sample;
+    }
+  }
+  let srcW = cropW;
+  let srcH = cropH;
+  if (prefilter) {
+    // Another exact 2× box only while the reduced image is still at least 3×
+    // the grid. Lanczos-3 then removes what the box would otherwise alias.
+    while (srcW >= outW * 6 && srcH >= outH * 6 && (srcW & 1) === 0 && (srcH & 1) === 0) {
+      lum = boxDown2(lum, srcW, srcH) as typeof lum;
+      srcW >>= 1;
+      srcH >>= 1;
+    }
+  }
+  return lanczosFromLuminance(lum, srcW, srcH, outW, outH);
+}
 
-/** Cached grid resample. The same photo, crop, and grid return the same buffer. */
+const RESAMPLE_CACHE_LIMIT = 2;
+const resampleCache = new WeakMap<object, Map<string, Float32Array>>();
+const sourcePixelCache = new WeakMap<object, Uint8ClampedArray>();
+
+/** Drop cached pixels and resamples for a photo that has been removed. */
+export function releasePhotoCaches(owner: object | null | undefined): void {
+  if (!owner) return;
+  resampleCache.delete(owner);
+  sourcePixelCache.delete(owner);
+}
+
+/** Cached grid resample. Two crops are kept per photo; the least recent is dropped. */
 export function cachedLuminanceResize(
   owner: object,
   rgba: ArrayLike<number>,
@@ -398,9 +459,18 @@ export function cachedLuminanceResize(
   }
   const key = `${sx}|${sy}|${sw}|${sh}|${dw}|${dh}`;
   const hit = bucket.get(key);
-  if (hit) return hit;
+  if (hit) {
+    bucket.delete(key);
+    bucket.set(key, hit);
+    return hit;
+  }
   const out = lanczosResizeLuminance(rgba, sw, sh, dw, dh, sx, sy, srcWidth);
   bucket.set(key, out);
+  while (bucket.size > RESAMPLE_CACHE_LIMIT) {
+    const oldest = bucket.keys().next().value;
+    if (oldest === undefined) break;
+    bucket.delete(oldest);
+  }
   return out;
 }
 
@@ -427,13 +497,14 @@ function rgbaToDataUrl(rgba: Uint8ClampedArray, width: number, height: number, m
   return canvas.toDataURL(png ? 'image/png' : 'image/jpeg', 0.92);
 }
 
-async function bitmapFromBlob(blob: Blob, raw: boolean): Promise<ImageBitmap> {
-  if (raw && typeof createImageBitmap === 'function') {
-    try {
-      return await createImageBitmap(blob, { imageOrientation: 'none' } as ImageBitmapOptions);
-    } catch {
-      return createImageBitmap(blob);
-    }
+async function bitmapFromBlob(blob: Blob, resize?: { width: number; height: number }): Promise<ImageBitmap> {
+  if (resize && typeof createImageBitmap === 'function') {
+    const options = {
+      resizeWidth: resize.width,
+      resizeHeight: resize.height,
+      resizeQuality: 'high',
+    } as ImageBitmapOptions;
+    return createImageBitmap(blob, options);
   }
   return createImageBitmap(blob);
 }
@@ -455,8 +526,8 @@ function bitmapToRgba(bitmap: ImageBitmap): Uint8ClampedArray {
 }
 
 /**
- * Decode with imageOrientation 'none' so EXIF is applied once. A decoder that
- * already swapped the SOF axes is left alone, which avoids a second rotation.
+ * The browser applies EXIF while decoding. Those pixels are stored as-is.
+ * A long edge over 4096 is reduced with createImageBitmap resizeQuality 'high'.
  */
 async function decodePreparedPhoto(
   bytes: Uint8Array,
@@ -465,35 +536,38 @@ async function decodePreparedPhoto(
   sof: { width: number; height: number } | null,
 ): Promise<{ rgba: Uint8ClampedArray; width: number; height: number; rewritten: boolean }> {
   const blob = new Blob([bytes as unknown as BlobPart], { type: mime });
-  const bitmap = await bitmapFromBlob(blob, true);
-  let width = bitmap.width;
-  let height = bitmap.height;
-  let rgba = bitmapToRgba(bitmap);
-  bitmap.close?.();
-  let rewritten = false;
   const swaps = orientationSwapsAxes(orientation);
-  const sensorMatch = !!sof && width === sof.width && height === sof.height;
-  const alreadyOriented = !!sof && swaps && width === sof.height && height === sof.width && !sensorMatch;
-  if (orientation > 1 && !alreadyOriented && (sensorMatch || !sof)) {
-    const oriented = orientRgba(rgba, width, height, orientation);
-    rgba = oriented.rgba;
-    width = oriented.width;
-    height = oriented.height;
-    rewritten = true;
-  } else if (orientation > 1 && alreadyOriented) {
-    rewritten = true;
+  const orientedW = sof ? (swaps ? sof.height : sof.width) : 0;
+  const orientedH = sof ? (swaps ? sof.width : sof.height) : 0;
+  const knownCap = orientedW > 0 ? cappedSize(orientedW, orientedH) : null;
+  const resizeNow = !!knownCap && (knownCap.width !== orientedW || knownCap.height !== orientedH);
+  let didCap = resizeNow;
+  let bitmap = await bitmapFromBlob(blob, resizeNow && knownCap ? { width: knownCap.width, height: knownCap.height } : undefined);
+  if (!resizeNow) {
+    const cap = cappedSize(bitmap.width, bitmap.height);
+    if (cap.width !== bitmap.width || cap.height !== bitmap.height) {
+      const smaller = await createImageBitmap(bitmap, {
+        resizeWidth: cap.width,
+        resizeHeight: cap.height,
+        resizeQuality: 'high',
+      } as ImageBitmapOptions);
+      bitmap.close?.();
+      bitmap = smaller;
+      didCap = true;
+    }
   }
-  const cap = cappedSize(width, height);
-  if (cap.width !== width || cap.height !== height) {
-    rgba = lanczosResize(rgba, width, height, cap.width, cap.height);
-    width = cap.width;
-    height = cap.height;
-    rewritten = true;
-  }
-  return { rgba, width, height, rewritten };
+  const width = bitmap.width;
+  const height = bitmap.height;
+  const decoded = bitmapToRgba(bitmap);
+  bitmap.close?.();
+  const adopted = adoptBrowserOrientedPixels(decoded, width, height, orientation);
+  return {
+    rgba: adopted.rgba,
+    width: adopted.width,
+    height: adopted.height,
+    rewritten: orientation > 1 || didCap,
+  };
 }
-
-const sourcePixelCache = new WeakMap<HTMLImageElement, Uint8ClampedArray>();
 
 export class ImageProcessor {
   /**
@@ -645,6 +719,11 @@ export class ImageProcessor {
   /**
    * Loads an image from a URL or data URL and returns an HTMLImageElement
    */
+  /** Forget cached pixels and resamples when a photo leaves the project. */
+  static releasePhoto(owner: object | null | undefined): void {
+    releasePhotoCaches(owner);
+  }
+
   static async loadImage(src: string): Promise<HTMLImageElement> {
     return new Promise((resolve, reject) => {
       const img = new Image();

@@ -167,15 +167,23 @@ export default function App() {
   // A. Single image load (flat / curved)
   useEffect(() => {
     if (!imageSrc) {
-      setLoadedImage(null);
+      setLoadedImage((prev) => {
+        if (prev) ImageProcessor.releasePhoto(prev);
+        return null;
+      });
       return;
     }
     let isCancelled = false;
     ImageProcessor.loadImage(imageSrc)
       .then((img) => {
         if (!isCancelled) {
-          setLoadedImage(img);
+          setLoadedImage((prev) => {
+            if (prev && prev !== img) ImageProcessor.releasePhoto(prev);
+            return img;
+          });
           setErrorMessage(null);
+        } else {
+          ImageProcessor.releasePhoto(img);
         }
       })
       .catch((err) => {
@@ -204,7 +212,10 @@ export default function App() {
   useEffect(() => {
     const readySlots = cylinderSlots.filter((slot) => slot.imageSrc);
     if (readySlots.length === 0) {
-      setLoadedCylinderImages({});
+      setLoadedCylinderImages((prev) => {
+        for (const img of Object.values(prev)) ImageProcessor.releasePhoto(img);
+        return {};
+      });
       return;
     }
 
@@ -220,8 +231,15 @@ export default function App() {
           results.forEach((item) => {
             map[item.id] = item.img;
           });
-          setLoadedCylinderImages(map);
+          setLoadedCylinderImages((prev) => {
+            for (const img of Object.values(prev)) {
+              if (!Object.values(map).includes(img)) ImageProcessor.releasePhoto(img);
+            }
+            return map;
+          });
           setErrorMessage(null);
+        } else {
+          for (const item of results) ImageProcessor.releasePhoto(item.img);
         }
       })
       .catch((err) => {

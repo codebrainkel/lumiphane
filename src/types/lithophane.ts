@@ -115,6 +115,8 @@ export interface MeshValidationResult {
   openBoundaryEdges: number;
   /** Edges shared by more than two triangles. */
   nonManifoldEdges: number;
+  /** Adjacent triangles whose normals differ by more than 170°. */
+  foldedPairCount: number;
   degenerateTriangles: number;
   warnings: string[];
   eulerCharacteristic: number;

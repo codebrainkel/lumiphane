@@ -418,6 +418,7 @@ export class GeometryGenerator {
       isEnclosed,
       isEnclosed || isStanding,
       isEnclosed ? 'rim' : isStanding ? 'standing' : 'flat',
+      isCube,
     );
 
     return {
@@ -450,6 +451,7 @@ export class GeometryGenerator {
     wrapping: boolean,
     frontCcw: boolean,
     wallMode: 'rim' | 'standing' | 'flat',
+    cube: boolean,
   ): {
     vertices: Float32Array;
     indices: Uint32Array;
@@ -497,6 +499,34 @@ export class GeometryGenerator {
       return { ax, ay, az, nx, ny, nz, inv: 1 / len };
     };
 
+    // One thickness axis per grid vertex. onPlane is called for every corner
+    // of every cell, so the axis is computed once.
+    const tax = new Float32Array(N);
+    const tay = new Float32Array(N);
+    const taz = new Float32Array(N);
+    for (let local = 0; local < N; local++) {
+      // Cube walls are a scaled copy of the inner face, so front−back is skewed
+      // toward the corners. Thickness still runs along the face normal.
+      if (cube) {
+        const sideIdx = Math.min(3, Math.floor((local % cols) / (cols / 4)));
+        if (sideIdx === 0) tay[local] = 1;
+        else if (sideIdx === 1) tax[local] = 1;
+        else if (sideIdx === 2) tay[local] = -1;
+        else tax[local] = -1;
+        continue;
+      }
+      const fi = local * 3;
+      const bi = (N + local) * 3;
+      let ax = vertices[fi] - vertices[bi];
+      let ay = vertices[fi + 1] - vertices[bi + 1];
+      let az = vertices[fi + 2] - vertices[bi + 2];
+      const axisLen = Math.hypot(ax, ay, az);
+      if (axisLen < 1e-8) continue;
+      tax[local] = ax / axisLen;
+      tay[local] = ay / axisLen;
+      taz[local] = az / axisLen;
+    }
+
     const onPlane = (p: Plane, id: number) => {
       const i = id * 3;
       const d =
@@ -505,16 +535,10 @@ export class GeometryGenerator {
         (vertices[i + 2] - p.az) * p.nz;
       const perp = Math.abs(d) * p.inv;
       const local = id >= N ? id - N : id;
-      const fi = local * 3;
-      const bi = (N + local) * 3;
-      let ax = vertices[fi] - vertices[bi];
-      let ay = vertices[fi + 1] - vertices[bi + 1];
-      let az = vertices[fi + 2] - vertices[bi + 2];
-      const axisLen = Math.hypot(ax, ay, az);
-      if (axisLen < 1e-8) return perp <= COPLANAR_EPSILON_MM;
-      ax /= axisLen;
-      ay /= axisLen;
-      az /= axisLen;
+      const ax = tax[local];
+      const ay = tay[local];
+      const az = taz[local];
+      if (ax === 0 && ay === 0 && az === 0) return perp <= COPLANAR_EPSILON_MM;
       const align = Math.abs((p.nx * ax + p.ny * ay + p.nz * az) * p.inv);
       // perp / align is the shift along the thickness axis. Steep faces
       // (small align) may move only a tiny perpendicular distance.
@@ -593,39 +617,6 @@ export class GeometryGenerator {
       }
     }
 
-    const xyzOf = (id: number): [number, number, number] => {
-      if (id >= N * 2) {
-        const e = id - N * 2;
-        return [extraX[e], extraY[e], extraZ[e]];
-      }
-      const i = id * 3;
-      return [vertices[i], vertices[i + 1], vertices[i + 2]];
-    };
-
-    const attribOf = (id: number) => {
-      if (id >= N * 2) {
-        const e = id - N * 2;
-        return { u: extraU[e], v: extraV[e], th: extraTh[e] };
-      }
-      return { u: uvs[id * 2], v: uvs[id * 2 + 1], th: thicknesses[id] };
-    };
-
-    const area2 = (a: number, b: number, c: number) => {
-      const pa = xyzOf(a);
-      const pb = xyzOf(b);
-      const pc = xyzOf(c);
-      const abx = pb[0] - pa[0];
-      const aby = pb[1] - pa[1];
-      const abz = pb[2] - pa[2];
-      const acx = pc[0] - pa[0];
-      const acy = pc[1] - pa[1];
-      const acz = pc[2] - pa[2];
-      const cx = aby * acz - abz * acy;
-      const cy = abz * acx - abx * acz;
-      const cz = abx * acy - aby * acx;
-      return cx * cx + cy * cy + cz * cz;
-    };
-
     const appendEdge = (loop: number[], side: number, rowA: number, colA: number, rowB: number, colB: number) => {
       if (rowA === rowB && (colA >= cols || colB >= cols)) {
         const c = colA >= cols ? 0 : colA;
@@ -649,220 +640,139 @@ export class GeometryGenerator {
       }
     };
 
-    const MIN_TRI_AREA_MM2 = 1e-6;
-    const MIN_TRI_ANGLE = (0.5 * Math.PI) / 180;
-
-    const fanOk = (a: number, b: number, c: number) => {
-      if (a === b || b === c || a === c) return false;
-      const pa = xyzOf(a);
-      const pb = xyzOf(b);
-      const pc = xyzOf(c);
-      const abx = pb[0] - pa[0];
-      const aby = pb[1] - pa[1];
-      const abz = pb[2] - pa[2];
-      const acx = pc[0] - pa[0];
-      const acy = pc[1] - pa[1];
-      const acz = pc[2] - pa[2];
-      const cx = aby * acz - abz * acy;
-      const cy = abz * acx - abx * acz;
-      const cz = abx * acy - aby * acx;
-      const area = 0.5 * Math.hypot(cx, cy, cz);
-      if (area < 1e-6) return false;
-      const lab = Math.hypot(abx, aby, abz);
-      const lbc = Math.hypot(pc[0] - pb[0], pc[1] - pb[1], pc[2] - pb[2]);
-      const lca = Math.hypot(pa[0] - pc[0], pa[1] - pc[1], pa[2] - pc[2]);
-      const ang = (u: number, v: number, opp: number) => {
-        if (u < 1e-9 || v < 1e-9) return 0;
-        const cosine = (u * u + v * v - opp * opp) / (2 * u * v);
-        return Math.acos(Math.max(-1, Math.min(1, cosine)));
-      };
-      const minAngle = Math.min(ang(lab, lca, lbc), ang(lab, lbc, lca), ang(lbc, lca, lab));
-      return minAngle >= (0.5 * Math.PI) / 180;
-    };
-
-    // A corner fan is used only when every triangle clears the sliver limits.
-    // Near-collinear edge points (inside the coplanar tolerance) used to emit
-    // needles because the old area check was far below 1e-6 mm².
-    const tryFan = (loop: number[], commit = true) => {
-      const ring: number[] = [];
-      for (let i = 0; i < loop.length; i++) {
-        if (ring.length === 0 || ring[ring.length - 1] !== loop[i]) ring.push(loop[i]);
-      }
-      if (ring.length > 1 && ring[0] === ring[ring.length - 1]) ring.pop();
-      const n = ring.length;
-      if (n < 3) return false;
+    const emitFan = (loop: number[]) => {
+      const n = loop.length;
+      if (n < 3) return;
       if (n === 3) {
-        if (!fanOk(ring[0], ring[1], ring[2])) return false;
-        if (commit) tris.push(ring[0], ring[1], ring[2]);
-        return true;
+        tris.push(loop[0], loop[1], loop[2]);
+        return;
       }
+      if (n === 4) {
+        // A quad has two triangulations. Keep the diagonal whose two
+        // triangles face each other so a corner on a flat edge cannot fold.
+        const faceMin = 0.01;
+        for (let step = 0; step < 2; step++) {
+          const origin = step * 2;
+          const a = loop[origin];
+          const b = loop[(origin + 1) % 4];
+          const c = loop[(origin + 2) % 4];
+          const d = loop[(origin + 3) % 4];
+          if (a === b || b === c || a === c || a === d || c === d) continue;
+          const ax = vertices[a * 3];
+          const ay = vertices[a * 3 + 1];
+          const az = vertices[a * 3 + 2];
+          const bcx = vertices[b * 3] - ax;
+          const bcy = vertices[b * 3 + 1] - ay;
+          const bcz = vertices[b * 3 + 2] - az;
+          const ccx = vertices[c * 3] - ax;
+          const ccy = vertices[c * 3 + 1] - ay;
+          const ccz = vertices[c * 3 + 2] - az;
+          const dcx = vertices[d * 3] - ax;
+          const dcy = vertices[d * 3 + 1] - ay;
+          const dcz = vertices[d * 3 + 2] - az;
+          const n0x = bcy * ccz - bcz * ccy;
+          const n0y = bcz * ccx - bcx * ccz;
+          const n0z = bcx * ccy - bcy * ccx;
+          const n1x = ccy * dcz - ccz * dcy;
+          const n1y = ccz * dcx - ccx * dcz;
+          const n1z = ccx * dcy - ccy * dcx;
+          const l0 = n0x * n0x + n0y * n0y + n0z * n0z;
+          const l1 = n1x * n1x + n1y * n1y + n1z * n1z;
+          if (l0 < 1e-12 || l1 < 1e-12) continue;
+          const dot = n0x * n1x + n0y * n1y + n0z * n1z;
+          if (!(dot > 0 && dot * dot > faceMin * l0 * l1)) continue;
+          tris.push(a, b, c);
+          tris.push(a, c, d);
+          return;
+        }
+      }
+      let nwx = 0;
+      let nwy = 0;
+      let nwz = 0;
+      for (let i = 0; i < n; i++) {
+        const a = loop[i];
+        const b = loop[(i + 1) % n];
+        const ax = vertices[a * 3];
+        const ay = vertices[a * 3 + 1];
+        const az = vertices[a * 3 + 2];
+        const bx = vertices[b * 3];
+        const by = vertices[b * 3 + 1];
+        const bz = vertices[b * 3 + 2];
+        nwx += (ay - by) * (az + bz);
+        nwy += (az - bz) * (ax + bx);
+        nwz += (ax - bx) * (ay + by);
+      }
+      const nwLen2 = nwx * nwx + nwy * nwy + nwz * nwz;
+      const faceMin = 0.01;
       for (let origin = 0; origin < n; origin++) {
-        const a = ring[origin];
+        const a = loop[origin];
+        const ax = vertices[a * 3];
+        const ay = vertices[a * 3 + 1];
+        const az = vertices[a * 3 + 2];
         let ok = true;
         for (let k = 1; k < n - 1; k++) {
-          if (!fanOk(a, ring[(origin + k) % n], ring[(origin + k + 1) % n])) {
+          const b = loop[(origin + k) % n];
+          const c = loop[(origin + k + 1) % n];
+          if (a === b || b === c || a === c) {
             ok = false;
             break;
           }
+          const abx = vertices[b * 3] - ax;
+          const aby = vertices[b * 3 + 1] - ay;
+          const abz = vertices[b * 3 + 2] - az;
+          const acx = vertices[c * 3] - ax;
+          const acy = vertices[c * 3 + 1] - ay;
+          const acz = vertices[c * 3 + 2] - az;
+          const cx = aby * acz - abz * acy;
+          const cy = abz * acx - abx * acz;
+          const cz = abx * acy - aby * acx;
+          const clen2 = cx * cx + cy * cy + cz * cz;
+          if (clen2 < 1e-12) {
+            ok = false;
+            break;
+          }
+          if (nwLen2 > 1e-24) {
+            const dot = cx * nwx + cy * nwy + cz * nwz;
+            if (!(dot > 0 && dot * dot > faceMin * clen2 * nwLen2)) {
+              ok = false;
+              break;
+            }
+          }
         }
         if (!ok) continue;
-        if (commit) {
-          for (let k = 1; k < n - 1; k++) {
-            tris.push(a, ring[(origin + k) % n], ring[(origin + k + 1) % n]);
-          }
+        for (let k = 1; k < n - 1; k++) {
+          tris.push(a, loop[(origin + k) % n], loop[(origin + k + 1) % n]);
         }
-        return true;
+        return;
       }
-      return false;
-    };
-
-    const triMetrics = (a: number, b: number, c: number) => {
-      const pa = xyzOf(a);
-      const pb = xyzOf(b);
-      const pc = xyzOf(c);
-      const e = (p: [number, number, number], q: [number, number, number]) =>
-        Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2]);
-      const lab = e(pa, pb);
-      const lbc = e(pb, pc);
-      const lca = e(pc, pa);
-      const area = 0.5 * Math.sqrt(area2(a, b, c));
-      const ang = (u: number, v: number, opp: number) => {
-        if (u < 1e-12 || v < 1e-12) return 0;
-        const cosine = (u * u + v * v - opp * opp) / (2 * u * v);
-        return Math.acos(Math.max(-1, Math.min(1, cosine)));
-      };
-      const minAngle = Math.min(ang(lab, lca, lbc), ang(lab, lbc, lca), ang(lbc, lca, lab));
-      const edges: Array<{ u: number; v: number; len: number }> = [
-        { u: a, v: b, len: lab },
-        { u: b, v: c, len: lbc },
-        { u: c, v: a, len: lca },
-      ];
-      edges.sort((p, q) => q.len - p.len);
-      return { area, minAngle, edges };
-    };
-
-    // Park an interior vertex near the short edge of a needle. The original
-    // edges stay in place, so neighbours and the wall are untouched.
-    const addInterior = (ax: number, ay: number, az: number, bx: number, by: number, bz: number, aId: number, bId: number) => {
-      const aa = attribOf(aId);
-      const bb = attribOf(bId);
-      const id = N * 2 + extraX.length;
-      extraX.push((ax + bx) / 2);
-      extraY.push((ay + by) / 2);
-      extraZ.push((az + bz) / 2);
-      extraU.push((aa.u + bb.u) / 2);
-      extraV.push((aa.v + bb.v) / 2);
-      extraTh.push((aa.th + bb.th) / 2);
-      return id;
-    };
-
-    const refineNeedles = () => {
-      const faces: Array<[number, number, number]> = [];
-      for (let i = 0; i < tris.length; i += 3) faces.push([tris[i], tris[i + 1], tris[i + 2]]);
-      const maxFaces = faces.length * 8 + 64;
-      for (let pass = 0; pass < 16 && faces.length < maxFaces; pass++) {
-        const next: Array<[number, number, number]> = [];
-        let split = 0;
-        for (let i = 0; i < faces.length; i++) {
-          const tri = faces[i];
-          const m = triMetrics(tri[0], tri[1], tri[2]);
-          if ((m.area >= MIN_TRI_AREA_MM2 && m.minAngle >= MIN_TRI_ANGLE) || faces.length + split * 2 >= maxFaces) {
-            next.push(tri);
-            continue;
-          }
-          // Shortest edge is edges[2] after the descending sort.
-          const short = m.edges[2];
-          const opp = tri[0] !== short.u && tri[0] !== short.v ? tri[0] : tri[1] !== short.u && tri[1] !== short.v ? tri[1] : tri[2];
-          const su = xyzOf(short.u);
-          const sv = xyzOf(short.v);
-          const ow = xyzOf(opp);
-          const mx = (su[0] + sv[0]) / 2;
-          const my = (su[1] + sv[1]) / 2;
-          const mz = (su[2] + sv[2]) / 2;
-          const ex = sv[0] - su[0];
-          const ey = sv[1] - su[1];
-          const ez = sv[2] - su[2];
-          const wx = ow[0] - su[0];
-          const wy = ow[1] - su[1];
-          const wz = ow[2] - su[2];
-          let nx = ey * wz - ez * wy;
-          let ny = ez * wx - ex * wz;
-          let nz = ex * wy - ey * wx;
-          // In-plane perpendicular to the short edge, aimed at the opposite vertex.
-          let pxd = ny * ez - nz * ey;
-          let pyd = nz * ex - nx * ez;
-          let pzd = nx * ey - ny * ex;
-          const plen = Math.hypot(pxd, pyd, pzd);
-          const toward = (ow[0] - mx) * pxd + (ow[1] - my) * pyd + (ow[2] - mz) * pzd;
-          if (toward < 0) {
-            pxd = -pxd;
-            pyd = -pyd;
-            pzd = -pzd;
-          }
-          if (plen < 1e-10 || short.len < 1e-4) {
-            next.push(tri);
-            continue;
-          }
-          const altitude = Math.abs(toward) / plen;
-          const reach = Math.min(short.len * 1.5, Math.max(altitude * 0.35, short.len * 0.75));
-          const ppx = mx + (pxd / plen) * reach;
-          const ppy = my + (pyd / plen) * reach;
-          const ppz = mz + (pzd / plen) * reach;
-          const childAngle = (ax: number, ay: number, az: number, bx: number, by: number, bz: number, cx: number, cy: number, cz: number) => {
-            const d = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) =>
-              Math.hypot(x1 - x0, y1 - y0, z1 - z0);
-            const lab = d(ax, ay, az, bx, by, bz);
-            const lbc = d(bx, by, bz, cx, cy, cz);
-            const lca = d(cx, cy, cz, ax, ay, az);
-            const ang = (u: number, v: number, oppLen: number) => {
-              if (u < 1e-12 || v < 1e-12) return 0;
-              const cosine = (u * u + v * v - oppLen * oppLen) / (2 * u * v);
-              return Math.acos(Math.max(-1, Math.min(1, cosine)));
-            };
-            return Math.min(ang(lab, lca, lbc), ang(lab, lbc, lca), ang(lbc, lca, lab));
-          };
-          const ou = ow[0];
-          const ov = ow[1];
-          const oz = ow[2];
-          const worstChild = Math.min(
-            childAngle(su[0], su[1], su[2], sv[0], sv[1], sv[2], ppx, ppy, ppz),
-            childAngle(sv[0], sv[1], sv[2], ou, ov, oz, ppx, ppy, ppz),
-            childAngle(ou, ov, oz, su[0], su[1], su[2], ppx, ppy, ppz),
-          );
-          // Keep the split only when every child clears the angle floor.
-          // Nibbling a long needle otherwise multiplies triangles and still fails.
-          if (worstChild < MIN_TRI_ANGLE) {
-            next.push(tri);
-            continue;
-          }
-          const pid = addInterior(mx, my, mz, ppx, ppy, ppz, short.u, opp);
-          extraX[extraX.length - 1] = mx + (pxd / plen) * reach;
-          extraY[extraY.length - 1] = my + (pyd / plen) * reach;
-          extraZ[extraZ.length - 1] = mz + (pzd / plen) * reach;
-          const iu = tri.indexOf(short.u);
-          const iv = tri.indexOf(short.v);
-          const forward = (iu + 1) % 3 === iv;
-          if (forward) {
-            next.push([short.u, short.v, pid]);
-            next.push([short.v, opp, pid]);
-            next.push([opp, short.u, pid]);
-          } else {
-            next.push([short.v, short.u, pid]);
-            next.push([opp, short.v, pid]);
-            next.push([short.u, opp, pid]);
-          }
-          split++;
-        }
-        faces.length = 0;
-        for (let i = 0; i < next.length; i++) faces.push(next[i]);
-        if (split === 0) break;
+      let x = 0;
+      let y = 0;
+      let z = 0;
+      let u = 0;
+      let v = 0;
+      let th = 0;
+      for (let i = 0; i < n; i++) {
+        const id = loop[i];
+        x += vertices[id * 3];
+        y += vertices[id * 3 + 1];
+        z += vertices[id * 3 + 2];
+        u += uvs[id * 2];
+        v += uvs[id * 2 + 1];
+        th += thicknesses[id];
       }
-      tris.length = 0;
-      for (let i = 0; i < faces.length; i++) tris.push(faces[i][0], faces[i][1], faces[i][2]);
+      const inv = 1 / n;
+      const cid = N * 2 + extraX.length;
+      extraX.push(x * inv);
+      extraY.push(y * inv);
+      extraZ.push(z * inv);
+      extraU.push(u * inv);
+      extraV.push(v * inv);
+      extraTh.push(th * inv);
+      for (let i = 0; i < n; i++) tris.push(loop[i], loop[(i + 1) % n], cid);
     };
 
-    // Boundary rows and columns must keep the same columns on the front and the
-    // back. Zipping mismatched chains folds triangles onto the bed.
+    // Boundary rows and columns must keep the same samples on the front and
+    // the back. Zipping mismatched chains folds triangles onto the bed.
     const uniteKept = (kind: 'row' | 'col', index: number) => {
       if (kind === 'row') {
         for (let c = 0; c < cols; c++) {
@@ -884,113 +794,6 @@ export class GeometryGenerator {
         }
       }
     };
-    // Long thin regions cannot be fanned from a corner: the far apex sees the
-    // short edge edge-on. Sample both long edges at the same grid columns so a
-    // strip of quads stays above 0.5°. Neighbours share those vertices.
-    const STRIP_TAN = Math.tan((0.7 * Math.PI) / 180);
-    const edgeLen = (a: number, b: number) => {
-      const pa = xyzOf(a);
-      const pb = xyzOf(b);
-      return Math.hypot(pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]);
-    };
-    const colOf = (c: number) => (c >= cols ? 0 : c);
-    const reinforceRect = (rect: Rect) => {
-      const { side, r0, c0, r1, c1 } = rect;
-      const horiz = Math.max(edgeLen(vidAt(side, r0, c0), vidAt(side, r0, c1)), edgeLen(vidAt(side, r1, c0), vidAt(side, r1, c1)));
-      const vert = Math.max(edgeLen(vidAt(side, r0, c0), vidAt(side, r1, c0)), edgeLen(vidAt(side, r0, c1), vidAt(side, r1, c1)));
-      const minor = Math.min(horiz, vert);
-      const major = Math.max(horiz, vert);
-      if (!(minor > 1e-4) || major <= minor / STRIP_TAN) return;
-      const maxSeg = Math.max(minor / STRIP_TAN, 1e-3);
-      if (horiz >= vert) {
-        const seeds: number[] = [];
-        for (let c = c0; c <= c1; c++) {
-          const cc = colOf(c);
-          if (c === c0 || c === c1 || kept[vidAt(side, r0, cc)] || kept[vidAt(side, r1, cc)]) seeds.push(c);
-        }
-        for (let i = 0; i < seeds.length - 1; i++) {
-          const a = seeds[i];
-          const b = seeds[i + 1];
-          const span = b - a;
-          if (span <= 1) continue;
-          const L = Math.max(edgeLen(vidAt(side, r0, colOf(a)), vidAt(side, r0, colOf(b))), edgeLen(vidAt(side, r1, colOf(a)), vidAt(side, r1, colOf(b))));
-          let parts = Math.ceil(L / maxSeg);
-          if (parts > span) parts = span;
-          for (let p = 1; p < parts; p++) {
-            const c = a + Math.round((span * p) / parts);
-            if (c <= a || c >= b) continue;
-            const cc = colOf(c);
-            kept[vidAt(side, r0, cc)] = 1;
-            kept[vidAt(side, r1, cc)] = 1;
-          }
-        }
-      } else {
-        const seeds: number[] = [];
-        for (let r = r0; r <= r1; r++) {
-          if (r === r0 || r === r1 || kept[vidAt(side, r, c0)] || kept[vidAt(side, r, c1)]) seeds.push(r);
-        }
-        for (let i = 0; i < seeds.length - 1; i++) {
-          const a = seeds[i];
-          const b = seeds[i + 1];
-          const span = b - a;
-          if (span <= 1) continue;
-          const L = Math.max(edgeLen(vidAt(side, a, c0), vidAt(side, b, c0)), edgeLen(vidAt(side, a, c1), vidAt(side, b, c1)));
-          let parts = Math.ceil(L / maxSeg);
-          if (parts > span) parts = span;
-          for (let p = 1; p < parts; p++) {
-            const r = a + Math.round((span * p) / parts);
-            if (r <= a || r >= b) continue;
-            kept[vidAt(side, r, c0)] = 1;
-            kept[vidAt(side, r, c1)] = 1;
-          }
-        }
-      }
-    };
-    for (let i = 0; i < rects.length; i++) reinforceRect(rects[i]);
-
-    // A single long boundary edge can only belong to one triangle. Its apex then
-    // sits far from the corners and the corner gap drops under 0.5°. Sample
-    // those edges before the front and back walls are united.
-    const subdivideLongEdge = (side: number, rowA: number, colA: number, rowB: number, colB: number) => {
-      const a = vidAt(side, rowA, colA >= cols ? 0 : colA);
-      const b = vidAt(side, rowB, colB >= cols ? 0 : colB);
-      const length = edgeLen(a, b);
-      if (rowA === rowB) {
-        const span = Math.abs(colB - colA);
-        if (span <= 1) return;
-        // Coarse grids already clear 0.5°. Only a fine edge that skipped its
-        // samples needs extra corners, otherwise the fill adds more triangles
-        // than the original grid.
-        if (length <= 24 || length / span >= 1) return;
-        const parts = Math.min(span, Math.ceil(length / 8));
-        const step = colB > colA ? 1 : -1;
-        for (let p = 1; p < parts; p++) {
-          const t = Math.round((span * p) / parts);
-          if (t <= 0 || t >= span) continue;
-          kept[vidAt(side, rowA, colOf(colA + step * t))] = 1;
-        }
-        return;
-      }
-      const span = Math.abs(rowB - rowA);
-      if (span <= 1) return;
-      if (length <= 24 || length / span >= 1) return;
-      const parts = Math.min(span, Math.ceil(length / 8));
-      const step = rowB > rowA ? 1 : -1;
-      const col = colA >= cols ? 0 : colA;
-      for (let p = 1; p < parts; p++) {
-        const t = Math.round((span * p) / parts);
-        if (t <= 0 || t >= span) continue;
-        kept[vidAt(side, rowA + step * t, col)] = 1;
-      }
-    };
-    for (let i = 0; i < rects.length; i++) {
-      const rect = rects[i];
-      subdivideLongEdge(rect.side, rect.r0, rect.c0, rect.r0, rect.c1);
-      subdivideLongEdge(rect.side, rect.r0, rect.c1, rect.r1, rect.c1);
-      subdivideLongEdge(rect.side, rect.r1, rect.c1, rect.r1, rect.c0);
-      subdivideLongEdge(rect.side, rect.r1, rect.c0, rect.r0, rect.c0);
-    }
-
     if (wallMode === 'rim') {
       uniteKept('row', 0);
       uniteKept('row', meshRows - 1);
@@ -1001,313 +804,16 @@ export class GeometryGenerator {
       uniteKept('col', cols - 1);
     }
 
-    // Wall quads are the front-to-back thickness by the boundary segment.
-    // A segment longer than thickness / tan(0.7°) would sit under 0.5°.
-    const splitWallGaps = (kind: 'row' | 'col', index: number, wrap: boolean) => {
-      const keys: number[] = [];
-      const limit = kind === 'row' ? cols : meshRows;
-      for (let i = 0; i < limit; i++) {
-        const front = kind === 'row' ? vidAt(0, index, i) : vidAt(0, i, index);
-        const back = kind === 'row' ? vidAt(1, index, i) : vidAt(1, i, index);
-        if (kept[front] || kept[back]) keys.push(i);
-      }
-      if (wrap && keys.length > 0) keys.push(limit);
-      for (let i = 0; i < keys.length - 1; i++) {
-        const a = keys[i];
-        const b = keys[i + 1];
-        const span = b - a;
-        if (span <= 1) continue;
-        const fa = kind === 'row' ? vidAt(0, index, colOf(a)) : vidAt(0, a, index);
-        const fb = kind === 'row' ? vidAt(0, index, colOf(b)) : vidAt(0, b, index);
-        const ba = kind === 'row' ? vidAt(1, index, colOf(a)) : vidAt(1, a, index);
-        const bb = kind === 'row' ? vidAt(1, index, colOf(b)) : vidAt(1, b, index);
-        const along = Math.max(edgeLen(fa, fb), edgeLen(ba, bb));
-        const thick = Math.max(0.4, Math.min(edgeLen(fa, ba), edgeLen(fb, bb)));
-        const maxSeg = thick / STRIP_TAN;
-        if (along <= maxSeg) continue;
-        let parts = Math.ceil(along / maxSeg);
-        if (parts > span) parts = span;
-        for (let p = 1; p < parts; p++) {
-          const t = a + Math.round((span * p) / parts);
-          if (t <= a || t >= b || t >= limit) continue;
-          if (kind === 'row') {
-            kept[vidAt(0, index, t)] = 1;
-            kept[vidAt(1, index, t)] = 1;
-          } else {
-            kept[vidAt(0, t, index)] = 1;
-            kept[vidAt(1, t, index)] = 1;
-          }
-        }
-      }
-    };
-    if (wallMode === 'rim') {
-      splitWallGaps('row', 0, true);
-      splitWallGaps('row', meshRows - 1, true);
-    } else {
-      splitWallGaps('row', 0, false);
-      splitWallGaps('row', meshRows - 1, false);
-      splitWallGaps('col', 0, false);
-      splitWallGaps('col', cols - 1, false);
-    }
-
-    const newell = (loop: number[]) => {
-      let nx = 0;
-      let ny = 0;
-      let nz = 0;
-      for (let i = 0; i < loop.length; i++) {
-        const p = xyzOf(loop[i]);
-        const q = xyzOf(loop[(i + 1) % loop.length]);
-        nx += (p[1] - q[1]) * (p[2] + q[2]);
-        ny += (p[2] - q[2]) * (p[0] + q[0]);
-        nz += (p[0] - q[0]) * (p[1] + q[1]);
-      }
-      return [nx, ny, nz];
-    };
-
-    const emitStrip = (rect: Rect, loop: number[]) => {
-      // A corner fan collapses when three boundary samples lie on one edge.
-      // Cover every loop vertex: the wall still stitches those samples, so
-      // dropping a short side opens the solid. Use a centroid when it clears
-      // 0.5 degrees; otherwise inset the boundary until a centroid does.
-      void rect;
-      const ref0 = newell(loop);
-      const dedup = (ids: number[]) => {
-        const ring: number[] = [];
-        for (let k = 0; k < ids.length; k++) {
-          if (ring.length === 0 || ring[ring.length - 1] !== ids[k]) ring.push(ids[k]);
-        }
-        if (ring.length > 1 && ring[0] === ring[ring.length - 1]) ring.pop();
-        return ring;
-      };
-      const orient = (a: number, b: number, c: number, why = '') => {
-        if (a === b || b === c || a === c) return;
-        const pa = xyzOf(a);
-        const pb = xyzOf(b);
-        const pc = xyzOf(c);
-        const cx = (pb[1] - pa[1]) * (pc[2] - pa[2]) - (pb[2] - pa[2]) * (pc[1] - pa[1]);
-        const cy = (pb[2] - pa[2]) * (pc[0] - pa[0]) - (pb[0] - pa[0]) * (pc[2] - pa[2]);
-        const cz = (pb[0] - pa[0]) * (pc[1] - pa[1]) - (pb[1] - pa[1]) * (pc[0] - pa[0]);
-        if (cx * cx + cy * cy + cz * cz < 1e-24) return;
-        // Keep the caller's edge order. The loop is already wound, and flipping
-        // a gap to match the face normal walks the shared edge the same way as
-        // the fan, which the manifold test rejects.
-        tris.push(a, b, c);
-      };
-      const addPoint = (x: number, y: number, z: number, u: number, v: number, th: number) => {
-        const id = N * 2 + extraX.length;
-        extraX.push(x);
-        extraY.push(y);
-        extraZ.push(z);
-        extraU.push(u);
-        extraV.push(v);
-        extraTh.push(th);
-        return id;
-      };
-      const popPoint = () => {
-        extraX.pop();
-        extraY.pop();
-        extraZ.pop();
-        extraU.pop();
-        extraV.pop();
-        extraTh.pop();
-      };
-      const mean = (ring: number[]) => {
-        let x = 0;
-        let y = 0;
-        let z = 0;
-        let u = 0;
-        let v = 0;
-        let th = 0;
-        for (let k = 0; k < ring.length; k++) {
-          const pt = xyzOf(ring[k]);
-          const at = attribOf(ring[k]);
-          x += pt[0];
-          y += pt[1];
-          z += pt[2];
-          u += at.u;
-          v += at.v;
-          th += at.th;
-        }
-        const inv = 1 / ring.length;
-        return { x: x * inv, y: y * inv, z: z * inv, u: u * inv, v: v * inv, th: th * inv };
-      };
-      const centroidFan = (ring: number[]) => {
-        if (ring.length < 3) return false;
-        const c = mean(ring);
-        const id = addPoint(c.x, c.y, c.z, c.u, c.v, c.th);
-        for (let k = 0; k < ring.length; k++) {
-          if (!fanOk(ring[k], ring[(k + 1) % ring.length], id)) {
-            popPoint();
-            return false;
-          }
-        }
-        for (let k = 0; k < ring.length; k++) orient(ring[k], ring[(k + 1) % ring.length], id, 'centroid');
-        return true;
-      };
-      const groupGeom = (ring: number[], start: number, edges: number, center: { x: number; y: number; z: number }, hRing: number) => {
-        const n = ring.length;
-        let mx = 0;
-        let my = 0;
-        let mz = 0;
-        let mu = 0;
-        let mv = 0;
-        let mt = 0;
-        for (let t = 0; t <= edges; t++) {
-          const id = ring[(start + t) % n];
-          const pt = xyzOf(id);
-          const at = attribOf(id);
-          mx += pt[0];
-          my += pt[1];
-          mz += pt[2];
-          mu += at.u;
-          mv += at.v;
-          mt += at.th;
-        }
-        const inv = 1 / (edges + 1);
-        mx *= inv;
-        my *= inv;
-        mz *= inv;
-        mu *= inv;
-        mv *= inv;
-        mt *= inv;
-        const end = xyzOf(ring[(start + edges) % n]);
-        const startP = xyzOf(ring[start]);
-        const ex = end[0] - startP[0];
-        const ey = end[1] - startP[1];
-        const ez = end[2] - startP[2];
-        let ix = ey * ref0[2] - ez * ref0[1];
-        let iy = ez * ref0[0] - ex * ref0[2];
-        let iz = ex * ref0[1] - ey * ref0[0];
-        let il = Math.hypot(ix, iy, iz);
-        if (il < 1e-8) return null;
-        ix /= il;
-        iy /= il;
-        iz /= il;
-        const toward = (center.x - mx) * ix + (center.y - my) * iy + (center.z - mz) * iz;
-        if (toward < 0) {
-          ix = -ix;
-          iy = -iy;
-          iz = -iz;
-        }
-        il = Math.abs(toward);
-        if (il < 1e-6) return null;
-        const h = Math.min(hRing, il * 0.45);
-        if (!(h > 1e-4)) return null;
-        // Keep the apex near both ends so the gap to the next group stays above 0.5°.
-        const reach = Math.min(h / Math.tan((0.9 * Math.PI) / 180), Math.max(6, h * 5));
-        const id = addPoint(mx + ix * h, my + iy * h, mz + iz * h, mu, mv, mt);
-        let ok = edgeLen(ring[start], id) <= reach && edgeLen(ring[(start + edges) % n], id) <= reach;
-        for (let t = 0; ok && t < edges; t++) {
-          if (!fanOk(ring[(start + t) % n], ring[(start + t + 1) % n], id)) ok = false;
-        }
-        const saved = ok
-          ? { x: mx + ix * h, y: my + iy * h, z: mz + iz * h, u: mu, v: mv, th: mt }
-          : null;
-        popPoint();
-        return saved;
-      };
-      const cover = (ringIn: number[], depth: number) => {
-        const ring = dedup(ringIn);
-        if (ring.length < 3) return;
-        if (tryFan(ring)) return;
-        if (centroidFan(ring)) return;
-        if (depth >= 5) {
-          const c = mean(ring);
-          const id = addPoint(c.x, c.y, c.z, c.u, c.v, c.th);
-          for (let k = 0; k < ring.length; k++) orient(ring[k], ring[(k + 1) % ring.length], id, 'depth');
-          return;
-        }
-        const center = mean(ring);
-        const n = ring.length;
-        const edgeLens: number[] = [];
-        for (let k = 0; k < n; k++) edgeLens.push(edgeLen(ring[k], ring[(k + 1) % n]));
-        edgeLens.sort((a, b) => a - b);
-        const medianEdge = edgeLens[Math.floor(edgeLens.length / 2)] || 1;
-        const hRing = Math.min(4, Math.max(0.6, medianEdge * 3));
-        const apices: number[] = [];
-        const junctions: number[] = [];
-        let start = 0;
-        let spun = 0;
-        while (spun < n) {
-          let bestEdges = 0;
-          let best: { x: number; y: number; z: number; u: number; v: number; th: number } | null = null;
-          const limit = Math.min(48, n - spun);
-          for (let edges = 1; edges <= limit; edges++) {
-            const point = groupGeom(ring, start, edges, center, hRing);
-            if (!point) break;
-            bestEdges = edges;
-            best = point;
-          }
-          if (!best) {
-            const a = xyzOf(ring[start]);
-            const b = xyzOf(ring[(start + 1) % n]);
-            const at = attribOf(ring[start]);
-            const bt = attribOf(ring[(start + 1) % n]);
-            const ex = b[0] - a[0];
-            const ey = b[1] - a[1];
-            const ez = b[2] - a[2];
-            let ix = ey * ref0[2] - ez * ref0[1];
-            let iy = ez * ref0[0] - ex * ref0[2];
-            let iz = ex * ref0[1] - ey * ref0[0];
-            const iln = Math.hypot(ix, iy, iz) || 1;
-            ix /= iln;
-            iy /= iln;
-            iz /= iln;
-            if ((center.x - (a[0] + b[0]) / 2) * ix + (center.y - (a[1] + b[1]) / 2) * iy + (center.z - (a[2] + b[2]) / 2) * iz < 0) {
-              ix = -ix;
-              iy = -iy;
-              iz = -iz;
-            }
-            const h = 1;
-            best = {
-              x: (a[0] + b[0]) / 2 + ix * h,
-              y: (a[1] + b[1]) / 2 + iy * h,
-              z: (a[2] + b[2]) / 2 + iz * h,
-              u: (at.u + bt.u) / 2,
-              v: (at.v + bt.v) / 2,
-              th: (at.th + bt.th) / 2,
-            };
-            bestEdges = 1;
-          }
-          if (bestEdges >= n) {
-            const id = addPoint(best.x, best.y, best.z, best.u, best.v, best.th);
-            for (let t = 0; t < n; t++) orient(ring[t], ring[(t + 1) % n], id, 'whole');
-            return;
-          }
-          const id = addPoint(best.x, best.y, best.z, best.u, best.v, best.th);
-          for (let t = 0; t < bestEdges; t++) {
-            orient(ring[(start + t) % n], ring[(start + t + 1) % n], id, 'group');
-          }
-          apices.push(id);
-          junctions.push(ring[start]);
-          start = (start + bestEdges) % n;
-          spun += bestEdges;
-        }
-        if (apices.length < 2) return;
-        for (let i = 0; i < apices.length; i++) {
-          const next = (i + 1) % apices.length;
-          orient(apices[i], junctions[next], apices[next], 'gap' + depth);
-        }
-        if (apices.length >= 3) cover(apices, depth + 1);
-      };
-      cover(dedup(loop), 0);
-    };
-
-    const buildLoop = (rect: Rect) => {
+    for (let i = 0; i < rects.length; i++) {
+      const rect = rects[i];
       const loop: number[] = [];
       appendEdge(loop, rect.side, rect.r0, rect.c0, rect.r0, rect.c1);
       appendEdge(loop, rect.side, rect.r0, rect.c1, rect.r1, rect.c1);
       appendEdge(loop, rect.side, rect.r1, rect.c1, rect.r1, rect.c0);
       appendEdge(loop, rect.side, rect.r1, rect.c0, rect.r0, rect.c0);
       if ((rect.side === 0) !== frontCcw) loop.reverse();
-      return loop;
-    };
-    for (let i = 0; i < rects.length; i++) {
-      const rect = rects[i];
-      const loop = buildLoop(rect);
-      if (!tryFan(loop)) emitStrip(rect, loop);
+      emitFan(loop);
     }
-    refineNeedles();
 
     const chainRow = (side: number, row: number, wrap: boolean) => {
       const ids: number[] = [];
@@ -1393,184 +899,6 @@ export class GeometryGenerator {
       emitWall('col', 0, 'top', false);
       emitWall('col', cols - 1, 'bot', false);
     }
-    // A short bed segment across a deep base is a needle if it is drawn as one
-    // diagonal. A midpoint on each long side of that quad clears 0.5°.
-    const splitSkinnyQuads = () => {
-      const faces: Array<[number, number, number]> = [];
-      for (let i = 0; i < tris.length; i += 3) faces.push([tris[i], tris[i + 1], tris[i + 2]]);
-      const edgeMap = new Map<string, number[]>();
-      const ekey = (a: number, b: number) => (a < b ? a + ',' + b : b + ',' + a);
-      for (let i = 0; i < faces.length; i++) {
-        const f = faces[i];
-        for (let k = 0; k < 3; k++) {
-          const key = ekey(f[k], f[(k + 1) % 3]);
-          const list = edgeMap.get(key);
-          if (list) list.push(i);
-          else edgeMap.set(key, [i]);
-        }
-      }
-      const dead = new Uint8Array(faces.length);
-      const mids = new Map<string, number>();
-      const mid = (a: number, b: number) => {
-        const key = ekey(a, b);
-        const found = mids.get(key);
-        if (found !== undefined) return found;
-        const pa = xyzOf(a);
-        const pb = xyzOf(b);
-        const aa = attribOf(a);
-        const bb = attribOf(b);
-        const id = N * 2 + extraX.length;
-        extraX.push((pa[0] + pb[0]) / 2);
-        extraY.push((pa[1] + pb[1]) / 2);
-        extraZ.push((pa[2] + pb[2]) / 2);
-        extraU.push((aa.u + bb.u) / 2);
-        extraV.push((aa.v + bb.v) / 2);
-        extraTh.push((aa.th + bb.th) / 2);
-        mids.set(key, id);
-        return id;
-      };
-      const refOf = (f: [number, number, number]): [number, number, number] => {
-        const pa = xyzOf(f[0]);
-        const pb = xyzOf(f[1]);
-        const pc = xyzOf(f[2]);
-        return [
-          (pb[1] - pa[1]) * (pc[2] - pa[2]) - (pb[2] - pa[2]) * (pc[1] - pa[1]),
-          (pb[2] - pa[2]) * (pc[0] - pa[0]) - (pb[0] - pa[0]) * (pc[2] - pa[2]),
-          (pb[0] - pa[0]) * (pc[1] - pa[1]) - (pb[1] - pa[1]) * (pc[0] - pa[0]),
-        ];
-      };
-      const orient = (a: number, b: number, c: number, ref: [number, number, number]): [number, number, number] => {
-        const pa = xyzOf(a);
-        const pb = xyzOf(b);
-        const pc = xyzOf(c);
-        const crx = (pb[1] - pa[1]) * (pc[2] - pa[2]) - (pb[2] - pa[2]) * (pc[1] - pa[1]);
-        const cry = (pb[2] - pa[2]) * (pc[0] - pa[0]) - (pb[0] - pa[0]) * (pc[2] - pa[2]);
-        const crz = (pb[0] - pa[0]) * (pc[1] - pa[1]) - (pb[1] - pa[1]) * (pc[0] - pa[0]);
-        if (crx * ref[0] + cry * ref[1] + crz * ref[2] >= 0) return [a, b, c];
-        return [a, c, b];
-      };
-      const added: Array<[number, number, number]> = [];
-      for (let i = 0; i < faces.length; i++) {
-        if (dead[i]) continue;
-        const f = faces[i];
-        const metrics = triMetrics(f[0], f[1], f[2]);
-        if (metrics.area >= MIN_TRI_AREA_MM2 && metrics.minAngle >= MIN_TRI_ANGLE) continue;
-        for (let k = 0; k < 3; k++) {
-          const a = f[k];
-          const b = f[(k + 1) % 3];
-          const users = edgeMap.get(ekey(a, b)) || [];
-          if (users.length !== 2) continue;
-          const j = users[0] === i ? users[1] : users[0];
-          if (j < i || dead[j]) continue;
-          const g = faces[j];
-          const outer: Array<[number, number]> = [];
-          for (let t = 0; t < 3; t++) {
-            const u = f[t];
-            const v = f[(t + 1) % 3];
-            if (ekey(u, v) !== ekey(a, b)) outer.push([u, v]);
-            const gu = g[t];
-            const gv = g[(t + 1) % 3];
-            if (ekey(gu, gv) !== ekey(a, b)) outer.push([gu, gv]);
-          }
-          const lens = outer.map(([u, v]) => ({ u, v, len: edgeLen(u, v) }));
-          lens.sort((p, q) => q.len - p.len);
-          if (lens.length < 4) continue;
-          const short = Math.min(lens[2].len, lens[3].len);
-          if (!(short > 1e-6)) continue;
-          const limit = short / Math.tan((0.55 * Math.PI) / 180);
-          if (lens[0].len <= limit) continue;
-          if (lens[0].len > limit * 2 || lens[1].len > limit * 2) continue;
-          const adj = new Map<number, number[]>();
-          for (let e = 0; e < outer.length; e++) {
-            const u = outer[e][0];
-            const v = outer[e][1];
-            if (!adj.has(u)) adj.set(u, []);
-            if (!adj.has(v)) adj.set(v, []);
-            adj.get(u)!.push(v);
-            adj.get(v)!.push(u);
-          }
-          const loop = [outer[0][0]];
-          let prev = -1;
-          let cur = loop[0];
-          for (let step = 0; step < 3; step++) {
-            const nbrs = adj.get(cur) || [];
-            const nxt = nbrs[0] === prev ? nbrs[1] : nbrs[0];
-            loop.push(nxt);
-            prev = cur;
-            cur = nxt;
-          }
-          let rot = 0;
-          while (rot < 4 && edgeLen(loop[0], loop[1]) > limit) {
-            loop.push(loop.shift()!);
-            rot++;
-          }
-          if (edgeLen(loop[0], loop[1]) > limit) continue;
-          const A = loop[0];
-          const B = loop[1];
-          const C = loop[2];
-          const D = loop[3];
-          const extraBefore = extraX.length;
-          const mBC = mid(B, C);
-          const mDA = mid(D, A);
-          const ref = refOf(f);
-          const kids: Array<[number, number, number]> = [
-            orient(A, B, mBC, ref),
-            orient(A, mBC, mDA, ref),
-            orient(mDA, mBC, C, ref),
-            orient(mDA, C, D, ref),
-          ];
-          let ok = true;
-          let areaSum = 0;
-          const quadArea = metrics.area + triMetrics(g[0], g[1], g[2]).area;
-          for (let t = 0; t < kids.length; t++) {
-            const km = triMetrics(kids[t][0], kids[t][1], kids[t][2]);
-            areaSum += km.area;
-            if (km.area < 1e-8 || km.minAngle < MIN_TRI_ANGLE) ok = false;
-          }
-          if (!ok || Math.abs(areaSum - quadArea) > quadArea * 0.05 + 1e-4) {
-            const stale: string[] = [];
-            for (const [key, id] of mids) {
-              if (id >= N * 2 + extraBefore) stale.push(key);
-            }
-            for (let s = 0; s < stale.length; s++) mids.delete(stale[s]);
-            extraX.length = extraBefore;
-            extraY.length = extraBefore;
-            extraZ.length = extraBefore;
-            extraU.length = extraBefore;
-            extraV.length = extraBefore;
-            extraTh.length = extraBefore;
-            continue;
-          }
-          dead[i] = 1;
-          dead[j] = 1;
-          for (let t = 0; t < kids.length; t++) added.push(kids[t]);
-          break;
-        }
-      }
-      for (let i = 0; i < faces.length; i++) {
-        if (dead[i]) continue;
-        const face = faces[i];
-        for (let k = 0; k < 3; k++) {
-          const u = face[k];
-          const v = face[(k + 1) % 3];
-          const m = mids.get(ekey(u, v));
-          if (m === undefined) continue;
-          const opp = face[(k + 2) % 3];
-          const rf = refOf(face);
-          added.push(orient(u, m, opp, rf));
-          added.push(orient(m, v, opp, rf));
-          dead[i] = 1;
-          break;
-        }
-      }
-      tris.length = 0;
-      for (let i = 0; i < faces.length; i++) {
-        if (dead[i]) continue;
-        tris.push(faces[i][0], faces[i][1], faces[i][2]);
-      }
-      for (let i = 0; i < added.length; i++) tris.push(added[i][0], added[i][1], added[i][2]);
-    };
-    splitSkinnyQuads();
 
     const slotCount = N * 2 + extraX.length;
     const remap = new Int32Array(slotCount);
