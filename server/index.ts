@@ -27,7 +27,8 @@ app.use((req, res, next) => {
 });
 
 const port = Number(process.env.PORT) || 3000;
-app.listen(port, '0.0.0.0', () => {
+const host = process.env.HOST || '0.0.0.0';
+app.listen(port, host, () => {
   const ordering = process.env.TREATSTOCK_PRIVATE_KEY?.trim() ? 'on' : 'off';
-  console.log(`Lumiphane listening on ${port} (Treatstock ordering ${ordering})`);
+  console.log(`Lumiphane listening on ${host}:${port} (Treatstock ordering ${ordering})`);
 });
