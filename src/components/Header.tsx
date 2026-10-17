@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, ArrowRight, Eye, Printer } from 'lucide-react';
+import { Download, ArrowRight, Eye } from 'lucide-react';
 import { AppStep, LithophaneShape } from '../types/lithophane';
 
 interface HeaderProps {
@@ -8,9 +8,7 @@ interface HeaderProps {
   shape: LithophaneShape;
   canPreview: boolean;
   onExportClick: () => void;
-  printOrderingEnabled?: boolean;
-  orderReady?: boolean;
-  onOrderPrint?: () => void;
+  exportReady?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -19,9 +17,7 @@ export const Header: React.FC<HeaderProps> = ({
   shape,
   canPreview,
   onExportClick,
-  printOrderingEnabled = false,
-  orderReady = false,
-  onOrderPrint,
+  exportReady = false,
 }) => {
   const shapeLabel =
     shape === 'cylinder'
@@ -113,25 +109,16 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Zone 3: 1 Primary Action */}
       <div className="flex items-center gap-2 shrink-0">
         {currentStep === 'preview' ? (
-          <>
-            {printOrderingEnabled && (
-              <button
-                type="button"
-                onClick={onOrderPrint}
-                disabled={!orderReady}
-                aria-label="Order a print"
-                title={orderReady ? 'Order a physical print' : 'Wait for the model to finish'}
-                className="btn-secondary"
-              >
-                <Printer className="w-3.5 h-3.5 shrink-0" />
-                <span className="hidden sm:inline">Order a print</span>
-              </button>
-            )}
-            <button type="button" onClick={onExportClick} className="nav-action">
-              <Download className="w-3.5 h-3.5 shrink-0 stroke-[2.5]" />
-              <span>Export</span>
-            </button>
-          </>
+          <button
+            type="button"
+            onClick={onExportClick}
+            disabled={!exportReady}
+            title={exportReady ? 'Export the model' : 'Wait for the model to finish'}
+            className="nav-action"
+          >
+            <Download className="w-3.5 h-3.5 shrink-0 stroke-[2.5]" />
+            <span>Export</span>
+          </button>
         ) : currentStep === 'upload' ? (
           <button
             type="button"

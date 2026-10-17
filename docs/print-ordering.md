@@ -49,8 +49,8 @@ Payouts are withdrawn from the Treatstock Earnings page:
    `TREATSTOCK_DEFAULT_COUNTRY` is an ISO 3166-1 alpha-2 code used for quotes when the visitor's IP is private. Copy the names from `.env.example`. Do not prefix the key with `VITE_`.
 5. Run the app with the API process:
    - Development: `npm run dev` mounts `POST /api/print-order` inside Vite and reads `.env`.
-   - Production: `npm run build` then `npm start` (`tsx server/index.ts`). That process serves `dist/` and the print API on `PORT` (default 3000).
-6. Reload. **Order a print** appears beside Export only when the key is set and is not a placeholder. An empty key hides the button. Export is unchanged.
+   - Production: `npm run build` then `npm start` (`tsx server/index.ts`). That process serves `dist/` and the print API on `PORT` (default 3000). See [email-export.md](email-export.md) for the full production file list.
+6. Reload. **Order a print** is inside the Export menu, and only when the key is set and is not a placeholder. An empty key hides that action. Download stays available.
 7. After customers pay Treatstock and the orders are not refunded, withdraw from the Earnings page (step "How the owner gets paid").
 
 Treatstock also documents a **public-upload-key** that can upload models but cannot read other users' files. Lumiphane uses the private key on the server so the key never ships to the browser. Do not put either key in frontend code.
@@ -69,7 +69,7 @@ The server accepts an STL up to 160 MB. That covers a master-quality flat panel 
 
 The model note asks for solid (100%) infill. Infill is still chosen in the Treatstock widget; a hollow lithophane will not show the photo.
 
-If `TREATSTOCK_PRIVATE_KEY` is missing, shorter than 8 characters, or a placeholder, `GET /api/print-order/status` returns `enabled: false` and both Order buttons stay hidden. `POST /api/print-order` returns 503 with the same explanation. A Treatstock or network failure is shown in the order dialog. Export keeps working.
+If `TREATSTOCK_PRIVATE_KEY` is missing, shorter than 8 characters, or a placeholder, `GET /api/print-order/status` returns `enabled: false` and Order a print stays hidden inside Export. `POST /api/print-order` returns 503 with the same explanation. A Treatstock or network failure is shown in the order dialog. Download and email keep working.
 
 ## Alternatives
 

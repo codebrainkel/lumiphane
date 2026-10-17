@@ -20,7 +20,6 @@ import {
   GripVertical,
   HelpCircle,
   Images,
-  Printer,
   Move,
   PanelBottom,
   RotateCcw,
@@ -46,9 +45,6 @@ interface ControlPanelProps {
   onReorderCylinderSlots?: (newSlots: CylinderSlot[]) => void;
   onMatchCylinderHeightToPhoto?: () => void;
   onPlacePhotos?: () => void;
-  printOrderingEnabled?: boolean;
-  orderReady?: boolean;
-  onOrderPrint?: () => void;
 }
 
 type PanelTab = 'photo' | 'size' | 'border' | 'stand' | 'tone';
@@ -186,9 +182,6 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onReorderCylinderSlots,
   onMatchCylinderHeightToPhoto,
   onPlacePhotos,
-  printOrderingEnabled = false,
-  orderReady = false,
-  onOrderPrint,
 }) => {
   const [tab, setTab] = useState<PanelTab>('photo');
   const [open, setOpen] = useState(true);
@@ -891,18 +884,6 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
         {/* Dock Footer Actions */}
         <div className="sheet-footer">
-          {printOrderingEnabled && (
-            <button
-              type="button"
-              onClick={onOrderPrint}
-              disabled={!orderReady}
-              title={orderReady ? 'Order a physical print through Treatstock' : 'Wait for the model to finish'}
-              className="btn-secondary mb-2 w-full"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>Order a print</span>
-            </button>
-          )}
           <div className="dock-links">
             <button
               type="button"

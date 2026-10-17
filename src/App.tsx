@@ -148,6 +148,7 @@ export default function App() {
   const [showSlicingModal, setShowSlicingModal] = useState<boolean>(false);
   const [showOrderModal, setShowOrderModal] = useState<boolean>(false);
   const [printOrderingEnabled, setPrintOrderingEnabled] = useState<boolean>(false);
+  const [emailExportEnabled, setEmailExportEnabled] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const slotFileInputRef = useRef<HTMLInputElement>(null);
   const debounceTimerRef = useRef<number | null>(null);
@@ -161,6 +162,14 @@ export default function App() {
       })
       .catch(() => {
         if (!cancelled) setPrintOrderingEnabled(false);
+      });
+    fetch('/api/email-export/status')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { enabled?: boolean } | null) => {
+        if (!cancelled) setEmailExportEnabled(Boolean(data?.enabled));
+      })
+      .catch(() => {
+        if (!cancelled) setEmailExportEnabled(false);
       });
     return () => {
       cancelled = true;
@@ -809,9 +818,7 @@ export default function App() {
         shape={settings.shape}
         canPreview={photosReady}
         onExportClick={() => setShowValidationModal(true)}
-        printOrderingEnabled={printOrderingEnabled}
-        orderReady={orderReady}
-        onOrderPrint={() => setShowOrderModal(true)}
+        exportReady={orderReady}
       />
 
       {/* Error Banner */}
@@ -933,9 +940,6 @@ export default function App() {
             onReorderCylinderSlots={(newSlots) => setCylinderSlots(newSlots)}
             onMatchCylinderHeightToPhoto={handleMatchCylinderHeightToPhoto}
             onPlacePhotos={() => setPlacementOpen(true)}
-            printOrderingEnabled={printOrderingEnabled}
-            orderReady={orderReady}
-            onOrderPrint={() => setShowOrderModal(true)}
           />
         </main>
       )}
@@ -947,6 +951,13 @@ export default function App() {
           validationResult={validationResult}
           settings={settings}
           imageName={exportName}
+          emailExportEnabled={emailExportEnabled}
+          printOrderingEnabled={printOrderingEnabled}
+          orderReady={orderReady}
+          onOrderPrint={() => {
+            setShowValidationModal(false);
+            setShowOrderModal(true);
+          }}
           onClose={() => setShowValidationModal(false)}
         />
       )}

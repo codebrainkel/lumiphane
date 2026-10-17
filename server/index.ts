@@ -2,12 +2,12 @@ import dotenv from 'dotenv';
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { createPrintOrderRouter } from './printOrderRouter';
+import { isEmailExportConfigured } from '../src/services/emailExport';
+import { createApp } from './app';
 
 dotenv.config();
 
-const app = express();
-app.use(createPrintOrderRouter());
+const app = createApp();
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = path.join(root, 'dist');
@@ -30,5 +30,6 @@ const port = Number(process.env.PORT) || 3000;
 const host = process.env.HOST || '0.0.0.0';
 app.listen(port, host, () => {
   const ordering = process.env.TREATSTOCK_PRIVATE_KEY?.trim() ? 'on' : 'off';
-  console.log(`Lumiphane listening on ${host}:${port} (Treatstock ordering ${ordering})`);
+  const email = isEmailExportConfigured(process.env.RESEND_API_KEY) ? 'on' : 'off';
+  console.log(`Lumiphane listening on ${host}:${port} (Treatstock ordering ${ordering}, email export ${email})`);
 });
