@@ -81,6 +81,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   const [pendingFile, setPendingFile] = useState(false);
   const pendingBlobRef = useRef<{ blob: Blob; filename: string } | null>(null);
   const emailAbortRef = useRef<AbortController | null>(null);
+  const exportAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -99,6 +100,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   useEffect(() => {
     return () => {
       emailAbortRef.current?.abort();
+      exportAbortRef.current?.abort();
     };
   }, []);
 
@@ -151,7 +153,15 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
     clearPendingFile();
   };
 
-  const createModelFile = async (format: ExportFormatType): Promise<
+  const cancelBusyWork = () => {
+    exportAbortRef.current?.abort();
+    emailAbortRef.current?.abort();
+    setIsExporting(false);
+    setIsEmailing(false);
+    clearPendingFile();
+  };
+
+  const createModelFile = async (format: ExportFormatType, signal?: AbortSignal): Promise<
     | { ok: true; blob: Blob; filename: string; isBambuProject?: boolean }
     | { ok: false; message: string }
   > => {
@@ -166,6 +176,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
     const result: ThreeMfExportResult = await ThreeMfExporter.export3MF(geometryData, imageName, {
       mode: isBambu ? 'bambu-project' : 'universal',
       bambuPrinterId: isBambu ? bambuPrinterId : undefined,
+      signal,
     });
 
     return {
@@ -177,12 +188,17 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   };
 
   const handleExport = async () => {
+    const controller = new AbortController();
+    exportAbortRef.current?.abort();
+    exportAbortRef.current = controller;
+    const signal = controller.signal;
     try {
       setIsExporting(true);
       clearPendingFile();
       setExportError(null);
 
-      const built = await createModelFile(exportFormat);
+      const built = await createModelFile(exportFormat, signal);
+      if (signal.aborted) return;
       if (!built.ok) {
         setExportError(built.message);
         return;
@@ -194,16 +210,19 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
       }
 
       if (isIosDevice()) {
+        if (signal.aborted) return;
         holdForTap(built.blob, built.filename);
         return;
       }
 
+      if (signal.aborted) return;
       await deliverFile(built.blob, built.filename);
     } catch (err) {
+      if (signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) return;
       console.error('Export failed:', err);
       setExportError(err instanceof Error ? err.message : 'Export failed.');
     } finally {
-      setIsExporting(false);
+      if (exportAbortRef.current === controller) setIsExporting(false);
     }
   };
 
@@ -225,7 +244,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
       setEmailNotice(null);
 
       const format = resolveEmailedFormat(exportFormat === 'stl' ? 'stl' : '3mf', exportFormat);
-      const built = await createModelFile(format);
+      const built = await createModelFile(format, controller.signal);
       if (controller.signal.aborted) return;
       if (!built.ok) {
         setEmailError(built.message);
@@ -272,7 +291,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
       if (err instanceof DOMException && err.name === 'AbortError') return;
       setEmailError(err instanceof Error ? err.message : 'The email could not be sent.');
     } finally {
-      if (!controller.signal.aborted) setIsEmailing(false);
+      if (emailAbortRef.current === controller) setIsEmailing(false);
     }
   };
 
@@ -572,7 +591,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
             </div>
             <button
               type="button"
-              onClick={onClose}
+              onClick={cancelBusyWork}
               className="export-busy-close"
               aria-label="Close"
             >

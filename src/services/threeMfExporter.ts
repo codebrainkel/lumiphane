@@ -26,7 +26,14 @@ export interface ThreeMfExportOptions {
   mode?: 'universal' | 'bambu-project';
   /** Bambu printer id from BAMBU_PRINTERS. Defaults to the saved A2L profile. */
   bambuPrinterId?: string;
+  /** Aborts the export between steps. A finished download must not start after this fires. */
+  signal?: AbortSignal;
 }
+
+/** Import and fetch of blank-profile.3mf fail with a clear error after this long. */
+export const BAMBU_TEMPLATE_TIMEOUT_MS = 20_000;
+
+export const BAMBU_TEMPLATE_TIMEOUT_MESSAGE = 'The Bambu Studio profile took too long to load.';
 
 const VOLUME_OBJECT_ID = 1;
 const MODEL_OBJECT_ID = 2;
@@ -39,21 +46,94 @@ const MODEL_FILE = '3D/3dmodel.model';
 let templateBytesPromise: Promise<Uint8Array> | null = null;
 let embeddedProfilePromise: Promise<EmbeddedBambuProfile> | null = null;
 
+export function exportAbortError(): DOMException {
+  return new DOMException('The export was cancelled.', 'AbortError');
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw exportAbortError();
+}
+
+/** Lets a click (Cancel) run, then rejects if the export was aborted. */
+async function checkpoint(signal?: AbortSignal, lastYield?: { at: number }): Promise<void> {
+  throwIfAborted(signal);
+  const now = Date.now();
+  if (lastYield && now - lastYield.at < 32) return;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  if (lastYield) lastYield.at = Date.now();
+  throwIfAborted(signal);
+}
+
+function raceTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([work, timeout]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+}
+
+function waitForExport<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return work;
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(exportAbortError());
+    signal.addEventListener('abort', onAbort, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (err) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(err);
+      }
+    );
+  });
+}
+
 async function readBlankProfileBytes(): Promise<Uint8Array> {
+  const started = Date.now();
+  const remaining = () => BAMBU_TEMPLATE_TIMEOUT_MS - (Date.now() - started);
+  const timed = async <T>(work: Promise<T>): Promise<T> => {
+    const left = remaining();
+    if (left <= 0) throw new Error(BAMBU_TEMPLATE_TIMEOUT_MESSAGE);
+    try {
+      return await raceTimeout(work, left, BAMBU_TEMPLATE_TIMEOUT_MESSAGE);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        throw new Error(BAMBU_TEMPLATE_TIMEOUT_MESSAGE);
+      }
+      throw err;
+    }
+  };
+
   const isNode = typeof process !== 'undefined' && typeof process.versions?.node === 'string';
   if (isNode) {
-    const { readFile } = await import('node:fs/promises');
-    const { fileURLToPath } = await import('node:url');
+    const { readFile } = await timed(import('node:fs/promises'));
+    const { fileURLToPath } = await timed(import('node:url'));
     const path = fileURLToPath(new URL('../../blank-profile.3mf', import.meta.url));
-    return new Uint8Array(await readFile(path));
+    return new Uint8Array(await timed(readFile(path)));
   }
 
-  const mod = (await import('../../blank-profile.3mf?url')) as { default: string };
-  const res = await fetch(mod.default);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch the Bambu Studio profile (${res.status})`);
+  const mod = await timed(import('../../blank-profile.3mf?url') as Promise<{ default: string }>);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(1, remaining()));
+  try {
+    const res = await fetch(mod.default, { signal: controller.signal });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch the Bambu Studio profile (${res.status})`);
+    }
+    return new Uint8Array(await res.arrayBuffer());
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error(BAMBU_TEMPLATE_TIMEOUT_MESSAGE);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return new Uint8Array(await res.arrayBuffer());
 }
 
 function loadTemplateBytes(): Promise<Uint8Array> {
@@ -225,13 +305,16 @@ export class ThreeMfExporter {
     modelName: string = 'lithophane',
     options?: ThreeMfExportOptions
   ): Promise<ThreeMfExportResult> {
+    const signal = options?.signal;
+    throwIfAborted(signal);
     const isBambuProject = options?.mode === 'bambu-project';
     const cleanName = modelName.replace(/[^a-zA-Z0-9_-]/g, '_') || 'lithophane';
-    const profile = isBambuProject ? await loadEmbeddedBambuProfile() : null;
+    const profile = isBambuProject ? await waitForExport(loadEmbeddedBambuProfile(), signal) : null;
+    throwIfAborted(signal);
     const printer = isBambuProject ? getBambuPrinter(options?.bambuPrinterId) : null;
     const built = isBambuProject
-      ? await this.buildBambuProjectZip(geometry, cleanName, modelName, profile!, printer!)
-      : this.buildUniversalZip(geometry, modelName);
+      ? await this.buildBambuProjectZip(geometry, cleanName, modelName, profile!, printer!, signal)
+      : await this.buildUniversalZip(geometry, modelName, signal);
     const { zip, written } = built;
 
     const expectedVertices = geometry.vertices.length / 3;
@@ -245,12 +328,7 @@ export class ThreeMfExporter {
       throw new Error('3MF archive is missing 3D/3dmodel.model');
     }
 
-    const blob = await zip.generateAsync({
-      type: 'blob',
-      mimeType: 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml',
-      compression: 'DEFLATE',
-      compressionOptions: { level: 6 },
-    });
+    const blob = await this.zipToBlob(zip, signal);
 
     const isStanding = geometry.boundingBox.size[2] > geometry.boundingBox.size[1];
     const widthMm = Math.round(geometry.boundingBox.size[0]);
@@ -271,11 +349,12 @@ export class ThreeMfExporter {
     };
   }
 
-  private static buildUniversalZip(
+  private static async buildUniversalZip(
     geometry: MeshGeometryData,
-    modelName: string
-  ): { zip: JSZip; written: ThreeMfWrittenModel & { xml: string } } {
-    const written = this.generateModelXml(geometry, modelName);
+    modelName: string,
+    signal?: AbortSignal
+  ): Promise<{ zip: JSZip; written: ThreeMfWrittenModel & { xml: string } }> {
+    const written = await this.generateModelXml(geometry, modelName, undefined, undefined, signal);
     const zip = new JSZip();
     zip.file(
       '[Content_Types].xml',
@@ -307,9 +386,12 @@ export class ThreeMfExporter {
     cleanName: string,
     modelName: string,
     profile: EmbeddedBambuProfile,
-    printer: ReturnType<typeof getBambuPrinter>
+    printer: ReturnType<typeof getBambuPrinter>,
+    signal?: AbortSignal
   ): Promise<{ zip: JSZip; written: ThreeMfWrittenModel & { xml: string } }> {
-    const template = await JSZip.loadAsync(await loadTemplateBytes());
+    throwIfAborted(signal);
+    const template = await JSZip.loadAsync(await waitForExport(loadTemplateBytes(), signal));
+    throwIfAborted(signal);
     const projectSettingsFile = template.file('Metadata/project_settings.config');
     const modelSettingsFile = template.file('Metadata/model_settings.config');
     if (!projectSettingsFile || !modelSettingsFile) {
@@ -334,11 +416,13 @@ export class ThreeMfExporter {
       if (file.dir || replacements.has(relativePath) || isUnusedPlateFile(relativePath)) return;
       copies.push(
         file.async('uint8array').then((bytes) => {
+          throwIfAborted(signal);
           zip.file(relativePath, bytes);
         })
       );
     });
     await Promise.all(copies);
+    await checkpoint(signal);
 
     const bed = bedSizeFromPrintableArea(projectSettings.printable_area);
     const sequenceFile = template.file('Metadata/filament_sequence.json');
@@ -347,7 +431,7 @@ export class ThreeMfExporter {
       this.buildPlateJson(template, geometry, cleanName, projectSettings, 1),
       sequenceFile ? sequenceFile.async('text') : Promise.resolve(''),
     ]);
-    const written = this.generateModelXml(geometry, modelName, profile, bed);
+    const written = await this.generateModelXml(geometry, modelName, profile, bed, signal);
     if (!written.xml.includes('BambuStudio-')) {
       throw new Error('3dmodel.model is missing the Bambu Studio application stamp');
     }
@@ -469,12 +553,15 @@ export class ThreeMfExporter {
   /**
    * Builds the official 3MF model XML string with high performance chunking.
    */
-  private static generateModelXml(
+  private static async generateModelXml(
     geometry: MeshGeometryData,
     title: string,
     bambuProfile?: EmbeddedBambuProfile,
-    bed?: { width: number; depth: number }
-  ): ThreeMfWrittenModel & { xml: string } {
+    bed?: { width: number; depth: number },
+    signal?: AbortSignal
+  ): Promise<ThreeMfWrittenModel & { xml: string }> {
+    throwIfAborted(signal);
+    const lastYield = { at: Date.now() };
     const { vertices, indices } = geometry;
     const vertexCount = vertices.length / 3;
     const triangleCount = indices.length / 3;
@@ -534,6 +621,7 @@ export class ThreeMfExporter {
       if (i > 0 && i % CHUNK_SIZE === 0) {
         vertChunks.push(tempStr);
         tempStr = '';
+        await checkpoint(signal, lastYield);
       }
     }
     if (tempStr) vertChunks.push(tempStr);
@@ -556,6 +644,7 @@ export class ThreeMfExporter {
       if (i > 0 && i % CHUNK_SIZE === 0) {
         triChunks.push(tempStr);
         tempStr = '';
+        await checkpoint(signal, lastYield);
       }
     }
     if (tempStr) triChunks.push(tempStr);
@@ -589,6 +678,53 @@ export class ThreeMfExporter {
       triangleCount: writtenTriangles,
       unit: MODEL_UNIT,
     };
+  }
+
+  /**
+   * Deflates the archive and checks the abort signal between JSZip chunks.
+   * Pausing the stream stops later chunks, so a cancelled export has no blob to download.
+   */
+  private static async zipToBlob(zip: JSZip, signal?: AbortSignal): Promise<Blob> {
+    throwIfAborted(signal);
+    const stream = zip.generateInternalStream({
+      type: 'uint8array',
+      mimeType: 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 },
+      streamFiles: true,
+    });
+    const parts: Uint8Array[] = [];
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finish = (err?: unknown) => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener('abort', onAbort);
+        try {
+          stream.pause();
+        } catch {
+          // The stream may already have ended.
+        }
+        if (err) reject(err);
+        else resolve();
+      };
+      const onAbort = () => finish(exportAbortError());
+      signal?.addEventListener('abort', onAbort);
+      stream.on('data', (chunk: Uint8Array) => {
+        if (signal?.aborted) {
+          finish(exportAbortError());
+          return;
+        }
+        parts.push(chunk);
+      });
+      stream.on('error', (err: Error) => finish(err));
+      stream.on('end', () => finish());
+      stream.resume();
+    });
+    throwIfAborted(signal);
+    return new Blob(parts as BlobPart[], {
+      type: 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml',
+    });
   }
 
   /**

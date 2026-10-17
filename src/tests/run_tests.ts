@@ -273,6 +273,16 @@ async function runTestSuite() {
     assert(exportResult.filesizeBytes > 1000, `Generated valid 3MF ZIP archive (${exportResult.filesizeBytes} bytes)`);
     assert(exportResult.filename.endsWith('.3mf'), `Filename ends with .3mf (${exportResult.filename})`);
 
+    const aborted = new AbortController();
+    aborted.abort();
+    let exportCancelled = false;
+    try {
+      await ThreeMfExporter.export3MF(geometry, 'cancelled', { signal: aborted.signal });
+    } catch (err) {
+      exportCancelled = err instanceof DOMException && err.name === 'AbortError';
+    }
+    assert(exportCancelled, 'An aborted export does not return a file');
+
     assert(exportResult.vertexCount === geometry.vertices.length / 3, 'Vertices were counted while writing the model');
     assert(exportResult.triangleCount === geometry.indices.length / 3, 'Triangles were counted while writing the model');
 
