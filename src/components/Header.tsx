@@ -4,7 +4,7 @@ import { AppStep, LithophaneShape } from '../types/lithophane';
 interface HeaderProps {
   currentStep: AppStep;
   onStepChange: (step: AppStep) => void;
-  shape: LithophaneShape;
+  shape: LithophaneShape | null;
 }
 
 export const Header: React.FC<HeaderProps> = ({ currentStep, onStepChange, shape }) => {
@@ -77,9 +77,11 @@ export const Header: React.FC<HeaderProps> = ({ currentStep, onStepChange, shape
             <span className="text-[15px] font-bold tracking-tight text-white group-hover:text-amber-300 transition-colors whitespace-nowrap">
               Lumiphane 3D
             </span>
-            <span className="hidden sm:inline text-xs text-amber-400 font-bold font-mono truncate">
-              / {shapeLabel}
-            </span>
+            {shape && (
+              <span className="hidden sm:inline text-xs text-amber-400 font-bold font-mono truncate">
+                / {shapeLabel}
+              </span>
+            )}
           </div>
         </a>
       </div>

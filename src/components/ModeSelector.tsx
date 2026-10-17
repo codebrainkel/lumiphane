@@ -3,7 +3,7 @@ import { LithophaneShape } from '../types/lithophane';
 import { Check } from 'lucide-react';
 
 interface ModeSelectorProps {
-  selectedShape: LithophaneShape;
+  selectedShape: LithophaneShape | null;
   onSelectShape: (shape: LithophaneShape) => void;
 }
 

@@ -114,11 +114,8 @@ export default function App() {
   const [placementOpen, setPlacementOpen] = useState(false);
 
   // Core Lithophane Settings
-  const [settings, setSettings] = useState<LithophaneSettings>({
-    ...DEFAULT_SETTINGS,
-    shape: 'cylinder',
-    height: 95,
-  });
+  const [settings, setSettings] = useState<LithophaneSettings>(DEFAULT_SETTINGS);
+  const [shapeChosen, setShapeChosen] = useState(false);
 
   // Single Photo State (for Flat / Curved modes). Mirrors the first slot.
   const [imageSrc, setImageSrc] = useState<string>('');
@@ -690,6 +687,7 @@ export default function App() {
   };
 
   const handleSelectShape = (shape: LithophaneShape) => {
+    setShapeChosen(true);
     setSettings((prev) => ({
       ...prev,
       shape,
@@ -702,13 +700,17 @@ export default function App() {
   };
 
   const handleResetSettings = () => {
-    const autoThickness = getAutoScaledThickness(DEFAULT_SETTINGS.cylinderDiameter || 90, 95);
-    setSettings({
+    const aspect = loadedImage
+      ? (loadedImage.naturalWidth || loadedImage.width) / (loadedImage.naturalHeight || loadedImage.height)
+      : DEFAULT_SETTINGS.width / DEFAULT_SETTINGS.height;
+    const defaultH = Math.max(10, Math.round(DEFAULT_SETTINGS.width / aspect));
+    const autoThickness = getAutoScaledThickness(DEFAULT_SETTINGS.width, defaultH);
+    setSettings((prev) => ({
       ...DEFAULT_SETTINGS,
-      shape: 'cylinder',
-      height: 95,
+      shape: prev.shape,
+      height: prev.shape === 'cylinder' ? 95 : prev.shape === 'cube' ? 90 : defaultH,
       ...autoThickness,
-    });
+    }));
     setCropData(null);
   };
 
@@ -816,7 +818,7 @@ export default function App() {
       <Header
         currentStep={currentStep}
         onStepChange={handleStepChange}
-        shape={settings.shape}
+        shape={shapeChosen ? settings.shape : null}
       />
 
       {/* Error Banner */}
@@ -842,7 +844,7 @@ export default function App() {
       {currentStep === 'mode' && (
         <div className="min-h-0 flex-1 overflow-y-auto">
           <ModeSelector
-            selectedShape={settings.shape}
+            selectedShape={shapeChosen ? settings.shape : null}
             onSelectShape={handleSelectShape}
           />
         </div>
@@ -946,9 +948,16 @@ export default function App() {
             onClick={() =>
               currentStep === 'mode' ? setCurrentStep('upload') : handleStepChange('preview')
             }
-            disabled={currentStep === 'upload' && !photosReady}
+            disabled={
+              (currentStep === 'mode' && !shapeChosen) ||
+              (currentStep === 'upload' && !photosReady)
+            }
             title={
-              currentStep === 'upload' && !photosReady ? 'Add a photo first' : undefined
+              currentStep === 'mode' && !shapeChosen
+                ? 'Choose a shape first'
+                : currentStep === 'upload' && !photosReady
+                ? 'Add a photo first'
+                : undefined
             }
           >
             <span>Next</span>
