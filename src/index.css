@@ -251,10 +251,41 @@ select {
   max-height: none;
 }
 
+.dock-toggle {
+  display: none;
+}
+
+.dock-toggle svg {
+  transition: transform 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
 @media (max-width: 1023px) {
   .dock[data-open="true"] {
     height: min(440px, 56%);
     flex: 0 0 auto;
+  }
+
+  .dock-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 36px;
+    flex-shrink: 0;
+    color: var(--color-text-secondary);
+    background: var(--color-surface-1);
+  }
+
+  .dock-toggle:active {
+    color: var(--color-text-primary);
+  }
+
+  .dock[data-open="false"] .dock-toggle svg {
+    transform: rotate(180deg);
+  }
+
+  .dock[data-open="false"] .dock-bar {
+    display: none;
   }
 }
 
@@ -821,7 +852,8 @@ input.slider::-moz-range-thumb {
 
 @media (prefers-reduced-motion: reduce) {
   .switch-control span,
-  .dock-tab {
+  .dock-tab,
+  .dock-toggle svg {
     transition: none;
   }
 }

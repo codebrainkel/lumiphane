@@ -13,6 +13,7 @@ import {
 } from '../constants/presets';
 import { BORDER_ICON_MIN_WIDTH_MM, maxBorderWidthMm } from '../services/borderIcons';
 import {
+  ChevronDown,
   Contrast,
   Crop as CropIcon,
   Frame,
@@ -315,6 +316,15 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
   return (
     <aside className="dock" data-open={showBody}>
+      <button
+        type="button"
+        className="dock-toggle"
+        aria-expanded={showBody}
+        aria-label={showBody ? 'Hide settings' : 'Show settings'}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <ChevronDown className="h-5 w-5" />
+      </button>
       {/* Dock Header with Tabs */}
       <div className="dock-bar">
         <div className="dock-tabs" role="tablist" aria-label="Inspector Controls">
