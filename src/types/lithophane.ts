@@ -1,4 +1,4 @@
-export type LithophaneShape = 'flat' | 'curved' | 'cylinder' | 'cube' | 'nightlight';
+export type LithophaneShape = 'flat' | 'curved' | 'cylinder' | 'cube' | 'hexagon' | 'nightlight';
 
 export type AppStep = 'mode' | 'upload' | 'preview';
 
@@ -9,6 +9,8 @@ export type PrintOrientation = 'standing' | 'flat';
 export type QualityTier = 'master' | 'studio' | 'balanced';
 
 export type BorderIcon = 'none' | 'heart' | 'bone' | 'star';
+
+export type ReliefSide = 'outside' | 'inside';
 
 export interface CylinderSlot {
   id: string;
@@ -30,6 +32,8 @@ export interface LithophaneSettings {
   cylinderPanelCount?: number; // 1, 2, 3, or 4 images around cylinder (default 4)
   cubeWidth?: number; // mm (side length of square hollow cube, 40-250mm, default 90mm)
   cubePanelCount?: number; // 1, 2, 3, or 4 images around cube (default 4)
+  hexagonDiameter?: number; // mm (corner-to-corner diameter of 6-sided hollow hexagon, 50-260mm, default 90mm)
+  hexagonPanelCount?: number; // 1 to 6 images around hexagon (default 6)
   minThickness: number; // e.g. 0.8 mm (thinnest, highlights)
   maxThickness: number; // e.g. 3.0 mm (thickest, shadows)
 
@@ -60,6 +64,7 @@ export interface LithophaneSettings {
   contrast: number; // -50 to +50
   gamma: number; // 0.5 to 2.5
   invert: boolean; // default false (dark=thick, bright=thin)
+  reliefSide?: ReliefSide; // default 'inside' (smooth exterior, sculpted interior; 'outside' = sculpted exterior, smooth interior)
   smoothing: number; // 0 to 2 (slight Gaussian/box filter for smoother 3D surface)
 
   // Print Setup Defaults

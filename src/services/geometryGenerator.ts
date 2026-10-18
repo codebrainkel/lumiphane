@@ -31,7 +31,12 @@ export function standingBaseExtension(settings: {
   if (supportType === 'none') return { heightMm: 0, rows: 0 };
 
   const shape = settings.shape;
-  const usesBrim = shape === 'curved' || shape === 'nightlight' || shape === 'cylinder' || shape === 'cube';
+  const usesBrim =
+    shape === 'curved' ||
+    shape === 'nightlight' ||
+    shape === 'cylinder' ||
+    shape === 'cube' ||
+    shape === 'hexagon';
   let heightMm: number;
   if (usesBrim) {
     heightMm = SUPPORT_BRIM_HEIGHT_MM;
@@ -81,7 +86,8 @@ export class GeometryGenerator {
 
     const isCylinder = settings.shape === 'cylinder';
     const isCube = settings.shape === 'cube';
-    const isEnclosed = isCylinder || isCube;
+    const isHexagon = settings.shape === 'hexagon';
+    const isEnclosed = isCylinder || isCube || isHexagon;
 
     // Precalculate curved arc and cylinder parameters
     const isCurved = settings.shape === 'curved' || settings.shape === 'nightlight';
@@ -96,12 +102,22 @@ export class GeometryGenerator {
     const cubeWidth = Math.max(30, settings.cubeWidth || 90);
     const cubeHw = cubeWidth / 2;
 
+    const hexagonDiameter = Math.max(40, settings.hexagonDiameter || 90);
+    const hexSide = hexagonDiameter / 2;
+    const hexApothem = hexSide * (Math.sqrt(3) / 2);
+
     // Frame parameters. Icons sit on the centerline of this band.
     const hasFrame = settings.hasFrame;
     const frameW = clampBorderWidthMm(settings.shape, W, H, settings.frameWidth || 0);
     const frameTh = Math.max(minTh, settings.frameThickness || maxTh);
+    const isInsideRelief = (settings.reliefSide ?? 'inside') === 'inside';
+    const outerShellTh = hasFrame ? Math.max(maxTh, frameTh) : maxTh;
     const borderIcon = settings.borderIcon ?? 'none';
-    const borderPerimeter = isCube ? cubeWidth * 4 : Math.PI * cylinderDiameter;
+    const borderPerimeter = isCube
+      ? cubeWidth * 4
+      : isHexagon
+      ? hexSide * 6
+      : Math.PI * cylinderDiameter;
     const iconRelief =
       hasFrame && borderIcon !== 'none'
         ? createBorderIconField(
@@ -114,8 +130,10 @@ export class GeometryGenerator {
                   frameWidthMm: frameW,
                   alignArcMm: isCube
                     ? cubeWidth / 2
+                    : isHexagon
+                    ? hexSide / 2
                     : borderPerimeter / (2 * Math.max(1, Math.min(4, settings.cylinderPanelCount || 4))),
-                  cornerPeriodMm: isCube ? cubeWidth : 0,
+                  cornerPeriodMm: isCube ? cubeWidth : isHexagon ? hexSide : 0,
                 }
               : {
                   kind: borderIcon,
@@ -178,7 +196,7 @@ export class GeometryGenerator {
         let flangeFront = 0;
         let brimExtra = 0;
         if (inSkirt) {
-          if (isCube || isCylinder || isCurved) {
+          if (isCube || isCylinder || isHexagon || isCurved) {
             if (pz < SUPPORT_BRIM_HEIGHT_MM) {
               const tBrim = Math.pow(1.0 - pz / SUPPORT_BRIM_HEIGHT_MM, 2);
               brimExtra = (isCurved ? 2.5 : 2.0) * tBrim;
@@ -223,34 +241,69 @@ export class GeometryGenerator {
           const uSide = (c - sideIdx * sideCols) / sideCols; // [0, 1)
 
           localThickness = th + brimExtra;
+          const rIn = isInsideRelief ? cubeHw + (outerShellTh - th) : cubeHw;
+          const rOut = isInsideRelief ? cubeHw + outerShellTh + brimExtra : cubeHw + localThickness;
 
           if (sideIdx === 0) {
             // Face 0: Front (+Y)
-            bx = cubeHw * (2.0 * uSide - 1.0);
-            by = cubeHw;
-            fx = (cubeHw + localThickness) * (2.0 * uSide - 1.0);
-            fy = cubeHw + localThickness;
+            bx = rIn * (2.0 * uSide - 1.0);
+            by = rIn;
+            fx = rOut * (2.0 * uSide - 1.0);
+            fy = rOut;
           } else if (sideIdx === 1) {
             // Face 1: Right (+X)
-            bx = cubeHw;
-            by = cubeHw * (1.0 - 2.0 * uSide);
-            fx = cubeHw + localThickness;
-            fy = (cubeHw + localThickness) * (1.0 - 2.0 * uSide);
+            bx = rIn;
+            by = rIn * (1.0 - 2.0 * uSide);
+            fx = rOut;
+            fy = rOut * (1.0 - 2.0 * uSide);
           } else if (sideIdx === 2) {
             // Face 2: Back (-Y)
-            bx = cubeHw * (1.0 - 2.0 * uSide);
-            by = -cubeHw;
-            fx = (cubeHw + localThickness) * (1.0 - 2.0 * uSide);
-            fy = -(cubeHw + localThickness);
+            bx = rIn * (1.0 - 2.0 * uSide);
+            by = -rIn;
+            fx = rOut * (1.0 - 2.0 * uSide);
+            fy = -rOut;
           } else {
             // Face 3: Left (-X)
-            bx = -cubeHw;
-            by = cubeHw * (2.0 * uSide - 1.0);
-            fx = -(cubeHw + localThickness);
-            fy = (cubeHw + localThickness) * (2.0 * uSide - 1.0);
+            bx = -rIn;
+            by = rIn * (2.0 * uSide - 1.0);
+            fx = -rOut;
+            fy = rOut * (2.0 * uSide - 1.0);
           }
 
           bz = pz;
+          fz = pz;
+        } else if (isHexagon) {
+          // ==============================================================
+          // 6-SIDED HOLLOW HEXAGON (Vertical hexagonal tube on Z axis, bed at Z=0)
+          // ==============================================================
+          // 6 vertical walls surrounding center (0, 0, Z) with open top and bottom.
+          // Face 0: Front (+Y, 0°), Face 1: Front-Right (60°), Face 2: Back-Right (120°)
+          // Face 3: Back (-Y, 180°), Face 4: Back-Left (240°), Face 5: Front-Left (300°)
+          const sideCols = cols / 6;
+          const sideIdx = Math.min(5, Math.floor(c / sideCols));
+          const uSide = (c - sideIdx * sideCols) / sideCols; // [0, 1)
+
+          const theta = (sideIdx * Math.PI) / 3;
+          const nx = Math.sin(theta);
+          const ny = Math.cos(theta);
+          const tx = ny;
+          const ty = -nx;
+          const s = (2.0 * uSide - 1.0) / Math.sqrt(3);
+
+          // Unit-apothem regular hexagon point p = n + s * t, where p · n === 1
+          const px = nx + s * tx;
+          const py = ny + s * ty;
+
+          localThickness = th + brimExtra;
+          const rIn = isInsideRelief ? hexApothem + (outerShellTh - th) : hexApothem;
+          const rOut = isInsideRelief ? hexApothem + outerShellTh + brimExtra : hexApothem + localThickness;
+
+          bx = rIn * px;
+          by = rIn * py;
+          bz = pz;
+
+          fx = rOut * px;
+          fy = rOut * py;
           fz = pz;
         } else if (isCylinder) {
           // ==============================================================
@@ -265,14 +318,17 @@ export class GeometryGenerator {
           const cosPhi = Math.cos(phi);
 
           localThickness = th + brimExtra;
+          const rIn = isInsideRelief ? cylinderRadius + (outerShellTh - th) : cylinderRadius;
+          const rOut = isInsideRelief
+            ? cylinderRadius + outerShellTh + brimExtra
+            : cylinderRadius + localThickness;
 
-          // Inner smooth bore (facing center (0,0,z))
-          bx = cylinderRadius * sinPhi;
-          by = cylinderRadius * cosPhi;
+          // Inner surface (facing center (0,0,z))
+          bx = rIn * sinPhi;
+          by = rIn * cosPhi;
           bz = pz;
 
-          // Outer surface modulated by image luminance
-          const rOut = cylinderRadius + localThickness;
+          // Outer surface
           fx = rOut * sinPhi;
           fy = rOut * cosPhi;
           fz = pz;
@@ -287,40 +343,32 @@ export class GeometryGenerator {
             const cosPhi = Math.cos(phi);
 
             localThickness = th + brimExtra;
+            const baseX = arcRadius * sinPhi;
+            const baseY = (isConvex ? -1 : 1) * arcRadius * (1.0 - cosPhi) - brimExtra;
+            const innerOffset = isInsideRelief ? outerShellTh - th : 0;
+            const outerOffset = isInsideRelief ? outerShellTh + brimExtra : th + brimExtra;
 
-            if (isConvex) {
-              // Convex: center bows forward, edges sweep backward in Y
-              bx = arcRadius * sinPhi;
-              by = -arcRadius * (1.0 - cosPhi) - brimExtra;
-              bz = pz;
+            bx = baseX + sinPhi * innerOffset;
+            by = baseY + cosPhi * innerOffset;
+            bz = pz;
 
-              fx = bx + sinPhi * (th + brimExtra);
-              fy = by + cosPhi * (th + brimExtra);
-              fz = pz;
-            } else {
-              // Concave: edges sweep forward in Y
-              bx = arcRadius * sinPhi;
-              by = arcRadius * (1.0 - cosPhi) - brimExtra;
-              bz = pz;
-
-              fx = bx + sinPhi * (th + brimExtra);
-              fy = by + cosPhi * (th + brimExtra);
-              fz = pz;
-            }
+            fx = baseX + sinPhi * outerOffset;
+            fy = baseY + cosPhi * outerOffset;
+            fz = pz;
           } else {
             // Flat Plate Lithophane Standing on Build Plate
             const px = -W / 2 + u * W;
 
             localThickness = th + flangeFront + flangeBack;
 
-            // Back surface at Y <= 0
+            // Back surface
             bx = px;
-            by = -flangeBack;
+            by = isInsideRelief ? outerShellTh - th - flangeBack : -flangeBack;
             bz = pz;
 
-            // Front surface at Y >= th
+            // Front surface
             fx = px;
-            fy = th + flangeFront;
+            fy = isInsideRelief ? outerShellTh + flangeFront : th + flangeFront;
             fz = pz;
           }
         } else {
@@ -335,24 +383,18 @@ export class GeometryGenerator {
             const cosPhi = Math.cos(phi);
             const nx = sinPhi;
             const nz = cosPhi;
+            const baseX = arcRadius * sinPhi;
+            const baseZ = (isConvex ? -1 : 1) * arcRadius * (1.0 - cosPhi);
+            const innerOffset = isInsideRelief ? outerShellTh - th : 0;
+            const outerOffset = isInsideRelief ? outerShellTh : th;
 
-            if (isConvex) {
-              bx = arcRadius * sinPhi;
-              by = pyFlat;
-              bz = -arcRadius * (1.0 - cosPhi);
+            bx = baseX + nx * innerOffset;
+            by = pyFlat;
+            bz = baseZ + nz * innerOffset;
 
-              fx = bx + nx * th;
-              fy = pyFlat;
-              fz = bz + nz * th;
-            } else {
-              bx = arcRadius * sinPhi;
-              by = pyFlat;
-              bz = arcRadius * (1.0 - cosPhi);
-
-              fx = bx + nx * th;
-              fy = pyFlat;
-              fz = bz + nz * th;
-            }
+            fx = baseX + nx * outerOffset;
+            fy = pyFlat;
+            fz = baseZ + nz * outerOffset;
           } else {
             fx = px;
             fy = pyFlat;
@@ -839,22 +881,46 @@ export class GeometryGenerator {
       const acz = cz - az;
 
       // Cross product AB x AC
-      const nx = aby * acz - abz * acy;
-      const ny = abz * acx - abx * acz;
-      const nz = abx * acy - aby * acx;
+      let nx = aby * acz - abz * acy;
+      let ny = abz * acx - abx * acz;
+      let nz = abx * acy - aby * acx;
+      const fLen = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      if (fLen <= 1e-8) continue;
+      const invFLen = 1.0 / fLen;
+      nx *= invFLen;
+      ny *= invFLen;
+      nz *= invFLen;
 
-      // Accumulate
-      normals[i0] += nx;
-      normals[i0 + 1] += ny;
-      normals[i0 + 2] += nz;
+      // Angle-weighted accumulation so large simplified rectangles do not skew
+      // normals along their boundary vertices and triangle fans stay invariant
+      // to how coplanar rectangles are triangulated.
+      const lenAB = Math.sqrt(abx * abx + aby * aby + abz * abz);
+      const lenAC = Math.sqrt(acx * acx + acy * acy + acz * acz);
+      const bcx = cx - bx;
+      const bcy = cy - by;
+      const bcz = cz - bz;
+      const lenBC = Math.sqrt(bcx * bcx + bcy * bcy + bcz * bcz);
+      if (lenAB <= 1e-8 || lenAC <= 1e-8 || lenBC <= 1e-8) continue;
 
-      normals[i1] += nx;
-      normals[i1 + 1] += ny;
-      normals[i1 + 2] += nz;
+      const cosA = Math.max(-1, Math.min(1, (abx * acx + aby * acy + abz * acz) / (lenAB * lenAC)));
+      const cosB = Math.max(-1, Math.min(1, -(abx * bcx + aby * bcy + abz * bcz) / (lenAB * lenBC)));
+      const cosC = Math.max(-1, Math.min(1, (acx * bcx + acy * bcy + acz * bcz) / (lenAC * lenBC)));
 
-      normals[i2] += nx;
-      normals[i2 + 1] += ny;
-      normals[i2 + 2] += nz;
+      const wA = Math.acos(cosA);
+      const wB = Math.acos(cosB);
+      const wC = Math.acos(cosC);
+
+      normals[i0] += nx * wA;
+      normals[i0 + 1] += ny * wA;
+      normals[i0 + 2] += nz * wA;
+
+      normals[i1] += nx * wB;
+      normals[i1 + 1] += ny * wB;
+      normals[i1 + 2] += nz * wB;
+
+      normals[i2] += nx * wC;
+      normals[i2 + 1] += ny * wC;
+      normals[i2 + 2] += nz * wC;
     }
 
     // Normalize all vertex normals

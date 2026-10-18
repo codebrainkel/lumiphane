@@ -625,7 +625,15 @@ async function runTestSuite() {
   // TEST SUITE 8: Quality Tiers & Uncompressed Sampling Pipeline
   console.log('\n[8] Testing Quality Tiers & Uncompressed Sampling Pipeline...');
   {
-    const { getResolutionForTier, getCylinderResolutionForTier, QUALITY_TIERS } = await import('../constants/presets');
+    const {
+      getResolutionForTier,
+      getCylinderResolutionForTier,
+      getHexagonResolutionForTier,
+      getMultiPanelSlotLabels,
+      getOptimalMultiPanelWrapRatio,
+      getSlotFrameAspect,
+      QUALITY_TIERS,
+    } = await import('../constants/presets');
 
     assert(QUALITY_TIERS.master.baseCols === 600, 'Master quality base resolution is 600 cols');
     assert(QUALITY_TIERS.studio.baseCols === 440, 'Studio quality base resolution is 440 cols');
@@ -653,6 +661,26 @@ async function runTestSuite() {
 
     const cylDraftCols = getCylinderResolutionForTier('balanced', 90);
     assert(cylDraftCols >= 640 && cylDraftCols % 4 === 0, `Cylinder draft yields 640 cols divisible by 4 (got: ${cylDraftCols})`);
+
+    // Hexagon Tier & Preset Assertions:
+    const hexMasterCols = getHexagonResolutionForTier('master', 90);
+    assert(hexMasterCols % 60 === 0, `Hexagon master cols is divisible by 60 (got: ${hexMasterCols})`);
+    const hexPerimeter = 3 * 90;
+    const hexMasterPitch = hexPerimeter / hexMasterCols;
+    assert(hexMasterPitch <= 0.21, `Hexagon master physical pitch <= 0.21mm (got: ${hexMasterPitch.toFixed(3)}mm)`);
+
+    const hexLabels1 = getMultiPanelSlotLabels('hexagon', 1);
+    const hexLabels3 = getMultiPanelSlotLabels('hexagon', 3);
+    const hexLabels6 = getMultiPanelSlotLabels('hexagon', 6);
+    assert(hexLabels1[0].label === 'Full 6-Face Wrap', 'Hexagon 1-photo slot label is Full 6-Face Wrap');
+    assert(hexLabels3.length === 3 && hexLabels3[0].label === 'Front Pair', 'Hexagon 3-photo slot labels divide into 2-face pairs');
+    assert(hexLabels6.length === 6 && hexLabels6[0].label === 'Front Face' && hexLabels6[5].label === 'Front-Left Face', 'Hexagon 6-photo slot labels assign 1 photo per face');
+    const hexWrapRatio = getOptimalMultiPanelWrapRatio('hexagon', 90, 90, 3);
+    assert(Math.abs(hexWrapRatio - 1.0) < 0.01, `Hexagon 3-photo wrap ratio at D=90, H=90 is 1:1 (90mm/90mm) (got: ${hexWrapRatio})`);
+    const hexWrapRatio6 = getOptimalMultiPanelWrapRatio('hexagon', 90, 90, 6);
+    assert(Math.abs(hexWrapRatio6 - 0.5) < 0.01, `Hexagon 6-photo wrap ratio at D=90, H=90 is 0.5:1 (45mm/90mm per face) (got: ${hexWrapRatio6})`);
+    const hexAspect = getSlotFrameAspect('hexagon', 90, 90, 3, undefined, 0, 90, 90, 90);
+    assert(Math.abs(hexAspect - 1.0) < 0.01, `Hexagon slot frame aspect matches 1:1 for 3-slot 90x90 lantern (got: ${hexAspect})`);
   }
 
   // TEST SUITE 9: Odd Size Images & Cropped Aspect Ratio Scaling
@@ -780,10 +808,10 @@ async function runTestSuite() {
     // Face normals, not grid indices: equal-height columns no longer keep a vertex on every row.
     const midRow = Math.floor(testRows / 2);
     const radius = cylDiameter / 2;
-    const outer = faceNear(cylGeom, (cx, cy, cz) => Math.hypot(cx, cy) > radius + 0.4 && cz > 10 && cz < cylHeight);
+    const outer = faceNear(cylGeom, (cx, cy, cz) => Math.hypot(cx, cy) > radius + 3.1 && cz > 10 && cz < cylHeight);
     const inner = faceNear(cylGeom, (cx, cy, cz) => {
       const r = Math.hypot(cx, cy);
-      return r > radius - 1 && r < radius + 0.25 && cz > 10 && cz < cylHeight;
+      return r > radius - 1 && r < radius + 2.8 && cz > 10 && cz < cylHeight;
     });
     const outerDot = outer ? outer.nx * outer.cx + outer.ny * outer.cy : 0;
     const innerDot = inner ? inner.nx * inner.cx + inner.ny * inner.cy : 0;
@@ -863,6 +891,51 @@ async function runTestSuite() {
     });
     const threeVal = MeshValidator.validate(threePanelGeom);
     assert(threeVal.isWatertight && threeVal.isManifold, '3-Photo cylinder is watertight and 2-manifold');
+
+    // Test 4: 6-Sided Hollow Hexagon Lantern (1 to 6 Photo Wraps)
+    const hexDiameter = 90; // circumdiameter = 90mm, side = 45mm, apothem = 38.97mm
+    const hexHeight = 90;
+    for (const panelCount of [1, 2, 3, 4, 5, 6]) {
+      const hexGeom = GeometryGenerator.generateMesh(singleWrapGrid, testCols, testRows, {
+        ...DEFAULT_SETTINGS,
+        shape: 'hexagon',
+        hexagonDiameter: hexDiameter,
+        hexagonPanelCount: panelCount,
+        height: hexHeight,
+        orientation: 'standing',
+        supportType: 'flange',
+      });
+      const hexVal = MeshValidator.validate(hexGeom);
+      assert(hexVal.isWatertight && hexVal.isManifold, `${panelCount}-Photo 6-sided hexagon lantern is watertight and 2-manifold`);
+      assert(hexVal.degenerateTriangles === 0, `${panelCount}-Photo hexagon lantern has zero degenerate triangles`);
+      assert(Math.abs(hexGeom.boundingBox.min[2]) < 1e-6, `${panelCount}-Photo hexagon lantern rests flat on Z=0`);
+    }
+
+    const hexApothem = (hexDiameter / 2) * (Math.sqrt(3) / 2);
+    const hexFrontGeom = GeometryGenerator.generateMesh(singleWrapGrid, testCols, testRows, {
+      ...DEFAULT_SETTINGS,
+      shape: 'hexagon',
+      hexagonDiameter: hexDiameter,
+      hexagonPanelCount: 4,
+      height: hexHeight,
+      orientation: 'standing',
+      supportType: 'none',
+      reliefSide: 'outside',
+    });
+    const hexFrontFace = faceNear(hexFrontGeom, (cx, cy, cz) => {
+      return Math.abs(cx) < 5 && cy > hexApothem + 0.3 && cz > 20 && cz < 70;
+    });
+    assert(
+      !!hexFrontFace && hexFrontFace.ny > 0.9,
+      `Hexagon front face points directly forward (+Y) (got ny: ${hexFrontFace?.ny.toFixed(2)})`
+    );
+    const hexInnerFace = faceNear(hexFrontGeom, (cx, cy, cz) => {
+      return Math.abs(cx) < 15 && Math.abs(cy - hexApothem) < 0.05 && cz > 10 && cz < 80;
+    });
+    assert(
+      !!hexInnerFace && hexInnerFace.ny < -0.99,
+      `Hexagon inner front wall is flat and points strictly inward (-Y) (got ny: ${hexInnerFace?.ny.toFixed(3)})`
+    );
   }
 
   // TEST SUITE 12: Border width icons around the frame centerline
@@ -1054,6 +1127,45 @@ async function runTestSuite() {
     }
     assert(faceMin < cubeIconSettings.frameThickness - 0.4, `Cube front rim has a star cut into it (got ${faceMin.toFixed(2)}mm)`);
     assert(cornerMin > 2.15, `Cube corners stay a plain border (got ${cornerMin.toFixed(2)}mm)`);
+
+    const hexCols = 144;
+    const hexRows = 48;
+    const hexDiam = 90;
+    const hexSide = hexDiam / 2;
+    const hexGrid = new Float32Array(hexCols * hexRows);
+    hexGrid.fill(0.5);
+    const hexIconSettings: LithophaneSettings = {
+      ...DEFAULT_SETTINGS,
+      shape: 'hexagon',
+      hexagonDiameter: hexDiam,
+      height: 90,
+      orientation: 'standing',
+      supportType: 'none',
+      hasFrame: true,
+      frameWidth: frameW,
+      frameThickness: 2.4,
+      borderIcon: 'heart',
+    };
+    const hexGeom = GeometryGenerator.generateMesh(hexGrid, hexCols, hexRows, hexIconSettings);
+    const hexVal = MeshValidator.validate(hexGeom);
+    assert(hexVal.isWatertight && hexVal.isManifold, 'Hexagon heart border stays watertight');
+    const hexTh = hexGeom.thicknessGrid!;
+    let hexFaceMin = Infinity;
+    let hexCornerMin = Infinity;
+    const hexPer = hexSide * 6;
+    for (let c = 0; c < hexCols; c++) {
+      const x = (c / hexCols) * hexPer;
+      const distCorner = Math.min(x % hexSide, hexSide - (x % hexSide));
+      for (let r = 0; r < hexRows; r++) {
+        const y = (r / (hexRows - 1)) * 90;
+        if (Math.abs(y - frameW / 2) > 1.5) continue;
+        const th = hexTh[r * hexCols + c];
+        if (Math.abs(x - hexSide / 2) < 2.5) hexFaceMin = Math.min(hexFaceMin, th);
+        if (distCorner < 0.4) hexCornerMin = Math.min(hexCornerMin, th);
+      }
+    }
+    assert(hexFaceMin < hexIconSettings.frameThickness - 0.4, `Hexagon front rim has a heart cut into it (got ${hexFaceMin.toFixed(2)}mm)`);
+    assert(hexCornerMin > 2.15, `Hexagon 6 corners stay a plain border without creasing (got ${hexCornerMin.toFixed(2)}mm)`);
   }
 
   console.log('\n[13] Testing Treatstock print-order handoff...');
@@ -1162,9 +1274,9 @@ async function runTestSuite() {
   console.log('\n[14] Testing physical tone curve and stand clearance...');
   {
     const wedge = [0, 0.1, 0.2, 0.5, 0.9];
-    const wedgeShapes: LithophaneSettings['shape'][] = ['flat', 'curved', 'cylinder', 'cube'];
+    const wedgeShapes: LithophaneSettings['shape'][] = ['flat', 'curved', 'cylinder', 'cube', 'hexagon'];
     for (const shape of wedgeShapes) {
-      const cols = shape === 'cube' || shape === 'cylinder' ? 48 : 20;
+      const cols = shape === 'cube' || shape === 'cylinder' || shape === 'hexagon' ? 48 : 20;
       const rows = 12;
       const grid = new Float32Array(cols * rows);
       for (let r = 0; r < rows; r++) {
@@ -1177,6 +1289,7 @@ async function runTestSuite() {
         height: 60,
         cylinderDiameter: 80,
         cubeWidth: 80,
+        hexagonDiameter: 80,
         orientation: 'standing',
         supportType: 'none',
         hasFrame: false,
@@ -1212,6 +1325,7 @@ async function runTestSuite() {
       { shape: 'curved', width: 120, height: 90, cols: 61, rows: 46, supports: ['flange', 'none'] },
       { shape: 'cylinder', width: 120, height: 95, cols: 48, rows: 40, supports: ['flange', 'none'] },
       { shape: 'cube', width: 90, height: 90, cols: 48, rows: 40, supports: ['flange', 'none'] },
+      { shape: 'hexagon', width: 90, height: 90, cols: 48, rows: 40, supports: ['flange', 'none'] },
     ];
 
     for (const panel of panels) {
@@ -1221,7 +1335,9 @@ async function runTestSuite() {
           const grid = new Float32Array(panel.cols * panel.rows);
           grid.fill(0.35);
           const midR = Math.floor(panel.rows / 2);
-          const midC = panel.shape === 'cube' || panel.shape === 'cylinder'
+          const midC = panel.shape === 'hexagon'
+            ? Math.floor(panel.cols / 12)
+            : panel.shape === 'cube' || panel.shape === 'cylinder'
             ? Math.floor(panel.cols / 8)
             : Math.floor(panel.cols / 2);
           grid[midR * panel.cols + midC] = 0;
@@ -1234,6 +1350,7 @@ async function runTestSuite() {
             height: panel.height,
             cylinderDiameter: 90,
             cubeWidth: 90,
+            hexagonDiameter: 90,
             orientation: 'standing',
             supportType,
             hasFrame: true,
@@ -1253,7 +1370,10 @@ async function runTestSuite() {
             `${label} height is photo plus stand (got ${geom.boundingBox.max[2].toFixed(2)}, expected ${(panel.height + ext.heightMm).toFixed(2)})`
           );
 
-          const enclosed = panel.shape === 'cylinder' || panel.shape === 'cube';
+          const enclosed =
+            panel.shape === 'cylinder' ||
+            panel.shape === 'cube' ||
+            panel.shape === 'hexagon';
           let maxExcess = 0;
           let sawBlack = false;
           let sawWhite = false;
@@ -1303,7 +1423,10 @@ async function runTestSuite() {
             `${label} frame is ${settings.frameThickness}mm (got ${topTh.toFixed(3)}mm)`
           );
 
-          const sampleU = midC / (panel.cols - (panel.shape === 'cylinder' || panel.shape === 'cube' ? 0 : 1));
+          const sampleU =
+            midC /
+            (panel.cols -
+              (panel.shape === 'cylinder' || panel.shape === 'cube' || panel.shape === 'hexagon' ? 0 : 1));
           const sampleV = bottomR / (panel.rows - 1);
           const sampleZ = ext.heightMm + (1 - sampleV) * panel.height;
           let geometric: number | null = null;
@@ -1338,7 +1461,9 @@ async function runTestSuite() {
   console.log('\n[15] Testing lossless mesh reduction...');
   {
     const fullTris = (shape: LithophaneSettings['shape'], cols: number, meshRows: number) =>
-      shape === 'cylinder' || shape === 'cube' ? 4 * cols * meshRows : 4 * (cols * meshRows - 1);
+      shape === 'cylinder' || shape === 'cube' || shape === 'hexagon'
+        ? 4 * cols * meshRows
+        : 4 * (cols * meshRows - 1);
 
     const cols = 48;
     const rows = 36;
@@ -1403,6 +1528,7 @@ async function runTestSuite() {
       { shape: 'curved', cols: 36, rows: 24, width: 90, height: 70 },
       { shape: 'cylinder', cols: 48, rows: 24, width: 90, height: 70 },
       { shape: 'cube', cols: 48, rows: 24, width: 80, height: 70 },
+      { shape: 'hexagon', cols: 48, rows: 24, width: 90, height: 70 },
     ];
     for (const spec of shapes) {
       const grid = new Float32Array(spec.cols * spec.rows);
@@ -1414,6 +1540,7 @@ async function runTestSuite() {
         height: spec.height,
         cylinderDiameter: 90,
         cubeWidth: 80,
+        hexagonDiameter: 90,
         orientation: 'standing',
         hasFrame: true,
       };
@@ -1429,6 +1556,101 @@ async function runTestSuite() {
       assert(Math.abs(geom.boundingBox.min[2]) < 1e-4, `${spec.shape} bottom stays on Z = 0`);
       assert(after < before, `${spec.shape} triangle count ${after} is below the unreduced grid ${before}`);
       assert(geom.vertices.length / 3 < spec.cols * meshRows * 2, `${spec.shape} drops interior vertices`);
+    }
+  }
+
+  console.log('\n[16] Testing Inside Relief mode (smooth outside, carved inside)...');
+  {
+    assert(DEFAULT_SETTINGS.reliefSide === 'inside', 'Default reliefSide is inside');
+
+    const insideSpecs: Array<{
+      shape: LithophaneSettings['shape'];
+      cols: number;
+      rows: number;
+      width: number;
+      height: number;
+    }> = [
+      { shape: 'cube', cols: 48, rows: 24, width: 90, height: 80 },
+      { shape: 'cylinder', cols: 48, rows: 24, width: 90, height: 80 },
+      { shape: 'hexagon', cols: 60, rows: 24, width: 90, height: 80 },
+      { shape: 'flat', cols: 36, rows: 24, width: 90, height: 70 },
+      { shape: 'curved', cols: 36, rows: 24, width: 90, height: 70 },
+    ];
+
+    for (const spec of insideSpecs) {
+      const grid = new Float32Array(spec.cols * spec.rows);
+      for (let i = 0; i < grid.length; i++) grid[i] = ((i * 19 + 7) % 83) / 82;
+
+      const settings: LithophaneSettings = {
+        ...DEFAULT_SETTINGS,
+        shape: spec.shape,
+        width: spec.width,
+        height: spec.height,
+        cylinderDiameter: 90,
+        cubeWidth: 90,
+        hexagonDiameter: 90,
+        orientation: 'standing',
+        supportType: 'flange',
+        hasFrame: true,
+        frameWidth: 6,
+        frameThickness: 3.4,
+        borderIcon: 'heart',
+        reliefSide: 'inside',
+      };
+
+      const geom = GeometryGenerator.generateMesh(grid, spec.cols, spec.rows, settings);
+      const validation = MeshValidator.validate(geom);
+      assert(validation.isWatertight && validation.isManifold, `Inside-relief ${spec.shape} is watertight and 2-manifold`);
+      assert(validation.degenerateTriangles === 0, `Inside-relief ${spec.shape} has zero degenerate triangles`);
+      assert(signedVolumeMm3(geom) > 0, `Inside-relief ${spec.shape} keeps positive outward volume`);
+      assert(Math.abs(geom.boundingBox.min[2]) < 1e-4, `Inside-relief ${spec.shape} rests flat on Z = 0`);
+
+      if (spec.shape === 'cube') {
+        const outerY = 90 / 2 + 3.4;
+        const outerFront = faceNear(
+          geom,
+          (cx, cy, cz) => Math.abs(cx) < 25 && Math.abs(cy - outerY) < 0.05 && cz > 10 && cz < 70
+        );
+        assert(
+          !!outerFront && outerFront.ny > 0.999,
+          `Inside-relief cube outer front wall is completely flat at Y=${outerY}mm (got ny=${outerFront?.ny.toFixed(4)})`
+        );
+        const midR = Math.floor(spec.rows / 2);
+        const midC = Math.floor(spec.cols / 8); // center of front face (+Y)
+        const ext = standingBaseExtension(settings);
+        const sampleZ = ext.heightMm + (1 - midR / (spec.rows - 1)) * spec.height;
+        const expectedTh = geom.thicknessGrid![midR * spec.cols + midC];
+        const rayTh = rayThickness(geom, 0, 0, sampleZ, 0, 1, 0);
+        assert(
+          rayTh !== null && Math.abs(rayTh - expectedTh) < 0.05,
+          `Inside-relief cube ray-cast thickness matches photo thickness (got ${rayTh?.toFixed(3)}mm, expected ${expectedTh.toFixed(3)}mm)`
+        );
+      }
+
+      if (spec.shape === 'hexagon') {
+        const hexApothem = (90 / 2) * (Math.sqrt(3) / 2);
+        const outerY = hexApothem + 3.4;
+        const outerFront = faceNear(
+          geom,
+          (cx, cy, cz) => Math.abs(cx) < 10 && Math.abs(cy - outerY) < 0.05 && cz > 10 && cz < 70
+        );
+        assert(
+          !!outerFront && outerFront.ny > 0.999,
+          `Inside-relief hexagon outer front wall is completely flat (got ny=${outerFront?.ny.toFixed(4)})`
+        );
+      }
+
+      if (spec.shape === 'cylinder') {
+        const outerR = 90 / 2 + 3.4;
+        const outerCyl = faceNear(
+          geom,
+          (cx, cy, cz) => Math.abs(Math.hypot(cx, cy) - outerR) < 0.1 && cy > 20 && cz > 15 && cz < 65
+        );
+        assert(
+          !!outerCyl && Math.abs(outerCyl.nz) < 1e-4,
+          `Inside-relief cylinder outer wall has zero vertical normal perturbation (got nz=${outerCyl?.nz.toFixed(5)})`
+        );
+      }
     }
   }
 

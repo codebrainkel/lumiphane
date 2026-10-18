@@ -15,6 +15,8 @@ import {
   getResolutionForTier,
   getCylinderResolutionForTier,
   getCubeResolutionForTier,
+  getHexagonResolutionForTier,
+  getMaxPhotosForShape,
   getMultiPanelSlotLabels,
   getOptimalMultiPanelWrapRatio,
   getStripCellAspect,
@@ -254,7 +256,13 @@ export default function App() {
 
   // Flat and curved panels change height so each tiled photo keeps its proportions.
   useEffect(() => {
-    if (settings.shape === 'cylinder' || settings.shape === 'cube') return;
+    if (
+      settings.shape === 'cylinder' ||
+      settings.shape === 'cube' ||
+      settings.shape === 'hexagon'
+    ) {
+      return;
+    }
     const slot = cylinderSlots[0];
     if (!slot) return;
     const img = loadedCylinderImages[slot.id];
@@ -272,7 +280,13 @@ export default function App() {
     const autoThickness = getAutoScaledThickness(settings.width, autoHeight);
 
     setSettings((prev) => {
-      if (prev.shape === 'cylinder' || prev.shape === 'cube') return prev;
+      if (
+        prev.shape === 'cylinder' ||
+        prev.shape === 'cube' ||
+        prev.shape === 'hexagon'
+      ) {
+        return prev;
+      }
       if (prev.height === autoHeight && prev.minThickness === autoThickness.minThickness) return prev;
       return mergeAutoThickness(prev, autoThickness, { height: autoHeight });
     });
@@ -304,7 +318,7 @@ export default function App() {
 
         if (settings.shape === 'cube') {
           // Process 1 to 4 images for 4-sided hollow cube
-          const slotItems = cylinderSlots.map((slot) => ({
+          const slotItems = cylinderSlots.slice(0, 4).map((slot) => ({
             img: loadedCylinderImages[slot.id] || loadedImage || new Image(),
             cropData: slot.cropData,
             offsetX: slot.offsetX ?? 0,
@@ -315,7 +329,7 @@ export default function App() {
 
           const cubeSettings: LithophaneSettings = {
             ...settings,
-            cubePanelCount: cylinderSlots.length,
+            cubePanelCount: slotItems.length,
           };
 
           const cols = getCubeResolutionForTier(
@@ -337,9 +351,44 @@ export default function App() {
           // Step C: Validate Mesh Topology and Compute Metrics
           const validation = MeshValidator.validate(geometry);
           setValidationResult(validation);
+        } else if (settings.shape === 'hexagon') {
+          // Process 1 to 6 images for 6-sided hollow hexagon
+          const slotItems = cylinderSlots.slice(0, 6).map((slot) => ({
+            img: loadedCylinderImages[slot.id] || loadedImage || new Image(),
+            cropData: slot.cropData,
+            offsetX: slot.offsetX ?? 0,
+            offsetY: slot.offsetY ?? 0,
+            label: slot.label,
+            name: slot.name,
+          }));
+
+          const hexSettings: LithophaneSettings = {
+            ...settings,
+            hexagonPanelCount: slotItems.length,
+          };
+
+          const cols = getHexagonResolutionForTier(
+            settings.qualityTier || 'master',
+            settings.hexagonDiameter || 90
+          );
+          processed = ImageProcessor.processHexagonImages(slotItems, hexSettings, cols);
+          setProcessedImage(processed);
+
+          // Step B: Generate Watertight Solid Geometry
+          const geometry = GeometryGenerator.generateMesh(
+            processed.luminanceGrid,
+            processed.cols,
+            processed.rows,
+            hexSettings
+          );
+          setGeometryData(geometry);
+
+          // Step C: Validate Mesh Topology and Compute Metrics
+          const validation = MeshValidator.validate(geometry);
+          setValidationResult(validation);
         } else if (settings.shape === 'cylinder') {
           // Process 1 to 4 images for 360° cylinder
-          const slotItems = cylinderSlots.map((slot) => ({
+          const slotItems = cylinderSlots.slice(0, 4).map((slot) => ({
             img: loadedCylinderImages[slot.id] || loadedImage || new Image(),
             cropData: slot.cropData,
             offsetX: slot.offsetX ?? 0,
@@ -350,7 +399,7 @@ export default function App() {
 
           const cylSettings: LithophaneSettings = {
             ...settings,
-            cylinderPanelCount: cylinderSlots.length,
+            cylinderPanelCount: slotItems.length,
           };
 
           // Target columns around cylinder scaled to physical circumference and quality tier
@@ -375,7 +424,7 @@ export default function App() {
           setValidationResult(validation);
         } else {
           // Flat or curved: 1 photo fills the panel, 2–4 photos tile across it
-          const slotItems = cylinderSlots.map((slot) => ({
+          const slotItems = cylinderSlots.slice(0, 4).map((slot) => ({
             img: loadedCylinderImages[slot.id] || loadedImage || new Image(),
             cropData: slot.cropData,
             offsetX: slot.offsetX ?? 0,
@@ -525,10 +574,13 @@ export default function App() {
       return;
     }
 
+    const maxPhotos = getMaxPhotosForShape(settings.shape);
     const filled = cylinderSlots.filter((slot) => slot.imageSrc);
-    const room = 4 - filled.length;
+    const room = maxPhotos - filled.length;
     if (room <= 0) {
-      setErrorMessage('Four photos is the limit. Remove one to add another.');
+      setErrorMessage(
+        `${maxPhotos === 6 ? 'Six' : 'Four'} photos is the limit. Remove one to add another.`
+      );
       return;
     }
 
@@ -538,7 +590,7 @@ export default function App() {
       notes.push('Skipped files that are not images. Use JPEG, PNG, or WebP.');
     }
     if (images.length > take) {
-      notes.push('Only 4 photos fit, so the extra ones were left out.');
+      notes.push(`Only ${maxPhotos} photos fit, so the extra ones were left out.`);
     }
     if (notes.length > 0) setErrorMessage(notes.join(' '));
 
@@ -570,6 +622,7 @@ export default function App() {
       ...prev,
       cylinderPanelCount: count,
       cubePanelCount: count,
+      hexagonPanelCount: count,
     }));
     setCylinderSlots(nextSlots);
     readFilesIntoIndexes(images.slice(0, take), [], newIds);
@@ -591,6 +644,7 @@ export default function App() {
       ...prev,
       cylinderPanelCount: Math.max(1, newCount),
       cubePanelCount: Math.max(1, newCount),
+      hexagonPanelCount: Math.max(1, newCount),
     }));
     if (newCount === 0) {
       setCylinderSlots([]);
@@ -617,8 +671,11 @@ export default function App() {
 
     const count = cylinderSlots.length;
     const isCube = settings.shape === 'cube';
+    const isHexagon = settings.shape === 'hexagon';
     const totalPerimeter = isCube
       ? 4 * (settings.cubeWidth || 90)
+      : isHexagon
+      ? 3 * (settings.hexagonDiameter || 90)
       : Math.PI * (settings.cylinderDiameter || 90);
     const panelWidth = totalPerimeter / count;
     // panelWidth / newHeight = aspect => newHeight = panelWidth / aspect
@@ -695,6 +752,8 @@ export default function App() {
         ? { cylinderDiameter: prev.cylinderDiameter || 90, height: 95 }
         : shape === 'cube'
         ? { cubeWidth: prev.cubeWidth || 90, height: 90 }
+        : shape === 'hexagon'
+        ? { hexagonDiameter: prev.hexagonDiameter || 90, height: 90 }
         : {}),
     }));
   };
@@ -708,7 +767,12 @@ export default function App() {
     setSettings((prev) => ({
       ...DEFAULT_SETTINGS,
       shape: prev.shape,
-      height: prev.shape === 'cylinder' ? 95 : prev.shape === 'cube' ? 90 : defaultH,
+      height:
+        prev.shape === 'cylinder'
+          ? 95
+          : prev.shape === 'cube' || prev.shape === 'hexagon'
+          ? 90
+          : defaultH,
       ...autoThickness,
     }));
     setCropData(null);
@@ -747,8 +811,9 @@ export default function App() {
 
   const photoCount = Math.max(1, cylinderSlots.length);
   const isCubeShape = settings.shape === 'cube';
+  const isHexagonShape = settings.shape === 'hexagon';
   const isCylinderShape = settings.shape === 'cylinder';
-  const isStripShape = !isCubeShape && !isCylinderShape;
+  const isStripShape = !isCubeShape && !isHexagonShape && !isCylinderShape;
   const cropSlotIndex = Math.max(
     0,
     cropTargetSlotId ? cylinderSlots.findIndex((slot) => slot.id === cropTargetSlotId) : 0
@@ -757,6 +822,8 @@ export default function App() {
   const cropCellLabel = stripLayout.cells[Math.min(cropSlotIndex, stripLayout.cells.length - 1)]?.label;
   const cropSpanMm = isCubeShape
     ? (4 * (settings.cubeWidth || 90)) / photoCount
+    : isHexagonShape
+    ? (3 * (settings.hexagonDiameter || 90)) / photoCount
     : isCylinderShape
     ? (Math.PI * (settings.cylinderDiameter || 90)) / photoCount
     : isStripShape
@@ -764,6 +831,8 @@ export default function App() {
     : settings.width / photoCount;
   const cropSizeMm = isCubeShape
     ? settings.cubeWidth || 90
+    : isHexagonShape
+    ? settings.hexagonDiameter || 90
     : isCylinderShape
     ? settings.cylinderDiameter || 90
     : settings.width;
@@ -851,13 +920,14 @@ export default function App() {
       )}
 
       {/* =====================================================================
-          STEP 2: ADD UP TO 4 PHOTOS
+          STEP 2: ADD PHOTOS
           ===================================================================== */}
       {currentStep === 'upload' && (
         <div className="flex min-h-0 flex-1 flex-col">
           <PhotoUploader
             cylinderSlots={cylinderSlots}
             uploadJobs={uploadJobs}
+            maxPhotos={getMaxPhotosForShape(settings.shape)}
             onUploadMultipleFiles={placeUploadedFiles}
             onRemoveCylinderSlot={handleRemoveCylinderSlot}
           />
@@ -878,6 +948,7 @@ export default function App() {
               stripLayout={settings.stripLayout}
               cylinderDiameter={settings.cylinderDiameter || 90}
               cubeWidth={settings.cubeWidth || 90}
+              hexagonDiameter={settings.hexagonDiameter || 90}
               onOffsetChange={handleUpdateSlotOffset}
               open={placementOpen}
               onOpenChange={setPlacementOpen}
@@ -997,6 +1068,8 @@ export default function App() {
               ? photoCount === 1
                 ? isCubeShape
                   ? '4-face wrap'
+                  : isHexagonShape
+                  ? '6-face wrap'
                   : isCylinderShape
                   ? '360° wrap'
                   : 'Full panel'

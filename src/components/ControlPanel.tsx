@@ -196,6 +196,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
   const isCylinder = settings.shape === 'cylinder';
   const isCube = settings.shape === 'cube';
+  const isHexagon = settings.shape === 'hexagon';
   const isStrip = settings.shape === 'flat' || settings.shape === 'curved';
   const borderMax = maxBorderWidthMm(settings.shape, settings.width, settings.height);
   const borderIcon = settings.borderIcon ?? 'none';
@@ -562,23 +563,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             <div className="space-y-4">
               <div>
                 <div className="section-kicker">Shape</div>
-                <div className="seg-grid grid-cols-4">
-                  <button
-                    type="button"
-                    data-on={settings.shape === 'cylinder'}
-                    onClick={() => onUpdateSettings({ shape: 'cylinder' })}
-                    className="seg-btn"
-                  >
-                    Cylinder
-                  </button>
-                  <button
-                    type="button"
-                    data-on={settings.shape === 'cube'}
-                    onClick={() => onUpdateSettings({ shape: 'cube', cubeWidth: settings.cubeWidth || 90, height: settings.height || 90 })}
-                    className="seg-btn"
-                  >
-                    Cube
-                  </button>
+                <div className="seg-grid grid-cols-5">
                   <button
                     type="button"
                     data-on={settings.shape === 'flat'}
@@ -594,6 +579,36 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                     className="seg-btn"
                   >
                     Curved
+                  </button>
+                  <button
+                    type="button"
+                    data-on={settings.shape === 'cube'}
+                    onClick={() => onUpdateSettings({ shape: 'cube', cubeWidth: settings.cubeWidth || 90, height: settings.height || 90 })}
+                    className="seg-btn"
+                  >
+                    Cube
+                  </button>
+                  <button
+                    type="button"
+                    data-on={settings.shape === 'hexagon'}
+                    onClick={() =>
+                      onUpdateSettings({
+                        shape: 'hexagon',
+                        hexagonDiameter: settings.hexagonDiameter || 90,
+                        height: settings.height || 90,
+                      })
+                    }
+                    className="seg-btn"
+                  >
+                    Hexagon
+                  </button>
+                  <button
+                    type="button"
+                    data-on={settings.shape === 'cylinder'}
+                    onClick={() => onUpdateSettings({ shape: 'cylinder' })}
+                    className="seg-btn"
+                  >
+                    Cylinder
                   </button>
                 </div>
               </div>
@@ -611,6 +626,46 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                       value={settings.cubeWidth || 90}
                       display={`${settings.cubeWidth || 90} mm`}
                       onChange={(val) => onUpdateSettings({ cubeWidth: val })}
+                    />
+                    <div className="panel-row">
+                      <Slider
+                        label="Height"
+                        min={40}
+                        max={220}
+                        step={5}
+                        value={settings.height || 90}
+                        display={`${settings.height || 90} mm`}
+                        onChange={(val) => onUpdateSettings({ height: val })}
+                      />
+                    </div>
+                    {cylinderSlots?.length === 1 && onMatchCylinderHeightToPhoto && (
+                      <div className="pt-2 border-t border-white/10">
+                        <button
+                          type="button"
+                          onClick={onMatchCylinderHeightToPhoto}
+                          className="btn-secondary text-xs w-full py-1.5 min-h-[28px] text-amber-400 border-amber-400/30 hover:border-amber-400"
+                          title="Auto-adjust height so photo wraps with 0% cropping"
+                        >
+                          <Sparkles className="w-3 h-3 text-amber-400" />
+                          <span>Match Height to Photo Aspect</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : isHexagon ? (
+                /* Hollow Hexagon Dimensions */
+                <div>
+                  <div className="section-kicker">Dimensions</div>
+                  <div className="inset-panel">
+                    <Slider
+                      label="Diameter"
+                      min={50}
+                      max={260}
+                      step={2}
+                      value={settings.hexagonDiameter || 90}
+                      display={`${settings.hexagonDiameter || 90} mm (${Math.round((settings.hexagonDiameter || 90) / 2)} mm side)`}
+                      onChange={(val) => onUpdateSettings({ hexagonDiameter: val })}
                     />
                     <div className="panel-row">
                       <Slider
@@ -775,8 +830,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                     <div className="seg-grid grid-cols-4">
                       {(
                         [
-                          { id: 'flange', label: isCylinder ? 'Brim' : 'Standard' },
-                          { id: 'buttress', label: isCylinder ? 'Wide' : 'Finned' },
+                          { id: 'flange', label: isCylinder || isHexagon || isCube ? 'Brim' : 'Standard' },
+                          { id: 'buttress', label: isCylinder || isHexagon || isCube ? 'Wide' : 'Finned' },
                           { id: 'full', label: 'Wide Base' },
                           { id: 'none', label: 'None' },
                         ] as { id: SupportType; label: string }[]
@@ -867,6 +922,30 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                       aria-checked={settings.invert}
                       data-on={settings.invert}
                       onClick={() => onUpdateSettings({ invert: !settings.invert })}
+                      className="switch-control"
+                    >
+                      <span />
+                    </button>
+                  </div>
+                  <div className="panel-row flex items-center justify-between gap-4 px-3 py-3">
+                    <div>
+                      <span className="text-xs font-medium text-slate-200 block">Inside Relief</span>
+                      <span className="text-[11px] text-slate-400 font-mono">
+                        Smooth outside, carved on the inside
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-label="Inside Relief"
+                      aria-checked={(settings.reliefSide ?? 'inside') === 'inside'}
+                      data-on={(settings.reliefSide ?? 'inside') === 'inside'}
+                      onClick={() =>
+                        onUpdateSettings({
+                          reliefSide:
+                            (settings.reliefSide ?? 'inside') === 'inside' ? 'outside' : 'inside',
+                        })
+                      }
                       className="switch-control"
                     >
                       <span />

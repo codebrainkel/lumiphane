@@ -38,7 +38,7 @@ export function maxBorderWidthMm(
   panelHeightMm: number
 ): number {
   const span =
-    shape === 'cylinder' || shape === 'cube'
+    shape === 'cylinder' || shape === 'cube' || shape === 'hexagon'
       ? panelHeightMm
       : Math.min(panelWidthMm, panelHeightMm);
   const limit = Math.min(16, Math.max(4, span * 0.35));
