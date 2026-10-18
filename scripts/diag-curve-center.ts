@@ -10,7 +10,6 @@ function run(cols: number, rows: number) {
     shape: 'curved',
     width: 120,
     height: 90,
-    reliefSide: 'inside',
     hasFrame: true,
     curveAngle: 75,
   };
@@ -77,7 +76,6 @@ function deviations(cols: number, rows: number) {
     shape: 'curved',
     width: 120,
     height: 90,
-    reliefSide: 'inside',
     hasFrame: true,
   };
   const geom = GeometryGenerator.generateMesh(grid, cols, rows, settings);

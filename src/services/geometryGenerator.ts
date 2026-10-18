@@ -110,8 +110,6 @@ export class GeometryGenerator {
     const hasFrame = settings.hasFrame;
     const frameW = clampBorderWidthMm(settings.shape, W, H, settings.frameWidth || 0);
     const frameTh = Math.max(minTh, settings.frameThickness || maxTh);
-    const isInsideRelief = (settings.reliefSide ?? 'inside') === 'inside';
-    const outerShellTh = hasFrame ? Math.max(maxTh, frameTh) : maxTh;
     const borderIcon = settings.borderIcon ?? 'none';
     const borderPerimeter = isCube
       ? cubeWidth * 4
@@ -241,8 +239,8 @@ export class GeometryGenerator {
           const uSide = (c - sideIdx * sideCols) / sideCols; // [0, 1)
 
           localThickness = th + brimExtra;
-          const rIn = isInsideRelief ? cubeHw + (outerShellTh - th) : cubeHw;
-          const rOut = isInsideRelief ? cubeHw + outerShellTh + brimExtra : cubeHw + localThickness;
+          const rIn = cubeHw;
+          const rOut = cubeHw + localThickness;
 
           if (sideIdx === 0) {
             // Face 0: Front (+Y)
@@ -295,8 +293,8 @@ export class GeometryGenerator {
           const py = ny + s * ty;
 
           localThickness = th + brimExtra;
-          const rIn = isInsideRelief ? hexApothem + (outerShellTh - th) : hexApothem;
-          const rOut = isInsideRelief ? hexApothem + outerShellTh + brimExtra : hexApothem + localThickness;
+          const rIn = hexApothem;
+          const rOut = hexApothem + localThickness;
 
           bx = rIn * px;
           by = rIn * py;
@@ -318,10 +316,8 @@ export class GeometryGenerator {
           const cosPhi = Math.cos(phi);
 
           localThickness = th + brimExtra;
-          const rIn = isInsideRelief ? cylinderRadius + (outerShellTh - th) : cylinderRadius;
-          const rOut = isInsideRelief
-            ? cylinderRadius + outerShellTh + brimExtra
-            : cylinderRadius + localThickness;
+          const rIn = cylinderRadius;
+          const rOut = cylinderRadius + localThickness;
 
           // Inner surface (facing center (0,0,z))
           bx = rIn * sinPhi;
@@ -345,15 +341,13 @@ export class GeometryGenerator {
             localThickness = th + brimExtra;
             const baseX = arcRadius * sinPhi;
             const baseY = (isConvex ? -1 : 1) * arcRadius * (1.0 - cosPhi) - brimExtra;
-            const innerOffset = isInsideRelief ? outerShellTh - th : 0;
-            const outerOffset = isInsideRelief ? outerShellTh + brimExtra : th + brimExtra;
 
-            bx = baseX + sinPhi * innerOffset;
-            by = baseY + cosPhi * innerOffset;
+            bx = baseX;
+            by = baseY;
             bz = pz;
 
-            fx = baseX + sinPhi * outerOffset;
-            fy = baseY + cosPhi * outerOffset;
+            fx = baseX + sinPhi * localThickness;
+            fy = baseY + cosPhi * localThickness;
             fz = pz;
           } else {
             // Flat Plate Lithophane Standing on Build Plate
@@ -361,14 +355,14 @@ export class GeometryGenerator {
 
             localThickness = th + flangeFront + flangeBack;
 
-            // Back surface
+            // Back surface stays flat. Photo thickness grows toward the viewer.
             bx = px;
-            by = isInsideRelief ? outerShellTh - th - flangeBack : -flangeBack;
+            by = -flangeBack;
             bz = pz;
 
             // Front surface
             fx = px;
-            fy = isInsideRelief ? outerShellTh + flangeFront : th + flangeFront;
+            fy = th + flangeFront;
             fz = pz;
           }
         } else {
@@ -385,16 +379,14 @@ export class GeometryGenerator {
             const nz = cosPhi;
             const baseX = arcRadius * sinPhi;
             const baseZ = (isConvex ? -1 : 1) * arcRadius * (1.0 - cosPhi);
-            const innerOffset = isInsideRelief ? outerShellTh - th : 0;
-            const outerOffset = isInsideRelief ? outerShellTh : th;
 
-            bx = baseX + nx * innerOffset;
+            bx = baseX;
             by = pyFlat;
-            bz = baseZ + nz * innerOffset;
+            bz = baseZ;
 
-            fx = baseX + nx * outerOffset;
+            fx = baseX + nx * th;
             fy = pyFlat;
-            fz = baseZ + nz * outerOffset;
+            fz = baseZ + nz * th;
           } else {
             fx = px;
             fy = pyFlat;

@@ -87,20 +87,20 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
         >
           {/* Curved Brim / Bottom Layer with Angled Ends around the Curved Panel Footprint */}
           <path
-            d="M 24 117 L 18 118 L 12 136 Q 100 120 188 136 L 182 118 L 176 117 L 176 126 Q 100 110 24 126 Z"
+            d="M 24 117 L 18 118 L 12 136 Q 100 148 188 136 L 182 118 L 176 117 L 176 126 Q 100 138 24 126 Z"
             stroke="none"
             className="fill-amber-400/15"
           />
           {/* Hidden Back Brim Arc behind Panel */}
           <path
-            d="M 24 117 Q 100 101 176 117"
+            d="M 24 117 Q 100 129 176 117"
             strokeWidth="1.5"
             strokeDasharray="4 4"
             className="stroke-amber-400/45"
           />
           {/* Visible Front Arc & Angled Side Brim Edges */}
           <path
-            d="M 24 117 L 18 118 L 12 136 Q 100 120 188 136 L 182 118 L 176 117"
+            d="M 24 117 L 18 118 L 12 136 Q 100 148 188 136 L 182 118 L 176 117"
             strokeWidth="2.25"
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -109,7 +109,7 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
 
           {/* Outer Curved Panel */}
           <path
-            d="M 24 26 Q 100 10 176 26 L 176 126 Q 100 110 24 126 Z"
+            d="M 24 26 Q 100 38 176 26 L 176 126 Q 100 138 24 126 Z"
             strokeWidth="2.5"
             strokeLinejoin="round"
             className="stroke-slate-200"
@@ -117,7 +117,7 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
 
           {/* Dotted Inner Curved Face Frame */}
           <path
-            d="M 34 36 Q 100 21 166 36 L 166 116 Q 100 101 34 116 Z"
+            d="M 34 36 Q 100 48 166 36 L 166 116 Q 100 128 34 116 Z"
             strokeWidth="1.5"
             strokeDasharray="4 4"
             strokeLinejoin="round"

@@ -125,7 +125,7 @@ export default function App() {
   const [loadedImage, setLoadedImage] = useState<HTMLImageElement | null>(null);
   const [cropData, setCropData] = useState<ImageCropData | null>(null);
 
-  // Shared photo slots. Every shape uses the same 1 to 4 photos and tiles them to fit.
+  // Shared photo slots. Flat, curved, cube, and cylinder hold 1 to 4. A hexagon holds 1 to 6.
   const [cylinderSlots, setCylinderSlots] = useState<CylinderSlot[]>([]);
   const [uploadJobs, setUploadJobs] = useState<PhotoUploadJob[]>([]);
   const uploadSeqRef = useRef(0);
@@ -144,6 +144,7 @@ export default function App() {
 
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [photoNote, setPhotoNote] = useState<string | null>(null);
 
   // Modals
   const [showValidationModal, setShowValidationModal] = useState<boolean>(false);
@@ -153,6 +154,7 @@ export default function App() {
   const [printOrderingEnabled, setPrintOrderingEnabled] = useState<boolean>(false);
   const [emailExportEnabled, setEmailExportEnabled] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const addPhotosInputRef = useRef<HTMLInputElement>(null);
   const slotFileInputRef = useRef<HTMLInputElement>(null);
   const debounceTimerRef = useRef<number | null>(null);
 
@@ -334,7 +336,8 @@ export default function App() {
 
           const cols = getCubeResolutionForTier(
             settings.qualityTier || 'master',
-            settings.cubeWidth || 90
+            settings.cubeWidth || 90,
+            settings.height
           );
           processed = ImageProcessor.processCubeImages(slotItems, cubeSettings, cols);
           setProcessedImage(processed);
@@ -369,7 +372,8 @@ export default function App() {
 
           const cols = getHexagonResolutionForTier(
             settings.qualityTier || 'master',
-            settings.hexagonDiameter || 90
+            settings.hexagonDiameter || 90,
+            settings.height
           );
           processed = ImageProcessor.processHexagonImages(slotItems, hexSettings, cols);
           setProcessedImage(processed);
@@ -405,7 +409,8 @@ export default function App() {
           // Target columns around cylinder scaled to physical circumference and quality tier
           const cols = getCylinderResolutionForTier(
             settings.qualityTier || 'master',
-            settings.cylinderDiameter || 90
+            settings.cylinderDiameter || 90,
+            settings.height
           );
           processed = ImageProcessor.processCylinderImages(slotItems, cylSettings, cols);
           setProcessedImage(processed);
@@ -437,7 +442,7 @@ export default function App() {
             setIsGenerating(false);
             return;
           }
-          const cols = getResolutionForTier(settings.qualityTier || 'master', settings.width);
+          const cols = getResolutionForTier(settings.qualityTier || 'master', settings.width, settings.height);
           processed =
             cylinderSlots.length <= 1
               ? ImageProcessor.processImage(
@@ -625,6 +630,7 @@ export default function App() {
       hexagonPanelCount: count,
     }));
     setCylinderSlots(nextSlots);
+    setPhotoNote(null);
     readFilesIntoIndexes(images.slice(0, take), [], newIds);
   };
 
@@ -646,6 +652,7 @@ export default function App() {
       cubePanelCount: Math.max(1, newCount),
       hexagonPanelCount: Math.max(1, newCount),
     }));
+    setPhotoNote(null);
     if (newCount === 0) {
       setCylinderSlots([]);
       return;
@@ -739,15 +746,47 @@ export default function App() {
     setSettings((prev) => mergeAutoThickness(prev, autoThickness, { width: clampedW, height: newH }));
   };
 
+  const trimPhotosForShape = (shape: string) => {
+    const maxPhotos = getMaxPhotosForShape(shape);
+    if (cylinderSlots.length <= maxPhotos) {
+      setPhotoNote(null);
+      return cylinderSlots.length;
+    }
+    const removed = cylinderSlots.length - maxPhotos;
+    setCylinderSlots((prev) => (prev.length > maxPhotos ? prev.slice(0, maxPhotos) : prev));
+    setPhotoNote(
+      `This shape holds ${maxPhotos} photos, so ${removed === 1 ? '1 was' : `${removed} were`} removed.`
+    );
+    return maxPhotos;
+  };
+
   const handleUpdateSettings = (newSettings: Partial<LithophaneSettings>) => {
-    setSettings((prev) => ({ ...prev, ...newSettings }));
+    let patch = newSettings;
+    if (patch.shape && patch.shape !== settings.shape && cylinderSlots.length > 0) {
+      const count = trimPhotosForShape(patch.shape);
+      patch = {
+        ...patch,
+        cylinderPanelCount: count,
+        cubePanelCount: count,
+        hexagonPanelCount: count,
+      };
+    }
+    setSettings((prev) => ({ ...prev, ...patch }));
   };
 
   const handleSelectShape = (shape: LithophaneShape) => {
     setShapeChosen(true);
+    const count = cylinderSlots.length > 0 ? trimPhotosForShape(shape) : 0;
     setSettings((prev) => ({
       ...prev,
       shape,
+      ...(count > 0
+        ? {
+            cylinderPanelCount: count,
+            cubePanelCount: count,
+            hexagonPanelCount: count,
+          }
+        : {}),
       ...(shape === 'cylinder'
         ? { cylinderDiameter: prev.cylinderDiameter || 90, height: 95 }
         : shape === 'cube'
@@ -869,6 +908,18 @@ export default function App() {
         }}
       />
       <input
+        ref={addPhotosInputRef}
+        type="file"
+        multiple
+        accept="image/*,.png,.jpg,.jpeg,.webp"
+        className="hidden"
+        onChange={(e) => {
+          const files = Array.from(e.target.files || []);
+          e.target.value = '';
+          if (files.length > 0) placeUploadedFiles(files);
+        }}
+      />
+      <input
         ref={slotFileInputRef}
         type="file"
         accept="image/*,.png,.jpg,.jpeg,.webp"
@@ -984,6 +1035,9 @@ export default function App() {
               targetUploadSlotIdRef.current = slotId;
               slotFileInputRef.current?.click();
             }}
+            onAddPhotos={() => addPhotosInputRef.current?.click()}
+            onRemovePhoto={handleRemoveCylinderSlot}
+            photoNote={photoNote}
             onReorderCylinderSlots={(newSlots) => setCylinderSlots(newSlots)}
             onMatchCylinderHeightToPhoto={handleMatchCylinderHeightToPhoto}
             onPlacePhotos={() => setPlacementOpen(true)}

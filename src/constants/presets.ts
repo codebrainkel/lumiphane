@@ -35,7 +35,6 @@ export const DEFAULT_SETTINGS: LithophaneSettings = {
   contrast: 0,
   gamma: 1.0,
   invert: false,
-  reliefSide: 'inside',
   smoothing: 0,
 
   recommendedLayerHeight: 0.12,
@@ -117,8 +116,8 @@ export const QUALITY_TIERS: Record<QualityTier, QualityTierInfo> = {
     id: 'master',
     label: 'High Detail',
     badge: 'Sharpest',
-    description: 'Ultra-fine surface resolution for crisp, detailed photo prints.',
-    baseCols: 600,
+    description: 'One relief sample every 0.10 mm, finer than a 0.12 mm print layer.',
+    baseCols: 1200,
   },
   studio: {
     id: 'studio',
@@ -136,12 +135,46 @@ export const QUALITY_TIERS: Record<QualityTier, QualityTierInfo> = {
   },
 };
 
+/** Printed relief sample spacing. Finer than the 0.12 mm layer the print guide recommends. */
+export const MASTER_PITCH_MM = 0.1;
+
 /**
- * Computes optimal grid columns for chosen quality tier and physical model width
+ * Photo samples kept in one mesh. A 120×90 mm panel at 0.10 mm is about 1.1 million
+ * and stays under this. Larger parts ease the pitch back just enough to fit.
  */
-export function getResolutionForTier(tier: QualityTier = 'master', widthMm: number = 120): number {
+export const MAX_RELIEF_SAMPLES = 1_800_000;
+
+function columnsForPitch(
+  spanMm: number,
+  heightMm: number | undefined,
+  pitchMm: number,
+  multiple: number,
+  minCols: number,
+): number {
+  const span = Math.max(pitchMm, spanMm);
+  let cols = Math.max(minCols, Math.round(span / pitchMm / multiple) * multiple);
+  if (heightMm == null || !(heightMm > 0)) return cols;
+  const height = Math.max(pitchMm, heightMm);
+  while (cols > minCols) {
+    const rows = Math.max(4, Math.round((cols * height) / span));
+    if (cols * rows <= MAX_RELIEF_SAMPLES) break;
+    cols -= multiple;
+  }
+  return cols;
+}
+
+/**
+ * Grid columns for the chosen quality tier and physical model width.
+ * Master uses a fixed 0.10 mm pitch. Pass height so a very large panel
+ * stays inside the sample budget.
+ */
+export function getResolutionForTier(
+  tier: QualityTier = 'master',
+  widthMm: number = 120,
+  heightMm?: number,
+): number {
   if (tier === 'master') {
-    return Math.max(520, Math.min(720, Math.round(widthMm * (600 / 120))));
+    return columnsForPitch(widthMm, heightMm, MASTER_PITCH_MM, 1, 520);
   }
   if (tier === 'studio') {
     return Math.max(380, Math.min(540, Math.round(widthMm * (440 / 120))));
@@ -154,12 +187,15 @@ export function getResolutionForTier(tier: QualityTier = 'master', widthMm: numb
  * Guarantees cols is a multiple of 12 (divisible by 1, 2, 3, and 4 panels)
  * and scales to maintain high sampling density around the full 360° perimeter.
  */
-export function getCylinderResolutionForTier(tier: QualityTier = 'master', diameterMm: number = 90): number {
+export function getCylinderResolutionForTier(
+  tier: QualityTier = 'master',
+  diameterMm: number = 90,
+  heightMm?: number,
+): number {
   const circumference = Math.PI * Math.max(40, diameterMm);
   let cols: number;
   if (tier === 'master') {
-    cols = Math.round((circumference * 5.0) / 12) * 12;
-    return Math.max(1020, Math.min(2160, cols));
+    return columnsForPitch(circumference, heightMm, MASTER_PITCH_MM, 12, 1020);
   }
   if (tier === 'studio') {
     cols = Math.round((circumference * 3.4) / 12) * 12;
@@ -174,12 +210,15 @@ export function getCylinderResolutionForTier(tier: QualityTier = 'master', diame
  * Guarantees cols is a multiple of 12 (divisible by 1, 2, 3, and 4 panels)
  * and scales to maintain high sampling density around the 4 sides of the hollow cube.
  */
-export function getCubeResolutionForTier(tier: QualityTier = 'master', cubeWidthMm: number = 90): number {
+export function getCubeResolutionForTier(
+  tier: QualityTier = 'master',
+  cubeWidthMm: number = 90,
+  heightMm?: number,
+): number {
   const perimeter = 4 * Math.max(40, cubeWidthMm);
   let cols: number;
   if (tier === 'master') {
-    cols = Math.round((perimeter * 4.2) / 12) * 12;
-    return Math.max(960, Math.min(2160, cols));
+    return columnsForPitch(perimeter, heightMm, MASTER_PITCH_MM, 12, 960);
   }
   if (tier === 'studio') {
     cols = Math.round((perimeter * 3.0) / 12) * 12;
@@ -194,12 +233,15 @@ export function getCubeResolutionForTier(tier: QualityTier = 'master', cubeWidth
  * Guarantees cols is a multiple of 60 (divisible by 6 hexagon faces as well as 1, 2, 3, 4, 5, and 6 panels)
  * and scales to maintain high sampling density around the 6 sides of the hollow hexagon.
  */
-export function getHexagonResolutionForTier(tier: QualityTier = 'master', diameterMm: number = 90): number {
+export function getHexagonResolutionForTier(
+  tier: QualityTier = 'master',
+  diameterMm: number = 90,
+  heightMm?: number,
+): number {
   const perimeter = 3 * Math.max(40, diameterMm);
   let cols: number;
   if (tier === 'master') {
-    cols = Math.round((perimeter * 4.8) / 60) * 60;
-    return Math.max(960, Math.min(2160, cols));
+    return columnsForPitch(perimeter, heightMm, MASTER_PITCH_MM, 60, 960);
   }
   if (tier === 'studio') {
     cols = Math.round((perimeter * 3.3) / 60) * 60;

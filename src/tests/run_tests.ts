@@ -635,26 +635,30 @@ async function runTestSuite() {
       QUALITY_TIERS,
     } = await import('../constants/presets');
 
-    assert(QUALITY_TIERS.master.baseCols === 600, 'Master quality base resolution is 600 cols');
+    assert(QUALITY_TIERS.master.baseCols === 1200, 'Master quality base resolution is 1200 cols');
     assert(QUALITY_TIERS.studio.baseCols === 440, 'Studio quality base resolution is 440 cols');
     assert(QUALITY_TIERS.balanced.baseCols === 340, 'Balanced quality base resolution is 340 cols');
 
-    const masterCols = getResolutionForTier('master', 120);
-    assert(masterCols === 600, `Master tier for 120mm yields 600 cols (got: ${masterCols})`);
+    const masterCols = getResolutionForTier('master', 120, 90);
+    assert(masterCols === 1200, `Master tier for 120mm yields 1200 cols (got: ${masterCols})`);
 
     const studioCols = getResolutionForTier('studio', 120);
     assert(studioCols === 440, `Studio tier for 120mm yields 440 cols (got: ${studioCols})`);
 
     const pitchMm = 120 / masterCols;
-    assert(pitchMm <= 0.20, `Master physical sampling pitch is <= 0.20mm (got: ${pitchMm.toFixed(3)}mm)`);
+    assert(Math.abs(pitchMm - 0.1) < 1e-9, `Master physical sampling pitch is 0.10mm (got: ${pitchMm.toFixed(3)}mm)`);
+
+    const wideCols = getResolutionForTier('master', 220, 165);
+    assert(wideCols > 1400, `A 220mm panel stays above the old 720-col cap (got: ${wideCols})`);
+    assert(220 / wideCols <= 0.16, `A 220mm panel stays near 0.10mm pitch (got: ${(220 / wideCols).toFixed(3)}mm)`);
 
     // Cylinder Tier Assertions:
-    const cylMasterCols = getCylinderResolutionForTier('master', 90);
+    const cylMasterCols = getCylinderResolutionForTier('master', 90, 95);
     assert(cylMasterCols >= 1400, `Cylinder master quality yields >= 1400 cols (got: ${cylMasterCols})`);
-    assert(cylMasterCols % 4 === 0, `Cylinder master cols is multiple of 4 (got: ${cylMasterCols})`);
+    assert(cylMasterCols % 12 === 0, `Cylinder master cols is multiple of 12 (got: ${cylMasterCols})`);
     const cylCircumference = Math.PI * 90;
     const cylMasterPitch = cylCircumference / cylMasterCols;
-    assert(cylMasterPitch <= 0.21, `Cylinder master physical pitch matches flat master <= 0.21mm (got: ${cylMasterPitch.toFixed(3)}mm)`);
+    assert(cylMasterPitch <= 0.13, `Cylinder master physical pitch is near 0.10mm (got: ${cylMasterPitch.toFixed(3)}mm)`);
 
     const cylStudioCols = getCylinderResolutionForTier('studio', 90);
     assert(cylStudioCols >= 960 && cylStudioCols % 4 === 0, `Cylinder studio yields 960 cols divisible by 4 (got: ${cylStudioCols})`);
@@ -663,11 +667,11 @@ async function runTestSuite() {
     assert(cylDraftCols >= 640 && cylDraftCols % 4 === 0, `Cylinder draft yields 640 cols divisible by 4 (got: ${cylDraftCols})`);
 
     // Hexagon Tier & Preset Assertions:
-    const hexMasterCols = getHexagonResolutionForTier('master', 90);
+    const hexMasterCols = getHexagonResolutionForTier('master', 90, 90);
     assert(hexMasterCols % 60 === 0, `Hexagon master cols is divisible by 60 (got: ${hexMasterCols})`);
     const hexPerimeter = 3 * 90;
     const hexMasterPitch = hexPerimeter / hexMasterCols;
-    assert(hexMasterPitch <= 0.21, `Hexagon master physical pitch <= 0.21mm (got: ${hexMasterPitch.toFixed(3)}mm)`);
+    assert(hexMasterPitch <= 0.13, `Hexagon master physical pitch is near 0.10mm (got: ${hexMasterPitch.toFixed(3)}mm)`);
 
     const hexLabels1 = getMultiPanelSlotLabels('hexagon', 1);
     const hexLabels3 = getMultiPanelSlotLabels('hexagon', 3);
@@ -796,8 +800,6 @@ async function runTestSuite() {
       supportHeight: DEFAULT_SETTINGS.supportHeight,
     });
     assert(Math.abs(cylVal.dimensionsMm.height - (cylHeight + cylExt.heightMm)) < 0.5, `Cylinder height is 95mm plus the ${cylExt.heightMm}mm brim (got ${cylVal.dimensionsMm.height}mm)`);
-    // Outer diameter includes base cylinder radius + thickness
-    const outerDiamExpected = cylDiameter + 3.0 * 2; // ~96mm
     assert(cylGeom.boundingBox.min[2] === 0, 'Cylinder bottom rim rests flat at Z=0 on print bed');
     const fullCylTris = 4 * testCols * (testRows + cylExt.rows);
     assert(
@@ -806,12 +808,16 @@ async function runTestSuite() {
     );
 
     // Face normals, not grid indices: equal-height columns no longer keep a vertex on every row.
+    // The bore stays a smooth cylinder. Photo thickness grows outward from it.
     const midRow = Math.floor(testRows / 2);
     const radius = cylDiameter / 2;
-    const outer = faceNear(cylGeom, (cx, cy, cz) => Math.hypot(cx, cy) > radius + 3.1 && cz > 10 && cz < cylHeight);
+    const outer = faceNear(cylGeom, (cx, cy, cz) => {
+      const r = Math.hypot(cx, cy);
+      return r > radius + 0.9 && r < radius + 3.0 && cz > 10 && cz < cylHeight;
+    });
     const inner = faceNear(cylGeom, (cx, cy, cz) => {
       const r = Math.hypot(cx, cy);
-      return r > radius - 1 && r < radius + 2.8 && cz > 10 && cz < cylHeight;
+      return Math.abs(r - radius) < 0.15 && cz > 10 && cz < cylHeight;
     });
     const outerDot = outer ? outer.nx * outer.cx + outer.ny * outer.cy : 0;
     const innerDot = inner ? inner.nx * inner.cx + inner.ny * inner.cy : 0;
@@ -920,7 +926,6 @@ async function runTestSuite() {
       height: hexHeight,
       orientation: 'standing',
       supportType: 'none',
-      reliefSide: 'outside',
     });
     const hexFrontFace = faceNear(hexFrontGeom, (cx, cy, cz) => {
       return Math.abs(cx) < 5 && cy > hexApothem + 0.3 && cz > 20 && cz < 70;
@@ -1556,101 +1561,6 @@ async function runTestSuite() {
       assert(Math.abs(geom.boundingBox.min[2]) < 1e-4, `${spec.shape} bottom stays on Z = 0`);
       assert(after < before, `${spec.shape} triangle count ${after} is below the unreduced grid ${before}`);
       assert(geom.vertices.length / 3 < spec.cols * meshRows * 2, `${spec.shape} drops interior vertices`);
-    }
-  }
-
-  console.log('\n[16] Testing Inside Relief mode (smooth outside, carved inside)...');
-  {
-    assert(DEFAULT_SETTINGS.reliefSide === 'inside', 'Default reliefSide is inside');
-
-    const insideSpecs: Array<{
-      shape: LithophaneSettings['shape'];
-      cols: number;
-      rows: number;
-      width: number;
-      height: number;
-    }> = [
-      { shape: 'cube', cols: 48, rows: 24, width: 90, height: 80 },
-      { shape: 'cylinder', cols: 48, rows: 24, width: 90, height: 80 },
-      { shape: 'hexagon', cols: 60, rows: 24, width: 90, height: 80 },
-      { shape: 'flat', cols: 36, rows: 24, width: 90, height: 70 },
-      { shape: 'curved', cols: 36, rows: 24, width: 90, height: 70 },
-    ];
-
-    for (const spec of insideSpecs) {
-      const grid = new Float32Array(spec.cols * spec.rows);
-      for (let i = 0; i < grid.length; i++) grid[i] = ((i * 19 + 7) % 83) / 82;
-
-      const settings: LithophaneSettings = {
-        ...DEFAULT_SETTINGS,
-        shape: spec.shape,
-        width: spec.width,
-        height: spec.height,
-        cylinderDiameter: 90,
-        cubeWidth: 90,
-        hexagonDiameter: 90,
-        orientation: 'standing',
-        supportType: 'flange',
-        hasFrame: true,
-        frameWidth: 6,
-        frameThickness: 3.4,
-        borderIcon: 'heart',
-        reliefSide: 'inside',
-      };
-
-      const geom = GeometryGenerator.generateMesh(grid, spec.cols, spec.rows, settings);
-      const validation = MeshValidator.validate(geom);
-      assert(validation.isWatertight && validation.isManifold, `Inside-relief ${spec.shape} is watertight and 2-manifold`);
-      assert(validation.degenerateTriangles === 0, `Inside-relief ${spec.shape} has zero degenerate triangles`);
-      assert(signedVolumeMm3(geom) > 0, `Inside-relief ${spec.shape} keeps positive outward volume`);
-      assert(Math.abs(geom.boundingBox.min[2]) < 1e-4, `Inside-relief ${spec.shape} rests flat on Z = 0`);
-
-      if (spec.shape === 'cube') {
-        const outerY = 90 / 2 + 3.4;
-        const outerFront = faceNear(
-          geom,
-          (cx, cy, cz) => Math.abs(cx) < 25 && Math.abs(cy - outerY) < 0.05 && cz > 10 && cz < 70
-        );
-        assert(
-          !!outerFront && outerFront.ny > 0.999,
-          `Inside-relief cube outer front wall is completely flat at Y=${outerY}mm (got ny=${outerFront?.ny.toFixed(4)})`
-        );
-        const midR = Math.floor(spec.rows / 2);
-        const midC = Math.floor(spec.cols / 8); // center of front face (+Y)
-        const ext = standingBaseExtension(settings);
-        const sampleZ = ext.heightMm + (1 - midR / (spec.rows - 1)) * spec.height;
-        const expectedTh = geom.thicknessGrid![midR * spec.cols + midC];
-        const rayTh = rayThickness(geom, 0, 0, sampleZ, 0, 1, 0);
-        assert(
-          rayTh !== null && Math.abs(rayTh - expectedTh) < 0.05,
-          `Inside-relief cube ray-cast thickness matches photo thickness (got ${rayTh?.toFixed(3)}mm, expected ${expectedTh.toFixed(3)}mm)`
-        );
-      }
-
-      if (spec.shape === 'hexagon') {
-        const hexApothem = (90 / 2) * (Math.sqrt(3) / 2);
-        const outerY = hexApothem + 3.4;
-        const outerFront = faceNear(
-          geom,
-          (cx, cy, cz) => Math.abs(cx) < 10 && Math.abs(cy - outerY) < 0.05 && cz > 10 && cz < 70
-        );
-        assert(
-          !!outerFront && outerFront.ny > 0.999,
-          `Inside-relief hexagon outer front wall is completely flat (got ny=${outerFront?.ny.toFixed(4)})`
-        );
-      }
-
-      if (spec.shape === 'cylinder') {
-        const outerR = 90 / 2 + 3.4;
-        const outerCyl = faceNear(
-          geom,
-          (cx, cy, cz) => Math.abs(Math.hypot(cx, cy) - outerR) < 0.1 && cy > 20 && cz > 15 && cz < 65
-        );
-        assert(
-          !!outerCyl && Math.abs(outerCyl.nz) < 1e-4,
-          `Inside-relief cylinder outer wall has zero vertical normal perturbation (got nz=${outerCyl?.nz.toFixed(5)})`
-        );
-      }
     }
   }
 

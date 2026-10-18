@@ -6,6 +6,7 @@ import {
   CylinderSlot,
 } from '../types/lithophane';
 import {
+  getMaxPhotosForShape,
   getMultiPanelSlotLabels,
   getStripLayoutsForCount,
   resolveStripLayout,
@@ -22,10 +23,12 @@ import {
   Images,
   Move,
   PanelBottom,
+  Plus,
   RotateCcw,
   Ruler,
   Sparkles,
   Upload,
+  X,
 } from 'lucide-react';
 
 interface ControlPanelProps {
@@ -43,6 +46,9 @@ interface ControlPanelProps {
   onOpenCropSlot?: (slotId: string) => void;
   onUploadSlotClick?: (slotId: string) => void;
   onReorderCylinderSlots?: (newSlots: CylinderSlot[]) => void;
+  onAddPhotos?: () => void;
+  onRemovePhoto?: (slotId: string) => void;
+  photoNote?: string | null;
   onMatchCylinderHeightToPhoto?: () => void;
   onPlacePhotos?: () => void;
 }
@@ -180,6 +186,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onOpenCropSlot,
   onUploadSlotClick,
   onReorderCylinderSlots,
+  onAddPhotos,
+  onRemovePhoto,
+  photoNote,
   onMatchCylinderHeightToPhoto,
   onPlacePhotos,
 }) => {
@@ -201,6 +210,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   const borderMax = maxBorderWidthMm(settings.shape, settings.width, settings.height);
   const borderIcon = settings.borderIcon ?? 'none';
   const photoCount = cylinderSlots.length;
+  const maxPhotos = getMaxPhotosForShape(settings.shape);
+  const canAddPhoto = photoCount < maxPhotos;
   const stripLayout = isStrip ? resolveStripLayout(settings.stripLayout, photoCount) : null;
   const layoutChoices = isStrip && photoCount > 1 ? getStripLayoutsForCount(photoCount) : [];
   const photosMoved = cylinderSlots.some(
@@ -427,7 +438,11 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                     <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-white/10">
                       <button
                         type="button"
-                        onClick={onUploadClick}
+                        onClick={() => {
+                          const slotId = cylinderSlots[0]?.id;
+                          if (slotId && cylinderSlots[0]?.imageSrc) onUploadSlotClick?.(slotId);
+                          else onUploadClick();
+                        }}
                         className="btn-secondary text-xs py-1.5"
                       >
                         <Upload className="w-3.5 h-3.5" />
@@ -545,6 +560,17 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                             >
                               <CropIcon className="w-3 h-3" />
                             </button>
+                            {photoCount > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => onRemovePhoto?.(slot.id)}
+                                className="btn-secondary text-xs px-2 py-1 min-h-[26px]"
+                                title="Remove photo"
+                                aria-label={`Remove ${labelInfo.label}`}
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
                           </div>
                         </div>
                       );
@@ -552,6 +578,26 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                   </div>
                 </div>
                   )}
+
+                  <div className="space-y-1.5">
+                    {canAddPhoto && onAddPhotos && (
+                      <button
+                        type="button"
+                        onClick={onAddPhotos}
+                        className="btn-secondary text-xs w-full py-1.5"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add photo</span>
+                      </button>
+                    )}
+                    <p className="text-center text-[11px] font-mono text-slate-500">
+                      {photoCount} of {maxPhotos}
+                      {!canAddPhoto && ' · remove one to add another'}
+                    </p>
+                    {photoNote && (
+                      <p className="text-center text-[11px] leading-snug text-amber-200/90">{photoNote}</p>
+                    )}
+                  </div>
                 </div>
             </>
           )}
@@ -922,30 +968,6 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                       aria-checked={settings.invert}
                       data-on={settings.invert}
                       onClick={() => onUpdateSettings({ invert: !settings.invert })}
-                      className="switch-control"
-                    >
-                      <span />
-                    </button>
-                  </div>
-                  <div className="panel-row flex items-center justify-between gap-4 px-3 py-3">
-                    <div>
-                      <span className="text-xs font-medium text-slate-200 block">Inside Relief</span>
-                      <span className="text-[11px] text-slate-400 font-mono">
-                        Smooth outside, carved on the inside
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-label="Inside Relief"
-                      aria-checked={(settings.reliefSide ?? 'inside') === 'inside'}
-                      data-on={(settings.reliefSide ?? 'inside') === 'inside'}
-                      onClick={() =>
-                        onUpdateSettings({
-                          reliefSide:
-                            (settings.reliefSide ?? 'inside') === 'inside' ? 'outside' : 'inside',
-                        })
-                      }
                       className="switch-control"
                     >
                       <span />

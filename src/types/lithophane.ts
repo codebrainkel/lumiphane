@@ -10,8 +10,6 @@ export type QualityTier = 'master' | 'studio' | 'balanced';
 
 export type BorderIcon = 'none' | 'heart' | 'bone' | 'star';
 
-export type ReliefSide = 'outside' | 'inside';
-
 export interface CylinderSlot {
   id: string;
   label: string;
@@ -38,7 +36,7 @@ export interface LithophaneSettings {
   maxThickness: number; // e.g. 3.0 mm (thickest, shadows)
 
   // Quality & Resolution Pipeline
-  qualityTier: QualityTier; // 'master' (peak photographic fidelity 600+ cols), 'studio' (440 cols), 'balanced' (340 cols)
+  qualityTier: QualityTier; // 'master' (0.10 mm samples), 'studio' (440 cols), 'balanced' (340 cols)
   sharpness: number; // 0 to 100 (Unsharp mask micro-contrast for maximum edge definition in translucent PLA)
   autoLevels: boolean; // Dynamic range histogram expansion to use the full thickness gamut
 
@@ -64,7 +62,6 @@ export interface LithophaneSettings {
   contrast: number; // -50 to +50
   gamma: number; // 0.5 to 2.5
   invert: boolean; // default false (dark=thick, bright=thin)
-  reliefSide?: ReliefSide; // default 'inside' (smooth exterior, sculpted interior; 'outside' = sculpted exterior, smooth interior)
   smoothing: number; // 0 to 2 (slight Gaussian/box filter for smoother 3D surface)
 
   // Print Setup Defaults

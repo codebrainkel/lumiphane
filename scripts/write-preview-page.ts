@@ -20,7 +20,6 @@ function mesh(shape: LithophaneSettings['shape']): MeshGeometryData {
     shape,
     width: 120,
     height: 90,
-    reliefSide: 'inside',
     hasFrame: true,
   });
 }

@@ -324,8 +324,8 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
           float cosInc = uIsCylinder ? clamp(dot(-lightDir, N), 0.25, 1.0) : clamp(dot(-lightDir, vec3(0.0, 1.0, 0.0)), 0.25, 1.0);
           backlightReach *= cosInc;
 
-          // Sample full-resolution thickness grid in the photo/border region so smooth-outside
-          // (inside relief) walls still render every pixel of the backlit photograph.
+          // Sample the full-resolution thickness grid in the photo and border so merged
+          // smooth walls still render every pixel of the backlit photograph.
           float sampledTh = vThickness;
           if (uHasThicknessTex && vWorldPosition.z >= uPhotoZMin && abs(N.z) < 0.75) {
             vec4 texel = texture2D(uThicknessTex, vec2(vUv.x, 1.0 - vUv.y));
@@ -453,7 +453,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
 
     // Build flat/crease-aware normals for the 3D viewport:
     // Large simplified border/back rectangles (~50mm) share vertices with tiny
-    // (~0.2mm) photo-relief triangles and 90° top/bottom rims. By expanding
+    // (~0.1mm) photo-relief triangles and 90° top/bottom rims. By expanding
     // triangles whose face normal diverges across sharp creases (or large-area
     // coplanar regions like flat borders and polygon corners), the border,
     // corners, and rims render crisp and completely free of diagonal fan shading.

@@ -19,7 +19,6 @@ function analyze(shape: LithophaneSettings['shape'], cols = 48, rows = 32) {
     shape,
     width: 120,
     height: 90,
-    reliefSide: 'inside',
     hasFrame: true,
   };
   const geom = GeometryGenerator.generateMesh(grid, cols, rows, settings);
