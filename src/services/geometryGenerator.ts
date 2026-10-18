@@ -447,6 +447,7 @@ export class GeometryGenerator {
       thicknesses,
       cols,
       meshRows,
+      rows,
       isEnclosed,
       isEnclosed || isStanding,
       isEnclosed ? 'rim' : isStanding ? 'standing' : 'flat',
@@ -479,6 +480,7 @@ export class GeometryGenerator {
     thicknesses: Float32Array,
     cols: number,
     meshRows: number,
+    imageRows: number,
     wrapping: boolean,
     frontCcw: boolean,
     wallMode: 'rim' | 'standing' | 'flat',
@@ -585,7 +587,12 @@ export class GeometryGenerator {
               if (visited[r * cellCols + (c + w)] || !cellOn(plane, side, r, c + w)) break;
               w++;
             }
-            while (r + h < cellRows) {
+            // Cells at and below imageRows-1 step onto the stand. The stand is
+            // coplanar with the wall at the middle of a curve, where the brim
+            // flare cancels. Folding it into the photo stretches that column's
+            // texture down to the bed and pinches the picture at the center.
+            const photoCells = Math.max(0, imageRows - 1);
+            while (r + h < cellRows && !(r < photoCells && r + h >= photoCells)) {
               let ok = true;
               for (let k = 0; k < w; k++) {
                 if (visited[(r + h) * cellCols + (c + k)] || !cellOn(plane, side, r + h, c + k)) {

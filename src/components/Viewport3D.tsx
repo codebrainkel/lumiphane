@@ -500,7 +500,13 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       const u0 = srcUv ? srcUv[i0 * 2] : 0;
       const u1 = srcUv ? srcUv[i1 * 2] : 0;
       const u2 = srcUv ? srcUv[i2 * 2] : 0;
-      const wrapsSeam = Math.max(u0, u1, u2) - Math.min(u0, u1, u2) > 0.5;
+      // A cylinder, cube, or hexagon wraps the photo around the perimeter, so the
+      // triangle that crosses the join has UVs at both 0 and 1. Flat and curved
+      // panels really do span that range on one face. Treating them as a seam
+      // pins every corner to u=1 and the backlight samples only the dark edge.
+      const perimeterWraps =
+        settings.shape === 'cylinder' || settings.shape === 'cube' || settings.shape === 'hexagon';
+      const wrapsSeam = perimeterWraps && Math.max(u0, u1, u2) - Math.min(u0, u1, u2) > 0.5;
       for (let k = 0; k < 3; k++) {
         const vi = verts[k];
         const snx = smoothN[vi * 3];
