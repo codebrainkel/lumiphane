@@ -1072,6 +1072,130 @@ export class ImageProcessor {
   }
 
   /**
+   * Processes 1 to 6 images distributed evenly around the 6 sides of a hollow hexagon.
+   * - 1 Image: Full 6-face wrap around the perimeter
+   * - 2 Images: 3 faces each (Front 3 Faces, Back 3 Faces)
+   * - 3 Images: 2 faces each (Front Pair, Right Pair, Left Pair)
+   * - 4 Images: 4 quadrants distributed evenly around the 6-sided perimeter
+   * - 5 Images: 5 panels distributed evenly around the 6-sided perimeter
+   * - 6 Images: 1 image per flat hexagonal face (Faces 1–6)
+   */
+  static processHexagonImages(
+    slots: {
+      img: HTMLImageElement;
+      cropData?: ImageCropData | null;
+      offsetX?: number;
+      offsetY?: number;
+      label?: string;
+      name?: string;
+    }[],
+    settings: LithophaneSettings,
+    targetCols: number
+  ): ProcessedImageResult {
+    const validSlots = slots.length > 0 ? slots : [{ img: new Image() }];
+    const numPanels = Math.max(1, Math.min(6, validSlots.length));
+
+    // Ensure cols is divisible by 60 (divisible by 6 faces and by 1, 2, 3, 4, 5, 6 panels)
+    const cols = Math.max(360, Math.round(targetCols / 60) * 60);
+    const panelCols = Math.round(cols / numPanels);
+
+    const hexagonDiameter = Math.max(40, settings.hexagonDiameter || 90);
+    const height = Math.max(30, settings.height || 90);
+    const perimeter = 3 * hexagonDiameter;
+    const totalAspect = perimeter / height;
+    const rows = Math.max(16, Math.round(cols / totalAspect));
+
+    const N = cols * rows;
+    const luminanceGrid = new Float32Array(N);
+
+    const previewCanvas = document.createElement('canvas');
+    const pW = Math.max(1600, cols);
+    const pH = Math.max(160, Math.round(pW / totalAspect));
+    previewCanvas.width = pW;
+    previewCanvas.height = pH;
+    const pCtx = previewCanvas.getContext('2d');
+
+    const bFactor = settings.brightness / 100;
+    const cFactor = 1 + settings.contrast / 50;
+    const gammaExp = 1 / Math.max(0.1, settings.gamma);
+
+    for (let s = 0; s < numPanels; s++) {
+      const slot = validSlots[s] || validSlots[0];
+      if (!slot || !slot.img) continue;
+
+      const img = slot.img;
+      const naturalW = img.naturalWidth || img.width;
+      const naturalH = img.naturalHeight || img.height;
+
+      const panelAspect = panelCols / rows;
+      const { sx, sy, sw, sh } = this.resolveSourceRect(
+        naturalW,
+        naturalH,
+        panelAspect,
+        slot.cropData,
+        slot.offsetX,
+        slot.offsetY
+      );
+
+      const sampled = this.resampleLuminance(img, sx, sy, sw, sh, panelCols, rows);
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < panelCols; c++) {
+          let lum = sampled[r * panelCols + c];
+
+          lum += bFactor;
+          lum = (lum - 0.5) * cFactor + 0.5;
+          lum = Math.max(0, Math.min(1, lum));
+          lum = Math.pow(lum, gammaExp);
+
+          if (settings.invert) {
+            lum = 1.0 - lum;
+          }
+
+          const destCol = s * panelCols + c;
+          if (destCol < cols) {
+            luminanceGrid[r * cols + destCol] = lum;
+          }
+        }
+      }
+
+      if (pCtx) {
+        const pPanelW = pW / numPanels;
+        pCtx.imageSmoothingEnabled = true;
+        pCtx.imageSmoothingQuality = 'high';
+        pCtx.drawImage(this.luminanceCanvas(sampled, panelCols, rows), s * pPanelW, 0, pPanelW, pH);
+      }
+    }
+
+    if (settings.autoLevels) {
+      this.applyAutoLevels(luminanceGrid, N);
+    }
+    const sharpnessAmount = typeof settings.sharpness === 'number' ? settings.sharpness : 20;
+    if (sharpnessAmount > 0) {
+      this.applyUnsharpMask(luminanceGrid, cols, rows, sharpnessAmount, true);
+    }
+    if (settings.smoothing > 0) {
+      this.applySmoothing(luminanceGrid, cols, rows, settings.smoothing, true);
+    }
+
+    const physicalPitchMm = Math.round((perimeter / cols) * 1000) / 1000;
+
+    return {
+      luminanceGrid,
+      cols,
+      rows,
+      aspectRatio: totalAspect,
+      previewDataUrl: previewCanvas.toDataURL('image/png'),
+      sourceResolution: {
+        width: numPanels * Math.round(panelCols),
+        height: rows,
+        megapixels: Math.round(((cols * rows) / 1000000) * 10) / 10,
+      },
+      physicalPitchMm,
+    };
+  }
+
+  /**
    * Tiles 1 to 4 photos across a flat or curved panel using the selected collage.
    * Each photo is cover-cropped from its center so a mismatched photo keeps its middle.
    */

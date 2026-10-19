@@ -6,7 +6,8 @@ const FOLD_DOT = Math.cos((170 * Math.PI) / 180);
 /**
  * Image-area wall thickness along each shape's thickness axis.
  * Flat panels use Y, or Z when the panel lies on the bed. Cylinders and
- * curved arcs use the radial direction. Each cube face uses that face's axis.
+ * curved arcs use the radial direction. Each cube or hexagon face uses that
+ * face's normal.
  * Samples are 1 mm apart over the photo, with no short-hit filter.
  */
 function measureImageThickness(geometry: MeshGeometryData): { min: number; max: number } {
@@ -42,7 +43,7 @@ function measureImageThickness(geometry: MeshGeometryData): { min: number; max: 
   return { min, max };
 }
 
-type ThicknessKind = 'flat-y' | 'flat-z' | 'cylinder' | 'cube' | 'curved';
+type ThicknessKind = 'flat-y' | 'flat-z' | 'cylinder' | 'cube' | 'hexagon' | 'curved';
 
 type ThicknessRay = {
   ox: number;
@@ -53,6 +54,9 @@ type ThicknessRay = {
   dz: number;
   key: number;
   maxT: number;
+  // A tilted inner skin can wrinkle, so a ray crosses that skin more than
+  // once before the outer shell. The wall is the whole span, not the first nick.
+  spanWall?: boolean;
 };
 
 function classifyThickness(vertices: Float32Array, bbox: MeshGeometryData['boundingBox']): ThicknessKind {
@@ -73,6 +77,10 @@ function classifyThickness(vertices: Float32Array, bbox: MeshGeometryData['bound
     }
     const hi = Math.max(...bins);
     const lo = Math.min(...bins);
+    // Flat-to-flat versus corner-to-corner is about 1.15 on a regular hexagon.
+    // A cube and a cylinder are square in plan.
+    const aspect = Math.max(sx, sy) / Math.min(sx, sy);
+    if (aspect > 1.08 && aspect < 1.28) return 'hexagon';
     // A hollow cube leaves at least one octant empty. A full cylinder does not.
     if (lo === 0 || hi > lo * 2.4) return 'cube';
     return 'cylinder';
@@ -155,7 +163,45 @@ function buildThicknessBins(
     const ys = [vertices[ia + 1], vertices[ib + 1], vertices[ic + 1]];
     const zs = [vertices[ia + 2], vertices[ib + 2], vertices[ic + 2]];
     if (![...xs, ...ys, ...zs].every(Number.isFinite)) continue;
-    if (kind === 'cube') {
+    if (kind === 'hexagon') {
+      const abx = xs[1] - xs[0];
+      const aby = ys[1] - ys[0];
+      const abz = zs[1] - zs[0];
+      const acx = xs[2] - xs[0];
+      const acy = ys[2] - ys[0];
+      const acz = zs[2] - zs[0];
+      const nx = aby * acz - abz * acy;
+      const ny = abz * acx - abx * acz;
+      const nz = abx * acy - aby * acx;
+      if (Math.hypot(nx, ny) < Math.abs(nz)) continue;
+      // The inner skin points into the bore, so the normal names the opposite
+      // face. The centroid sits on the face the triangle actually belongs to.
+      const cx = (xs[0] + xs[1] + xs[2]) / 3;
+      const cy = (ys[0] + ys[1] + ys[2]) / 3;
+      const face = ((Math.round(Math.atan2(cx, cy) / (Math.PI / 3)) % 6) + 6) % 6;
+      const theta = (face * Math.PI) / 3;
+      const tx = Math.cos(theta);
+      const ty = -Math.sin(theta);
+      let a0 = xs[0] * tx + ys[0] * ty;
+      let a1 = a0;
+      let z0 = zs[0];
+      let z1 = z0;
+      for (let k = 1; k < 3; k++) {
+        const along = xs[k] * tx + ys[k] * ty;
+        if (along < a0) a0 = along;
+        if (along > a1) a1 = along;
+        if (zs[k] < z0) z0 = zs[k];
+        if (zs[k] > z1) z1 = zs[k];
+      }
+      const prefix = face * 1_000_000_000;
+      const i0 = Math.floor(a0 / SAMPLE_MM);
+      const i1 = Math.floor(a1 / SAMPLE_MM);
+      const k0 = Math.floor(z0 / SAMPLE_MM);
+      const k1 = Math.floor(z1 / SAMPLE_MM);
+      for (let iv = k0; iv <= k1; iv++) {
+        for (let iu = i0; iu <= i1; iu++) push(prefix + planeKey(iu, iv), tri);
+      }
+    } else if (kind === 'cube') {
       const spanX = Math.max(...xs) - Math.min(...xs);
       const spanY = Math.max(...ys) - Math.min(...ys);
       const spanZ = Math.max(...zs) - Math.min(...zs);
@@ -345,6 +391,16 @@ function rayWall(
     if (hits[i] - uniq[uniq.length - 1] > 0.02) uniq.push(hits[i]);
   }
   if (uniq.length < 2) return null;
+  if (ray.spanWall) {
+    const first = uniq[0];
+    let last = first;
+    for (let i = 1; i < uniq.length; i++) {
+      if (uniq[i] - first > 8) break;
+      last = uniq[i];
+    }
+    if (last - first < 0.05) return null;
+    return last - first;
+  }
   return uniq[1] - uniq[0];
 }
 
@@ -531,6 +587,54 @@ function cubeSamples(
   return faces.flat();
 }
 
+function hexagonSamples(
+  vertices: Float32Array,
+  indices: Uint32Array,
+  bbox: MeshGeometryData['boundingBox'],
+  bins: ThicknessBins,
+): ThicknessRay[] {
+  // Flat-to-flat is the smaller plan size. A face runs ±apothem/√3 along
+  // its tangent and stops at the seam, short of the corner vertices.
+  const span = Math.min(bbox.size[0], bbox.size[1]) / (2 * Math.sqrt(3)) * 0.92;
+  const z0 = bbox.min[2];
+  const z1 = bbox.max[2];
+  const zs: number[] = [];
+  for (let z = z0 + SAMPLE_MM * 0.5; z < z1 - 0.2; z += SAMPLE_MM) zs.push(z);
+  const us: number[] = [];
+  for (let u = -span; u <= span; u += SAMPLE_MM) us.push(u);
+  if (zs.length < 3 || us.length < 3) return [];
+  const maxT = Math.hypot(bbox.size[0], bbox.size[1]);
+  const rays: ThicknessRay[] = [];
+  for (let face = 0; face < 6; face++) {
+    const theta = (face * Math.PI) / 3;
+    const nx = Math.sin(theta);
+    const ny = Math.cos(theta);
+    const tx = Math.cos(theta);
+    const ty = -Math.sin(theta);
+    const at = (u: number, z: number): ThicknessRay => ({
+      ox: tx * u,
+      oy: ty * u,
+      oz: z,
+      dx: nx,
+      dy: ny,
+      dz: 0,
+      key: face * 1_000_000_000 + planeKey(Math.floor(u / SAMPLE_MM), Math.floor(z / SAMPLE_MM)),
+      maxT,
+      spanWall: true,
+    });
+    const midU = us[us.length >> 1];
+    const midZ = zs[zs.length >> 1];
+    const row = us.map((u) => rayWall(vertices, indices, bins, at(u, midZ)) ?? NaN);
+    const col = zs.map((z) => rayWall(vertices, indices, bins, at(midU, z)) ?? NaN);
+    const [c0, c1] = contentSpan(row);
+    const [r0, r1] = contentSpan(col);
+    for (let r = r0; r <= r1; r++) {
+      for (let c = c0; c <= c1; c++) rays.push(at(us[c], zs[r]));
+    }
+  }
+  return rays;
+}
+
 function faceGrid(us: number[], zs: number[], at: (u: number, z: number) => ThicknessRay): ThicknessRay[] {
   const midU = us[us.length >> 1];
   const midZ = zs[zs.length >> 1];
@@ -614,6 +718,7 @@ function thicknessSamples(
     return insetRays(vertices, indices, bins, rays, 'z');
   }
   if (kind === 'cube') return cubeSamples(vertices, indices, bbox, bins);
+  if (kind === 'hexagon') return hexagonSamples(vertices, indices, bbox, bins);
   if (kind === 'curved') return curvedSamples(vertices, indices, bbox, bins, angleBins);
   return flatSamples(vertices, indices, bbox, bins, kind === 'flat-z' ? 'z' : 'y');
 }

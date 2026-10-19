@@ -189,6 +189,7 @@ export function PhotoPlacementBoard({
   stripLayout,
   cylinderDiameter = 90,
   cubeWidth = 90,
+  hexagonDiameter = 90,
   onOffsetChange,
   open,
   onOpenChange,
@@ -200,6 +201,7 @@ export function PhotoPlacementBoard({
   stripLayout?: string;
   cylinderDiameter?: number;
   cubeWidth?: number;
+  hexagonDiameter?: number;
   onOffsetChange: (slotId: string, offset: { offsetX: number; offsetY: number }) => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -220,6 +222,8 @@ export function PhotoPlacementBoard({
       ? (Math.PI * Math.max(30, cylinderDiameter)) / Math.max(20, heightMm)
       : shape === 'cube'
       ? (4 * Math.max(30, cubeWidth)) / Math.max(20, heightMm)
+      : shape === 'hexagon'
+      ? (3 * Math.max(30, hexagonDiameter)) / Math.max(20, heightMm)
       : Math.max(10, widthMm) / Math.max(10, heightMm);
 
   useEffect(() => {
@@ -332,7 +336,8 @@ export function PhotoPlacementBoard({
                 stripLayout,
                 cell.index,
                 cylinderDiameter,
-                cubeWidth
+                cubeWidth,
+                hexagonDiameter
               );
               const moved =
                 Math.abs(slot.offsetX ?? 0) > 0.001 || Math.abs(slot.offsetY ?? 0) > 0.001;

@@ -5,11 +5,11 @@ import { Upload, Plus, X } from 'lucide-react';
 interface PhotoUploaderProps {
   cylinderSlots: CylinderSlot[];
   uploadJobs: PhotoUploadJob[];
+  maxPhotos?: number;
   onUploadMultipleFiles: (files: File[]) => void;
   onRemoveCylinderSlot?: (slotId: string) => void;
 }
 
-const MAX_PHOTOS = 4;
 const ACCEPT = 'image/*,.png,.jpg,.jpeg,.webp,.bmp';
 
 function isSlotReading(jobs: PhotoUploadJob[], slotId: string, index: number) {
@@ -23,6 +23,7 @@ function isSlotReading(jobs: PhotoUploadJob[], slotId: string, index: number) {
 export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
   cylinderSlots,
   uploadJobs,
+  maxPhotos = 4,
   onUploadMultipleFiles,
   onRemoveCylinderSlot,
 }) => {
@@ -46,7 +47,7 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
       loading: isSlotReading(uploadJobs, slot.id, index),
     }))
     .filter((item) => Boolean(item.slot.imageSrc) || item.loading);
-  const atLimit = cards.length >= MAX_PHOTOS;
+  const atLimit = cards.length >= maxPhotos;
 
   const clearZoneDrag = () => {
     dragDepth.current = 0;
@@ -111,7 +112,7 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
     <div
       className={`photo-step${isDraggingOverZone ? ' is-drag' : ''}${atLimit ? ' is-full' : ''}`}
       data-photo-drop=""
-      aria-label={`Photos, ${cards.length} of ${MAX_PHOTOS}`}
+      aria-label={`Photos, ${cards.length} of ${maxPhotos}`}
       onDragEnter={onDragEnter}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
@@ -128,7 +129,7 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
           </span>
           <span className="photo-empty-copy">
             {useTap ? 'Opens your photo library. ' : 'Or click to browse. '}
-            JPEG, PNG, or WebP. Up to 4.
+            JPEG, PNG, or WebP. Up to {maxPhotos}.
           </span>
         </label>
       ) : (
@@ -136,12 +137,12 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
           <h1>Add photos</h1>
           <p>
             {atLimit
-              ? 'Four photos is the set. Take one off to add another.'
+              ? `${maxPhotos === 6 ? 'Six' : 'Four'} photos is the set. Take one off to add another.`
               : useTap
-              ? 'Add up to 4. Take one off if you change your mind.'
-              : 'Drop more anywhere here, up to 4.'}
+              ? `Add up to ${maxPhotos}. Take one off if you change your mind.`
+              : `Drop more anywhere here, up to ${maxPhotos}.`}
           </p>
-          <ul className="photo-row">
+          <ul className={`photo-row${maxPhotos === 6 ? ' photo-row-6' : ''}`}>
             {cards.map(({ slot, index, loading }) => (
               <li key={slot.id} className="photo-thumb">
                 <div className="photo-frame">
@@ -179,7 +180,7 @@ export const PhotoUploader: React.FC<PhotoUploaderProps> = ({
             )}
           </ul>
           <p className="photo-count" role="status">
-            {cards.length} of {MAX_PHOTOS}
+            {cards.length} of {maxPhotos}
           </p>
         </div>
       )}

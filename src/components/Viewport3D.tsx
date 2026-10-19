@@ -185,28 +185,74 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
   }, [renderPaused]);
 
   // 2. Physical Translucent Lithophane Shader
-  const createLithophaneShaderMaterial = useCallback((): THREE.ShaderMaterial => {
-    const effectiveLightColor = new THREE.Color(WARM_LIGHT_COLOR);
-    const effectiveBaseColor = new THREE.Color(MATERIAL_BASE_COLOR);
+  const createLithophaneShaderMaterial = useCallback(
+    (geom: MeshGeometryData): THREE.ShaderMaterial => {
+      const effectiveLightColor = new THREE.Color(WARM_LIGHT_COLOR);
+      const effectiveBaseColor = new THREE.Color(MATERIAL_BASE_COLOR);
 
-    const isEnclosed = settings.shape === 'cylinder' || settings.shape === 'cube';
-    const lightY = isEnclosed ? 0 : -35;
+      const isEnclosed =
+        settings.shape === 'cylinder' || settings.shape === 'cube' || settings.shape === 'hexagon';
+      const lightY = isEnclosed ? 0 : -35;
 
-    const uniforms = {
-      uBacklightIntensity: { value: BACKLIGHT_INTENSITY },
-      uBacklightColor: { value: effectiveLightColor },
-      uBacklightPos: { value: new THREE.Vector3(0, lightY, 45) },
-      uRoomLightIntensity: { value: ROOM_LIGHT_INTENSITY },
-      uRoomLightColor: { value: new THREE.Color(0xdce7f5) },
-      uMaterialBaseColor: { value: effectiveBaseColor },
-      uTranslucencyExtinction: { value: WHITE_PLA_EXTINCTION_PER_MM }, // shared with the mesh, per mm
-      uScatteringStrength: { value: SCATTER_STRENGTH },
-      uMinThickness: { value: Math.max(0.4, settings.minThickness) },
-      uMaxThickness: { value: Math.max(1.0, settings.maxThickness) },
-      uIsCylinder: { value: isEnclosed },
-    };
+      const cols = geom.gridResolution.cols;
+      const rows = geom.gridResolution.rows;
+      const texMinTh = 0.2;
+      const texMaxTh = Math.max(5.0, settings.maxThickness + 2.0, settings.frameThickness + 1.0);
+      const hasThicknessTex = Boolean(
+        geom.thicknessGrid && geom.thicknessGrid.length >= cols * rows && cols > 1 && rows > 1
+      );
 
-    const vertexShader = `
+      let thicknessTex: THREE.DataTexture;
+      if (hasThicknessTex && geom.thicknessGrid) {
+        const rgba = new Uint8Array(cols * rows * 4);
+        const grid = geom.thicknessGrid;
+        const span = Math.max(0.1, texMaxTh - texMinTh);
+        for (let i = 0; i < cols * rows; i++) {
+          const norm = Math.max(0, Math.min(1, (grid[i] - texMinTh) / span));
+          const val16 = Math.round(norm * 65535);
+          const idx = i * 4;
+          rgba[idx] = (val16 >> 8) & 0xff;
+          rgba[idx + 1] = val16 & 0xff;
+          rgba[idx + 2] = 0;
+          rgba[idx + 3] = 255;
+        }
+        thicknessTex = new THREE.DataTexture(rgba, cols, rows, THREE.RGBAFormat, THREE.UnsignedByteType);
+        thicknessTex.wrapS = isEnclosed ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
+        thicknessTex.wrapT = THREE.ClampToEdgeWrapping;
+        thicknessTex.magFilter = THREE.LinearFilter;
+        thicknessTex.minFilter = THREE.LinearFilter;
+        thicknessTex.flipY = false;
+        thicknessTex.needsUpdate = true;
+      } else {
+        thicknessTex = new THREE.DataTexture(new Uint8Array([128, 0, 0, 255]), 1, 1, THREE.RGBAFormat, THREE.UnsignedByteType);
+        thicknessTex.needsUpdate = true;
+      }
+
+      const photoZMin =
+        settings.orientation === 'flat' && !isEnclosed
+          ? -1e5
+          : geom.boundingBox.max[2] - settings.height + 0.05;
+
+      const uniforms = {
+        uBacklightIntensity: { value: BACKLIGHT_INTENSITY },
+        uBacklightColor: { value: effectiveLightColor },
+        uBacklightPos: { value: new THREE.Vector3(0, lightY, 45) },
+        uRoomLightIntensity: { value: ROOM_LIGHT_INTENSITY },
+        uRoomLightColor: { value: new THREE.Color(0xdce7f5) },
+        uMaterialBaseColor: { value: effectiveBaseColor },
+        uTranslucencyExtinction: { value: WHITE_PLA_EXTINCTION_PER_MM }, // shared with the mesh, per mm
+        uScatteringStrength: { value: SCATTER_STRENGTH },
+        uMinThickness: { value: Math.max(0.4, settings.minThickness) },
+        uMaxThickness: { value: Math.max(1.0, settings.maxThickness) },
+        uIsCylinder: { value: isEnclosed },
+        uThicknessTex: { value: thicknessTex },
+        uHasThicknessTex: { value: hasThicknessTex },
+        uTexMinTh: { value: texMinTh },
+        uTexMaxTh: { value: texMaxTh },
+        uPhotoZMin: { value: photoZMin },
+      };
+
+      const vertexShader = `
       attribute float thickness;
       varying vec3 vNormal;
       varying vec3 vWorldPosition;
@@ -226,7 +272,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       }
     `;
 
-    const fragmentShader = `
+      const fragmentShader = `
       uniform float uBacklightIntensity;
       uniform vec3 uBacklightColor;
       uniform vec3 uBacklightPos;
@@ -238,6 +284,11 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       uniform float uMinThickness;
       uniform float uMaxThickness;
       uniform bool uIsCylinder;
+      uniform sampler2D uThicknessTex;
+      uniform bool uHasThicknessTex;
+      uniform float uTexMinTh;
+      uniform float uTexMaxTh;
+      uniform float uPhotoZMin;
 
       varying vec3 vNormal;
       varying vec3 vWorldPosition;
@@ -273,8 +324,17 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
           float cosInc = uIsCylinder ? clamp(dot(-lightDir, N), 0.25, 1.0) : clamp(dot(-lightDir, vec3(0.0, 1.0, 0.0)), 0.25, 1.0);
           backlightReach *= cosInc;
 
+          // Sample full-resolution thickness grid in the photo/border region so smooth-outside
+          // (inside relief) walls still render every pixel of the backlit photograph.
+          float sampledTh = vThickness;
+          if (uHasThicknessTex && vWorldPosition.z >= uPhotoZMin && abs(N.z) < 0.75) {
+            vec4 texel = texture2D(uThicknessTex, vec2(vUv.x, 1.0 - vUv.y));
+            float norm16 = (texel.r * 255.0 * 256.0 + texel.g * 255.0) / 65535.0;
+            sampledTh = uTexMinTh + norm16 * (uTexMaxTh - uTexMinTh);
+          }
+
           // Beer-Lambert physical absorption: T = exp( - mu * thickness )
-          float th = max(0.25, vThickness);
+          float th = max(0.25, sampledTh);
           float transmittance = exp(-uTranslucencyExtinction * th);
 
           // Warm chromatic scattering in translucent PLA
@@ -299,8 +359,13 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
           float backDiff = max(0.0, dot(N, lightDir));
           float distFalloff = 1.0 / (1.0 + 0.008 * distToLight + 0.0002 * distToLight * distToLight);
 
-          vec3 directBackIllum = uMaterialBaseColor * uBacklightColor * (backDiff * 1.5 + 0.15) * distFalloff * uBacklightIntensity;
-          vec3 backRoomAmbient = uMaterialBaseColor * uRoomLightColor * 0.28 * effectiveRoomLight;
+          vec3 roomKeyDir = normalize(vec3(0.35, 0.82, 0.45));
+          float innerRoomDiff = max(0.0, dot(N, roomKeyDir));
+          vec3 innerHalf = normalize(lightDir + V);
+          float innerSpec = pow(max(0.0, dot(N, innerHalf)), 22.0) * 0.18;
+
+          vec3 directBackIllum = (uMaterialBaseColor * uBacklightColor * (backDiff * 1.5 + 0.15) + vec3(innerSpec) * uBacklightColor) * distFalloff * uBacklightIntensity;
+          vec3 backRoomAmbient = uMaterialBaseColor * uRoomLightColor * (0.24 + innerRoomDiff * 0.55) * effectiveRoomLight;
 
           finalColor = directBackIllum + backRoomAmbient;
         }
@@ -310,19 +375,22 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       }
     `;
 
-    return new THREE.ShaderMaterial({
-      vertexShader,
-      fragmentShader,
-      uniforms,
-      side: THREE.DoubleSide,
-    });
-  }, [settings.minThickness, settings.maxThickness, settings.shape]);
+      return new THREE.ShaderMaterial({
+        vertexShader,
+        fragmentShader,
+        uniforms,
+        side: THREE.DoubleSide,
+      });
+    },
+    [settings.frameThickness, settings.height, settings.maxThickness, settings.minThickness, settings.orientation, settings.shape]
+  );
 
   // Update light position behind model or inside cylinder/cube
   const updateLightPosition = useCallback(
     (geom: MeshGeometryData | null) => {
       if (!geom) return;
-      const isEnclosed = settings.shape === 'cylinder' || settings.shape === 'cube';
+      const isEnclosed =
+        settings.shape === 'cylinder' || settings.shape === 'cube' || settings.shape === 'hexagon';
       const centerZ = (geom.boundingBox.max[2] + geom.boundingBox.min[2]) / 2;
       const lightX = 0;
       const lightY = isEnclosed ? 0 : geom.boundingBox.min[1] - 34;
@@ -358,43 +426,109 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     if (meshRef.current) {
       scene.remove(meshRef.current);
       meshRef.current.geometry.dispose();
+      const disposeMat = (m: THREE.Material) => {
+        if ('uniforms' in m && (m as THREE.ShaderMaterial).uniforms?.uThicknessTex?.value) {
+          (m as THREE.ShaderMaterial).uniforms.uThicknessTex.value.dispose();
+        }
+        m.dispose();
+      };
       if (Array.isArray(meshRef.current.material)) {
-        meshRef.current.material.forEach((m) => m.dispose());
+        meshRef.current.material.forEach(disposeMat);
       } else {
-        meshRef.current.material.dispose();
+        disposeMat(meshRef.current.material);
       }
       meshRef.current = null;
     }
 
     if (!geometryData) return;
 
+    // 3.Update Three.js Mesh when geometry changes
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute(
-      'position',
-      new THREE.BufferAttribute(geometryData.vertices, 3)
-    );
-    geometry.setAttribute(
-      'normal',
-      new THREE.BufferAttribute(geometryData.normals, 3)
-    );
-    const vertexCount = geometryData.vertices.length / 3;
-    if (geometryData.thicknesses && geometryData.thicknesses.length === vertexCount) {
-      geometry.setAttribute(
-        'thickness',
-        new THREE.BufferAttribute(geometryData.thicknesses, 1)
-      );
-    } else {
-      const th = new Float32Array(vertexCount).fill(settings.maxThickness);
-      geometry.setAttribute('thickness', new THREE.BufferAttribute(th, 1));
+    const indexArr = geometryData.indices;
+    const srcV = geometryData.vertices;
+    const srcTh = geometryData.thicknesses;
+    const srcUv = geometryData.uvs;
+    const numIndices = indexArr.length;
+    const numTris = numIndices / 3;
+
+    // Build flat/crease-aware normals for the 3D viewport:
+    // Large simplified border/back rectangles (~50mm) share vertices with tiny
+    // (~0.2mm) photo-relief triangles and 90° top/bottom rims. By expanding
+    // triangles whose face normal diverges across sharp creases (or large-area
+    // coplanar regions like flat borders and polygon corners), the border,
+    // corners, and rims render crisp and completely free of diagonal fan shading.
+    const posOut = new Float32Array(numIndices * 3);
+    const normOut = new Float32Array(numIndices * 3);
+    const thOut = new Float32Array(numIndices);
+    const uvOut = srcUv ? new Float32Array(numIndices * 2) : null;
+
+    const smoothN = geometryData.normals;
+    const defaultTh = settings.maxThickness;
+
+    for (let t = 0; t < numTris; t++) {
+      const i0 = indexArr[t * 3];
+      const i1 = indexArr[t * 3 + 1];
+      const i2 = indexArr[t * 3 + 2];
+
+      const ax = srcV[i0 * 3], ay = srcV[i0 * 3 + 1], az = srcV[i0 * 3 + 2];
+      const bx = srcV[i1 * 3], by = srcV[i1 * 3 + 1], bz = srcV[i1 * 3 + 2];
+      const cx = srcV[i2 * 3], cy = srcV[i2 * 3 + 1], cz = srcV[i2 * 3 + 2];
+
+      const abx = bx - ax, aby = by - ay, abz = bz - az;
+      const acx = cx - ax, acy = cy - ay, acz = cz - az;
+      let fnx = aby * acz - abz * acy;
+      let fny = abz * acx - abx * acz;
+      let fnz = abx * acy - aby * acx;
+      const area2 = Math.sqrt(fnx * fnx + fny * fny + fnz * fnz);
+      if (area2 > 1e-8) {
+        fnx /= area2;
+        fny /= area2;
+        fnz /= area2;
+      } else {
+        fny = 1;
+      }
+
+      // Large merged polygons (borders, backs, rims) or sharp creases (> ~25°)
+      // use their exact face normal so diagonal fan lines never appear.
+      const isLargeCoplanar = area2 > 1.0; // > 0.5 mm² triangle (pixel triangles are ~0.04 mm²)
+      const base = t * 9;
+      posOut[base] = ax; posOut[base + 1] = ay; posOut[base + 2] = az;
+      posOut[base + 3] = bx; posOut[base + 4] = by; posOut[base + 5] = bz;
+      posOut[base + 6] = cx; posOut[base + 7] = cy; posOut[base + 8] = cz;
+
+      const verts = [i0, i1, i2];
+      const u0 = srcUv ? srcUv[i0 * 2] : 0;
+      const u1 = srcUv ? srcUv[i1 * 2] : 0;
+      const u2 = srcUv ? srcUv[i2 * 2] : 0;
+      const wrapsSeam = Math.max(u0, u1, u2) - Math.min(u0, u1, u2) > 0.5;
+      for (let k = 0; k < 3; k++) {
+        const vi = verts[k];
+        const snx = smoothN[vi * 3];
+        const sny = smoothN[vi * 3 + 1];
+        const snz = smoothN[vi * 3 + 2];
+        const dot = fnx * snx + fny * sny + fnz * snz;
+        const useFace = isLargeCoplanar || dot < 0.88;
+        normOut[base + k * 3] = useFace ? fnx : snx;
+        normOut[base + k * 3 + 1] = useFace ? fny : sny;
+        normOut[base + k * 3 + 2] = useFace ? fnz : snz;
+        thOut[t * 3 + k] = srcTh ? srcTh[vi] : defaultTh;
+        if (uvOut && srcUv) {
+          let u = srcUv[vi * 2];
+          if (wrapsSeam && u < 0.25) u = 1.0;
+          uvOut[(t * 3 + k) * 2] = u;
+          uvOut[(t * 3 + k) * 2 + 1] = srcUv[vi * 2 + 1];
+        }
+      }
     }
 
-    if (geometryData.uvs) {
-      geometry.setAttribute('uv', new THREE.BufferAttribute(geometryData.uvs, 2));
+    geometry.setAttribute('position', new THREE.BufferAttribute(posOut, 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(normOut, 3));
+    geometry.setAttribute('thickness', new THREE.BufferAttribute(thOut, 1));
+    if (uvOut) {
+      geometry.setAttribute('uv', new THREE.BufferAttribute(uvOut, 2));
     }
 
-    geometry.setIndex(new THREE.BufferAttribute(geometryData.indices, 1));
-
-    const shaderMat = createLithophaneShaderMaterial();
+    const shaderMat = createLithophaneShaderMaterial(geometryData);
     shaderMaterialRef.current = shaderMat;
 
     const mesh = new THREE.Mesh(geometry, shaderMat);
@@ -607,6 +741,8 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
         <div className="hud-badge">
           {settings.shape === 'cylinder'
             ? `Ø ${Math.round(settings.cylinderDiameter || 90)} × ${Math.round(geometryData.boundingBox.size[2])} mm`
+            : settings.shape === 'hexagon'
+            ? `⬡ ${Math.round(settings.hexagonDiameter || 90)} × ${Math.round(geometryData.boundingBox.size[2])} mm`
             : `${Math.round(geometryData.boundingBox.size[0])} × ${Math.round(geometryData.boundingBox.size[2])} mm`}
         </div>
       )}

@@ -7,6 +7,8 @@ export const DEFAULT_SETTINGS: LithophaneSettings = {
   cylinderPanelCount: 4, // 1 to 4 photos around cylinder (default 4)
   cubeWidth: 90, // mm (width of each face of hollow cube)
   cubePanelCount: 4, // 1 to 4 photos around cube (default 4)
+  hexagonDiameter: 90, // mm (corner-to-corner diameter of hollow hexagon lantern, 45mm per side)
+  hexagonPanelCount: 6, // 1 to 6 photos around hexagon (default 6)
   minThickness: 0.8, // mm highlights — thin enough to pass light, thick enough for two perimeters
   maxThickness: 3.0, // mm shadows — Beer–Lambert range with k = 1.75/mm white PLA
 
@@ -33,6 +35,7 @@ export const DEFAULT_SETTINGS: LithophaneSettings = {
   contrast: 0,
   gamma: 1.0,
   invert: false,
+  reliefSide: 'inside',
   smoothing: 0,
 
   recommendedLayerHeight: 0.12,
@@ -187,6 +190,33 @@ export function getCubeResolutionForTier(tier: QualityTier = 'master', cubeWidth
 }
 
 /**
+ * Computes optimal grid columns for chosen quality tier and hexagon diameter.
+ * Guarantees cols is a multiple of 60 (divisible by 6 hexagon faces as well as 1, 2, 3, 4, 5, and 6 panels)
+ * and scales to maintain high sampling density around the 6 sides of the hollow hexagon.
+ */
+export function getHexagonResolutionForTier(tier: QualityTier = 'master', diameterMm: number = 90): number {
+  const perimeter = 3 * Math.max(40, diameterMm);
+  let cols: number;
+  if (tier === 'master') {
+    cols = Math.round((perimeter * 4.8) / 60) * 60;
+    return Math.max(960, Math.min(2160, cols));
+  }
+  if (tier === 'studio') {
+    cols = Math.round((perimeter * 3.3) / 60) * 60;
+    return Math.max(720, Math.min(1440, cols));
+  }
+  cols = Math.round((perimeter * 2.2) / 60) * 60;
+  return Math.max(480, Math.min(960, cols));
+}
+
+/**
+ * Maximum number of photos supported by the given shape.
+ */
+export function getMaxPhotosForShape(shape: string): number {
+  return shape === 'hexagon' ? 6 : 4;
+}
+
+/**
  * Returns user-facing label and angular range for each slot given a total count (1 to 4).
  */
 export function getCylinderSlotLabels(count: number): { label: string; deg: string; spanDeg: number }[] {
@@ -241,6 +271,54 @@ export function getCubeSlotLabels(count: number): { label: string; deg: string; 
     { label: 'Right Face', deg: '90°', spanDeg: 90 },
     { label: 'Back Face', deg: '180°', spanDeg: 90 },
     { label: 'Left Face', deg: '270°', spanDeg: 90 },
+  ];
+}
+
+/**
+ * Returns user-facing label and face range for 6-sided hollow hexagon slots given a count (1 to 6).
+ */
+export function getHexagonSlotLabels(count: number): { label: string; deg: string; spanDeg: number }[] {
+  const clamped = Math.max(1, Math.min(6, count));
+  if (clamped === 1) {
+    return [{ label: 'Full 6-Face Wrap', deg: 'All 6 Sides', spanDeg: 360 }];
+  }
+  if (clamped === 2) {
+    return [
+      { label: 'Front 3 Faces', deg: 'Faces 1–3', spanDeg: 180 },
+      { label: 'Back 3 Faces', deg: 'Faces 4–6', spanDeg: 180 },
+    ];
+  }
+  if (clamped === 3) {
+    return [
+      { label: 'Front Pair', deg: 'Faces 1–2', spanDeg: 120 },
+      { label: 'Right Pair', deg: 'Faces 3–4', spanDeg: 120 },
+      { label: 'Left Pair', deg: 'Faces 5–6', spanDeg: 120 },
+    ];
+  }
+  if (clamped === 4) {
+    return [
+      { label: 'Front', deg: '0°–90°', spanDeg: 90 },
+      { label: 'Right', deg: '90°–180°', spanDeg: 90 },
+      { label: 'Back', deg: '180°–270°', spanDeg: 90 },
+      { label: 'Left', deg: '270°–360°', spanDeg: 90 },
+    ];
+  }
+  if (clamped === 5) {
+    return [
+      { label: 'Panel 1', deg: '0°–72°', spanDeg: 72 },
+      { label: 'Panel 2', deg: '72°–144°', spanDeg: 72 },
+      { label: 'Panel 3', deg: '144°–216°', spanDeg: 72 },
+      { label: 'Panel 4', deg: '216°–288°', spanDeg: 72 },
+      { label: 'Panel 5', deg: '288°–360°', spanDeg: 72 },
+    ];
+  }
+  return [
+    { label: 'Front Face', deg: 'Face 1 · 0°', spanDeg: 60 },
+    { label: 'Front-Right Face', deg: 'Face 2 · 60°', spanDeg: 60 },
+    { label: 'Back-Right Face', deg: 'Face 3 · 120°', spanDeg: 60 },
+    { label: 'Back Face', deg: 'Face 4 · 180°', spanDeg: 60 },
+    { label: 'Back-Left Face', deg: 'Face 5 · 240°', spanDeg: 60 },
+    { label: 'Front-Left Face', deg: 'Face 6 · 300°', spanDeg: 60 },
   ];
 }
 
@@ -481,6 +559,7 @@ export function getMultiPanelSlotLabels(
   layoutId?: string
 ): { label: string; deg: string; spanDeg: number }[] {
   if (shape === 'cube') return getCubeSlotLabels(count);
+  if (shape === 'hexagon') return getHexagonSlotLabels(count);
   if (shape === 'cylinder') return getCylinderSlotLabels(count);
   return getStripSlotLabels(count, layoutId);
 }
@@ -513,6 +592,22 @@ export function getOptimalCubeWrapRatio(
 ): number {
   const count = Math.max(1, Math.min(4, slotCount));
   const perimeter = 4 * Math.max(30, cubeWidthMm);
+  const panelWidthMm = perimeter / count;
+  const h = Math.max(20, heightMm);
+  return Math.round((panelWidthMm / h) * 100) / 100;
+}
+
+/**
+ * Calculates optimal aspect ratio (width / height) for a single 6-sided hexagon slot/panel.
+ * Regular hexagon perimeter is 3 * diameter (6 sides of length diameter / 2).
+ */
+export function getOptimalHexagonWrapRatio(
+  hexagonDiameterMm: number,
+  heightMm: number,
+  slotCount: number = 1
+): number {
+  const count = Math.max(1, Math.min(6, slotCount));
+  const perimeter = 3 * Math.max(30, hexagonDiameterMm);
   const panelWidthMm = perimeter / count;
   const h = Math.max(20, heightMm);
   return Math.round((panelWidthMm / h) * 100) / 100;
@@ -583,6 +678,7 @@ export function getOptimalMultiPanelWrapRatio(
   slotCount: number = 1
 ): number {
   if (shape === 'cube') return getOptimalCubeWrapRatio(sizeMm, heightMm, slotCount);
+  if (shape === 'hexagon') return getOptimalHexagonWrapRatio(sizeMm, heightMm, slotCount);
   if (shape === 'cylinder') return getOptimalCylinderWrapRatio(sizeMm, heightMm, slotCount);
   return getOptimalStripWrapRatio(sizeMm, heightMm, slotCount);
 }
@@ -596,9 +692,11 @@ export function getSlotFrameAspect(
   layoutId: string | undefined,
   index: number,
   cylinderDiameterMm = 90,
-  cubeWidthMm = 90
+  cubeWidthMm = 90,
+  hexagonDiameterMm = 90
 ): number {
   if (shape === 'cube') return getOptimalCubeWrapRatio(cubeWidthMm, heightMm, slotCount);
+  if (shape === 'hexagon') return getOptimalHexagonWrapRatio(hexagonDiameterMm, heightMm, slotCount);
   if (shape === 'cylinder') return getOptimalCylinderWrapRatio(cylinderDiameterMm, heightMm, slotCount);
   return getStripCellAspect(widthMm, heightMm, slotCount, layoutId, index);
 }

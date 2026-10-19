@@ -10,11 +10,13 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({ currentStep, onStepChange, shape }) => {
   const shapeLabel =
     shape === 'cylinder'
-      ? 'Cylinder'
+      ? 'Round Cylinder'
       : shape === 'cube'
       ? 'Hollow Cube'
+      : shape === 'hexagon'
+      ? 'Hexagon'
       : shape === 'curved'
-      ? 'Curved Arc'
+      ? 'Curved Panel'
       : 'Flat Panel';
 
   const stepLabel =
