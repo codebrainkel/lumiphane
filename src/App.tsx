@@ -37,6 +37,14 @@ import { ValidationModal } from './components/ValidationModal';
 import { CropModal } from './components/CropModal';
 import { SlicingModal } from './components/SlicingModal';
 import { OrderPrintModal } from './components/OrderPrintModal';
+import {
+  imageContentType,
+  trackExportOpen,
+  trackPhotoUpload,
+  trackPhotoUploadFailed,
+  trackShapeSelect,
+  trackStep,
+} from './services/analytics';
 import { AlertCircle, ArrowLeft, ArrowRight, Download } from 'lucide-react';
 
 async function readImageAsDataUrl(
@@ -157,6 +165,10 @@ export default function App() {
   const addPhotosInputRef = useRef<HTMLInputElement>(null);
   const slotFileInputRef = useRef<HTMLInputElement>(null);
   const debounceTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    trackStep(currentStep);
+  }, [currentStep]);
 
   useEffect(() => {
     let cancelled = false;
@@ -516,7 +528,12 @@ export default function App() {
   const photosReady =
     cylinderSlots.length > 0 && cylinderSlots.every((slot) => Boolean(slot.imageSrc));
 
-  const readFilesIntoIndexes = (files: File[], indexes: number[], slotIds?: string[]) => {
+  const readFilesIntoIndexes = (
+    files: File[],
+    indexes: number[],
+    slotIds: string[] | undefined,
+    method: 'add' | 'replace'
+  ) => {
     const jobs: PhotoUploadJob[] = files.map((file, fileIndex) => ({
       id: `upload_${++uploadSeqRef.current}`,
       fileName: file.name,
@@ -555,12 +572,18 @@ export default function App() {
               item.id === job.id ? { ...item, progress: 100, status: 'done' } : item
             )
           );
+          trackPhotoUpload({
+            shape: settings.shape,
+            contentType: imageContentType(file.type),
+            method,
+          });
           window.setTimeout(() => {
             setUploadJobs((prev) => prev.filter((item) => item.id !== job.id));
           }, 900);
         })
         .catch((err: unknown) => {
           console.error('Image read failed:', err);
+          trackPhotoUploadFailed({ shape: settings.shape, reason: 'unreadable' });
           setErrorMessage(`Could not read ${file.name}.`);
           setUploadJobs((prev) =>
             prev.map((item) => (item.id === job.id ? { ...item, status: 'error' } : item))
@@ -575,6 +598,7 @@ export default function App() {
   const placeUploadedFiles = (incoming: File[]) => {
     const images = incoming.filter((file) => file.type.startsWith('image/'));
     if (images.length === 0) {
+      trackPhotoUploadFailed({ shape: settings.shape, reason: 'not_image' });
       setErrorMessage('Please upload a valid image file (JPEG, PNG, WebP).');
       return;
     }
@@ -631,16 +655,17 @@ export default function App() {
     }));
     setCylinderSlots(nextSlots);
     setPhotoNote(null);
-    readFilesIntoIndexes(images.slice(0, take), [], newIds);
+    readFilesIntoIndexes(images.slice(0, take), [], newIds, 'add');
   };
 
   const handleUploadCylinderSlotFile = (slotId: string, file: File) => {
     if (!file.type.startsWith('image/')) {
+      trackPhotoUploadFailed({ shape: settings.shape, reason: 'not_image' });
       setErrorMessage('Please upload a valid image file (JPEG, PNG, WebP).');
       return;
     }
     if (!cylinderSlots.some((slot) => slot.id === slotId)) return;
-    readFilesIntoIndexes([file], [-1], [slotId]);
+    readFilesIntoIndexes([file], [-1], [slotId], 'replace');
   };
 
   const handleRemoveCylinderSlot = (slotId: string) => {
@@ -775,6 +800,7 @@ export default function App() {
   };
 
   const handleSelectShape = (shape: LithophaneShape) => {
+    trackShapeSelect(shape);
     setShapeChosen(true);
     const count = cylinderSlots.length > 0 ? trimPhotosForShape(shape) : 0;
     setSettings((prev) => ({
@@ -1060,7 +1086,10 @@ export default function App() {
           <button
             type="button"
             className="btn-primary"
-            onClick={() => setShowValidationModal(true)}
+            onClick={() => {
+              trackExportOpen({ shape: settings.shape, photoCount });
+              setShowValidationModal(true);
+            }}
             disabled={!orderReady}
             title={orderReady ? 'Export the model' : 'Wait for the model to finish'}
           >
@@ -1099,6 +1128,7 @@ export default function App() {
           validationResult={validationResult}
           settings={settings}
           imageName={exportName}
+          photoCount={photoCount}
           emailExportEnabled={emailExportEnabled}
           printOrderingEnabled={printOrderingEnabled}
           orderReady={orderReady}
@@ -1148,6 +1178,8 @@ export default function App() {
         <OrderPrintModal
           geometryData={geometryData}
           imageName={exportName}
+          shape={settings.shape}
+          photoCount={photoCount}
           onClose={() => setShowOrderModal(false)}
         />
       )}

@@ -2,11 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { MeshGeometryData } from '../types/lithophane';
 import { StlExporter } from '../services/stlExporter';
 import { isTreatstockHttpsUrl, MAX_STL_BYTES } from '../services/printOrder';
+import { trackPrintCheckout, trackPrintOrderReady } from '../services/analytics';
 import { AlertCircle, ExternalLink, Printer, X } from 'lucide-react';
 
 interface OrderPrintModalProps {
   geometryData: MeshGeometryData;
   imageName: string;
+  shape: string;
+  photoCount: number;
   onClose: () => void;
 }
 
@@ -21,6 +24,8 @@ interface CheckoutReady {
 export const OrderPrintModal: React.FC<OrderPrintModalProps> = ({
   geometryData,
   imageName,
+  shape,
+  photoCount,
   onClose,
 }) => {
   const [phase, setPhase] = useState<'uploading' | 'ready' | 'error'>('uploading');
@@ -60,6 +65,7 @@ export const OrderPrintModal: React.FC<OrderPrintModalProps> = ({
           throw new Error(payload?.message || 'Treatstock did not return a checkout link.');
         }
         if (cancelled) return;
+        trackPrintOrderReady({ shape, photoCount });
         setCheckout({
           checkoutUrl: payload.checkoutUrl,
           material: payload.material ?? null,
@@ -79,7 +85,7 @@ export const OrderPrintModal: React.FC<OrderPrintModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [geometryData, imageName]);
+  }, [geometryData, imageName, photoCount, shape]);
 
   const materialLine = checkout?.material
     ? `${checkout.color ? `${checkout.color} ` : ''}${checkout.material}`
@@ -154,6 +160,7 @@ export const OrderPrintModal: React.FC<OrderPrintModalProps> = ({
               target="_blank"
               rel="noopener noreferrer"
               className="btn-primary text-xs py-1.5 px-4 min-h-[34px]"
+              onClick={() => trackPrintCheckout({ shape, photoCount })}
             >
               <ExternalLink className="w-3.5 h-3.5 shrink-0" />
               <span>Continue to Treatstock checkout</span>

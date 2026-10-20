@@ -9,6 +9,7 @@ import {
 } from '../services/threeMfExporter';
 import { StlExporter } from '../services/stlExporter';
 import { isIosDevice, saveBlob, type SaveOutcome } from '../services/saveFile';
+import { trackEmailExport, trackExportFailed, trackFileDownload } from '../services/analytics';
 import {
   emailTooLargeMessage,
   formatByteSize,
@@ -33,6 +34,7 @@ interface ValidationModalProps {
   validationResult: MeshValidationResult;
   settings: LithophaneSettings;
   imageName: string;
+  photoCount: number;
   emailExportEnabled?: boolean;
   printOrderingEnabled?: boolean;
   orderReady?: boolean;
@@ -75,6 +77,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   validationResult,
   settings,
   imageName,
+  photoCount,
   emailExportEnabled = false,
   printOrderingEnabled = false,
   orderReady = false,
@@ -190,6 +193,16 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
     setSavedFile({ filename, bytes });
   };
 
+  const recordDownload = (format: ExportFormatType, method: 'download' | 'share', fallback = false) => {
+    trackFileDownload({
+      format,
+      method,
+      shape: settings.shape,
+      photoCount,
+      fallback,
+    });
+  };
+
   const handleSavePending = () => {
     const pendingSave = pendingBlobRef.current;
     if (!pendingSave || typeof navigator.share !== 'function') {
@@ -202,10 +215,12 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
     pending
       .then(() => {
         noteSavedFile(pendingSave.filename, pendingSave.blob.size);
+        recordDownload(exportFormat, 'share');
       })
       .catch((err: unknown) => {
         if (err instanceof DOMException && err.name === 'AbortError') return;
         console.error(err);
+        trackExportFailed({ format: exportFormat, delivery: 'share', shape: settings.shape });
         setExportError('The share sheet could not open. Tap Download and try again.');
       });
   };
@@ -232,9 +247,13 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
     try {
       const result = StlExporter.exportBinaryStl(geometryData, imageName);
       const outcome = await deliverFile(result.blob, result.filename);
-      if (outcome === 'saved' && !isExporting) noteSavedFile(result.filename, result.blob.size);
+      if (outcome === 'saved' && !isExporting) {
+        noteSavedFile(result.filename, result.blob.size);
+        recordDownload('stl', isIosDevice() ? 'share' : 'download', true);
+      }
     } catch (err) {
       console.error(err);
+      trackExportFailed({ format: 'stl', delivery: 'download', shape: settings.shape });
       setExportFailure(humanExportError(err));
     }
   };
@@ -280,6 +299,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
       if (signal.aborted) return;
       if (!built.ok) {
         console.error(built.message);
+        trackExportFailed({ format: exportFormat, delivery: 'download', shape: settings.shape });
         setExportFailure(built.message || EXPORT_FAILED_FALLBACK);
         return;
       }
@@ -293,9 +313,11 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
       const outcome = await deliverFile(built.blob, built.filename);
       if (signal.aborted || outcome !== 'saved') return;
       noteSavedFile(built.filename, built.blob.size);
+      recordDownload(exportFormat, isIosDevice() ? 'share' : 'download');
     } catch (err) {
       if (signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) return;
       console.error('Export failed:', err);
+      trackExportFailed({ format: exportFormat, delivery: 'download', shape: settings.shape });
       setExportFailure(humanExportError(err));
     } finally {
       if (exportAbortRef.current === controller) setIsExporting(false);
@@ -324,10 +346,12 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
       if (controller.signal.aborted) return;
       if (!built.ok) {
         console.error(built.message);
+        trackExportFailed({ format, delivery: 'email', shape: settings.shape });
         setEmailError(built.message);
         return;
       }
       if (built.blob.size > EMAIL_BYTE_LIMIT) {
+        trackExportFailed({ format, delivery: 'email', shape: settings.shape });
         setEmailError(emailTooLargeMessage(EMAIL_BYTE_LIMIT));
         return;
       }
@@ -359,13 +383,20 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
             : response.status === 502 || response.status === 503 || response.status === 504
               ? 'The email service is unavailable right now. Download the file instead.'
               : 'The email could not be sent. Download the file instead.';
+        trackExportFailed({ format, delivery: 'email', shape: settings.shape });
         setEmailError(payload?.message || fallback);
         return;
       }
+      trackEmailExport({ format, shape: settings.shape, photoCount });
       setEmailNotice(`Sent to ${recipient}. The file is attached to that email.`);
     } catch (err) {
       if (controller.signal.aborted) return;
       if (err instanceof DOMException && err.name === 'AbortError') return;
+      trackExportFailed({
+        format: resolveEmailedFormat(exportFormat === 'stl' ? 'stl' : '3mf', exportFormat),
+        delivery: 'email',
+        shape: settings.shape,
+      });
       setEmailError(err instanceof Error ? err.message : 'The email could not be sent.');
     } finally {
       if (emailAbortRef.current === controller) setIsEmailing(false);
