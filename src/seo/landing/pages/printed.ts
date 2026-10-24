@@ -4,24 +4,24 @@ export const printedPage: LandingPage = {
   path: '/3d-printed-lithophane/',
   navLabel: '3D printing',
   kicker: 'Printing guide',
-  title: '3D Printed Lithophane: File to Finished Print | Lumiphane',
+  title: '3D Printed Lithophanes: Slicer Settings Guide | Lumiphane',
   description:
-    'Export a standing lithophane as STL, 3MF, or a Bambu Studio project, then slice it yourself. Orientation, white PLA, and what Lumiphane does not control.',
+    'Master 3D printed lithophanes with optimal slicer settings. Learn recommended layer heights, 100% solid infill, wall speeds, and vertical print orientation.',
   breadcrumb: '3D printed lithophane',
-  h1: '3D print a lithophane from a photo',
+  h1: 'How to 3D Print Lithophanes: Slicer Settings',
   lede:
-    'Lumiphane makes the model. Your slicer makes the toolpath. Your printer makes the part. This page is the path from a finished file to a print you can light from behind.',
-  heroNote: 'Create the model in the browser, then open the file in your own slicer.',
+    'A successful lithophane relies on precise slicer parameters. While Lumiphane calculates the microscopic thickness variations that create your image, your slicing software translates those contours into physical toolpaths. This guide explains how to configure layer height, infill density, print speed, and bed adhesion for flawless optical clarity.',
+  heroNote: 'Generate your 3D model in the browser, then open the file in your preferred slicer.',
   sections: [
     {
       kind: 'prose',
       id: 'split',
-      heading: 'The file and the print are separate',
+      heading: 'Bridging the 3D model file to your physical printer',
       blocks: [
         {
           paragraphs: [
-            'Lumiphane does not talk to your printer. When the preview looks right, you download a mesh and leave the site. Choosing the photo and the shape is covered in [how to make a lithophane](/how-to-make-a-lithophane/) and [photo to lithophane](/photo-to-lithophane/).',
-            'The app is built for FDM printing with white PLA. An SLA printer can open an STL — Formlabs has shown fine lithophanes in white resin — but this thickness curve will not match resin. Treat the preview as a white-PLA FDM print.',
+            'Lumiphane creates watertight 3D surface geometry optimized for physical reproduction. Slicing software (such as Bambu Studio, OrcaSlicer, PrusaSlicer, or UltiMaker Cura) translates that geometry into layer-by-layer G-code toolpaths for your machine. Once you are satisfied with the lit preview in Lumiphane, download your preferred 3D file to begin slicing.',
+            'Our light transmission formula is specifically calibrated for fused deposition modeling (FDM) using standard white PLA filament. While stereolithography (SLA) resin printers can import the resulting STL mesh, photopolymer resins possess different light attenuation properties. For predictable, repeatable results that match the on-screen preview, we recommend FDM printing with standard white PLA.',
           ],
         },
       ],
@@ -29,25 +29,25 @@ export const printedPage: LandingPage = {
     {
       kind: 'table',
       id: 'formats',
-      heading: 'Which file to export',
-      caption: 'All three are built in the export sheet. Pick the one your slicer actually opens.',
-      columns: ['File', 'Open it in', 'What comes along'],
+      heading: 'Choosing the optimal export file format',
+      caption: 'All three formats are available directly from the Lumiphane export dialog. Select the format tailored to your slicing software.',
+      columns: ['Export file format', 'Compatible slicing software', 'Included data and presets'],
       rows: [
-        ['Bambu Studio project', 'Bambu Studio, for a single-nozzle machine listed in the sheet', 'The mesh plus a saved Studio profile: 0.12 mm layers and 100% infill. You still slice and send the job yourself. Full walkthrough: [Bambu Studio lithophane](/bambu-studio-lithophane/).'],
-        ['Standard 3MF', 'A slicer that imports 3MF meshes', 'The model. Process settings stay yours.'],
-        ['STL', 'Almost any FDM slicer, including PrusaSlicer, Cura, OrcaSlicer, and Bambu Studio', 'The model only. Units are millimeters.'],
+        ['Bambu Studio project (.3mf)', 'Bambu Studio and OrcaSlicer for listed Bambu Lab printers', 'Complete 3D mesh plus embedded 0.12 mm layer height, 100% solid infill, and brim settings. Walkthrough: [Bambu Studio lithophane](/bambu-studio-lithophane/).'],
+        ['Standard 3MF (.3mf)', 'PrusaSlicer, Cura, OrcaSlicer, Bambu Studio, and modern 3D slicers', 'High-precision production mesh with compact file size and metric millimeter scaling. Slicer parameters are configured manually.'],
+        ['Binary STL (.stl)', 'Universal support across all slicing and CAD software packages', 'Standard raw triangular mesh geometry in millimeter units. Slicer parameters are configured manually.'],
       ],
     },
     {
       kind: 'prose',
       id: 'orient',
-      heading: 'Stand it up',
+      heading: 'Why vertical print orientation is essential',
       blocks: [
         {
           paragraphs: [
-            'Lumiphane builds the part standing, with the picture rising off the bed. Keep that orientation. Each layer becomes a thin horizontal slice through the tones. Lay the sheet flat and the nozzle width becomes your detail limit, with layer lines painted across the face.',
-            'Flat sheets, curves, cylinders, cubes, and hexagons are all generated upright. Those walls usually do not need supports, but they do need help staying on the bed. The print guide in the app suggests a brim about 5–8 mm wide — for adhesion, not to hold up the picture.',
-            'Shade-specific notes, including the open top and bottom, are on the [lamp page](/lithophane-lamp/).',
+            'Always print your lithophane standing upright on the print bed. Desktop 3D printers achieve fine vertical resolution (0.08–0.12 mm layer height along the Z-axis), whereas horizontal resolution along X and Y is constrained by the wider nozzle extrusion line (typically 0.4 mm). Printing vertically aligns micro-fine layer steps with image tonal transitions, eliminating visible stair-stepping artifacts.',
+            'Flat panels, curved arcs, cylinders, cubes, and lanterns are all exported in their upright printing orientation. Because tall, thin parts have a narrow contact area on the build plate, configure a 5–8 mm outer brim in your slicer to ensure dependable bed adhesion throughout the print.',
+            'For shade-specific design details and lighting clearances, consult our [lithophane lamp guide](/lithophane-lamp/).',
           ],
         },
       ],
@@ -55,46 +55,46 @@ export const printedPage: LandingPage = {
     {
       kind: 'table',
       id: 'slicer-start',
-      heading: 'Starting point from the in-app print guide',
+      heading: 'Recommended baseline slicer settings for white PLA',
       intro:
-        'These are Lumiphane’s recommendations for white PLA on a typical 0.4 mm nozzle. Temperature, retraction, and a fast machine’s useful speed still depend on your filament and printer. Change them in the slicer. A longer explanation of each number is in [lithophane settings](/lithophane-settings/).',
-      caption: 'Use this as a first profile, then change whatever your filament maker or a calibration print disagrees with.',
-      columns: ['In the slicer', 'Starting point', 'Why it is here'],
+        'These calibrated starting parameters are optimized for a standard 0.4 mm nozzle extruding white PLA filament. Specific nozzle temperatures, bed temperatures, and retraction values should follow your filament manufacturer recommendations.',
+      caption: 'Apply these baseline parameters in your slicer, then fine-tune if test prints suggest adjustments.',
+      columns: ['Slicer parameter', 'Recommended starting value', 'Technical rationale'],
       rows: [
-        ['Layer height', '0.12 mm, or 0.08–0.12 mm when you want smoother tones', 'Finer layers make smoother gradients. Below the reliable range of your machine, time goes up and the picture may not improve.'],
-        ['Infill', '100% through the picture', 'A grid or honeycomb inside the wall shows up when you light it. Some makers use many walls instead, so the picture is solid and only a frame has sparse infill. The lit area still cannot have holes.'],
-        ['Speed', 'About 30–40 mm/s in the print guide', 'Slower outer walls pick up less ripple. A well-tuned fast printer may go quicker. If the face ripples, slow the outer wall before you blame the photo.'],
-        ['Material', 'White PLA', 'The thickness map and the preview assume white PLA transmission. Gray, black, silk, and translucent blends will not match.'],
-        ['Supports', 'Usually none for these upright parts', 'Add a brim for adhesion. Do not add supports across the picture unless a specific feature actually overhangs.'],
+        ['Layer height', '0.12 mm (or 0.08 mm for ultra-fine detail)', 'Fine layer heights create smooth grayscale transitions. Going below 0.08 mm increases print time significantly with diminishing visual returns on a 0.4 mm nozzle.'],
+        ['Infill density', '100% solid infill', 'Standard sparse infill patterns (grid, gyroid, or honeycomb) cast visible internal shadows when backlit. Setting infill to 100% (or using 8+ perimeters) ensures uniform light transmission.'],
+        ['Outer wall print speed', '30 – 40 mm/s', 'Lower outer wall speeds minimize mechanical vibration, belt resonance, and surface ringing, resulting in crisp photographic detail.'],
+        ['Filament material', 'Standard white PLA', 'The thickness-to-luminance algorithm is calibrated for white PLA optical diffusion. Dark, gray, or silk filaments scatter light differently and result in muddy contrast.'],
+        ['Support structures', 'Disabled (use brim only)', 'Lithophanes are self-supporting when printed vertically. Adding supports against the image face leaves surface scars that distort transmitted light.'],
       ],
     },
     {
       kind: 'prose',
       id: 'troubles',
-      heading: 'When the print does not match the preview',
+      heading: 'Troubleshooting print quality and surface artifacts',
       blocks: [
         {
-          heading: 'A pattern shows through the light',
+          heading: 'Internal patterns or grid lines visible under backlight',
           paragraphs: [
-            'The inside of the wall is not solid. Set the picture to 100% infill, or to enough walls that the slicer never leaves a gap in the image. Sparse infill only belongs in a thick frame, if you use that approach at all.',
+            'The interior of the wall contains air gaps from sparse infill. Increase infill density to 100%, or increase your wall perimeter count so the slicer eliminates all internal cavities.',
           ],
         },
         {
-          heading: 'Horizontal bands or a wavy face',
+          heading: 'Horizontal layer lines or wavy surface banding',
           paragraphs: [
-            'Slow the outer wall, check that the part is not wobbling, and confirm the layer height is a height your leadscrew can repeat. A lithophane shows mechanical error because you look through every layer.',
+            'Reduce outer wall printing speed to 30 mm/s, check belt tension, clean and lubricate Z-axis leadscrews, and ensure your bed adhesion brim prevents model wobble during upper layers.',
           ],
         },
         {
-          heading: 'The tones are muddy in a filament that is not plain white PLA',
+          heading: 'Muddy, dark, or distorted tones with non-standard filament',
           paragraphs: [
-            'The file is doing what it was built to do. Switch to a plain white PLA before you redraw the photo. Silk and sparkle scatter light in ways this model does not describe.',
+            'Verify that your filament is standard opaque or semi-translucent white PLA. Silk, sparkle, marble, and colored plastics have unpredictable scattering that degrades image contrast.',
           ],
         },
         {
-          heading: 'It looks blank on the desk',
+          heading: 'Model appears pale and untextured in ambient room light',
           paragraphs: [
-            'Put a light behind it. An even, warm-white LED or a window is enough for a first look. The preview’s backlight is warm for the same reason: transmitted light, not light bouncing off the front.',
+            'Lithophanes are designed to be viewed with rear illumination. Place the print in front of an even LED panel or bright window to evaluate its photographic depth.',
           ],
         },
       ],
@@ -102,39 +102,39 @@ export const printedPage: LandingPage = {
     {
       kind: 'note',
       paragraphs: [
-        'The Bambu project embeds a Studio profile saved for those machines, including 0.12 mm layers and 100% infill. It does not lock every speed and temperature against your filament. Open the project and read the profile before you print. Step-by-step for Studio is in [Bambu Studio lithophane](/bambu-studio-lithophane/).',
+        'Our Bambu Studio project export automatically bundles recommended 0.12 mm layer height and 100% solid infill profiles. Always review the sliced preview in Bambu Studio before sending the print job to your printer. Read our [Bambu Studio lithophane guide](/bambu-studio-lithophane/) for details.',
       ],
     },
   ],
   faqs: [
     {
-      question: 'Does Lumiphane slice the file?',
+      question: 'Does Lumiphane slice files directly in the browser?',
       answer:
-        'The Bambu Studio project includes a process profile. You still open it in Bambu Studio and slice it. STL and standard 3MF have no process profile. See the Bambu Studio lithophane guide for the Studio-specific path.',
+        'Lumiphane creates production-ready 3D mesh files (STL and 3MF). Slicing and G-code generation are handled in your preferred slicing software, such as Bambu Studio, OrcaSlicer, PrusaSlicer, or Cura.',
     },
     {
-      question: 'Can I use PETG or resin?',
+      question: 'Can I print lithophanes using PETG or resin?',
       answer:
-        'The mesh will import. The bright-to-dark mapping is calculated for white PLA. Other materials need their own thickness tests if you want the preview to mean something.',
+        'While 3D slicers can process the model for any material, Lumiphane’s optical thickness curve is specifically calibrated for white PLA. Alternative materials will require manual exposure testing to match desired contrast.',
     },
     {
-      question: 'What nozzle is this written for?',
+      question: 'What nozzle diameter provides the best balance of speed and detail?',
       answer:
-        'The print guide assumes a common 0.4 mm nozzle. A 0.2 mm nozzle can use a shorter layer, often around 0.08 mm, but that choice lives in your slicer.',
+        'A standard 0.4 mm nozzle paired with a 0.12 mm layer height delivers excellent sharpness and dependable print reliability. A 0.2 mm nozzle at 0.08 mm layer height can resolve microscopic text at the cost of longer print times.',
     },
     {
-      question: 'Should the first print be large?',
+      question: 'What size should I choose for my initial test print?',
       answer:
-        'No. A panel around the default size — 120 mm wide for a flat photo, or a 90 mm lamp — is enough to learn your filament. Scale up after one lit test looks right.',
+        'We recommend starting with our default 120 mm flat panel or 90 mm cylinder. This allows you to evaluate your filament’s optical translucency and slicer settings before committing to large multi-hour prints.',
     },
     {
-      question: 'Who chooses the temperature?',
+      question: 'How do I determine the best printing temperature?',
       answer:
-        'You do, from the filament maker’s range. Lumiphane does not set nozzle or bed temperature.',
+        'Consult your filament manufacturer’s recommended temperature range. Printing temperature does not alter lithophane contrast, but proper temperature ensures smooth layer bonding and prevents surface stringing.',
     },
   ],
   closing: {
-    heading: 'Export, then slice',
-    body: 'Create the lithophane, download STL or 3MF, and finish the job in the slicer you already trust.',
+    heading: 'Ready to slice your lithophane?',
+    body: 'Export your 3D model, configure your slicer with 0.12 mm layers and 100% solid infill, and create a breathtaking backlit print.',
   },
 };

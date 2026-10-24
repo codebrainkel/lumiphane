@@ -53,25 +53,25 @@ export const SlicingModal: React.FC<SlicingModalProps> = ({ onClose }) => {
               <div className="p-3 rounded-md bg-[#141924] border border-white/10">
                 <span className="text-slate-400 text-[11px] font-mono">Infill</span>
                 <div className="text-xs font-semibold text-white font-mono mt-0.5">100% Solid</div>
-                <p className="text-[10px] text-slate-500 font-mono mt-0.5">Prevents internal grid shadows in light</p>
+                <p className="text-[10px] text-slate-500 font-mono mt-0.5">Eliminates internal infill shadows under backlight</p>
               </div>
 
               <div className="p-3 rounded-md bg-[#141924] border border-white/10">
                 <span className="text-slate-400 text-[11px] font-mono">Layer Height</span>
                 <div className="text-xs font-semibold text-white font-mono mt-0.5">0.12 mm</div>
-                <p className="text-[10px] text-slate-500 font-mono mt-0.5">Use 0.08–0.12mm for sharpest photos</p>
+                <p className="text-[10px] text-slate-500 font-mono mt-0.5">0.08–0.12 mm produces smooth photographic tones</p>
               </div>
 
               <div className="p-3 rounded-md bg-[#141924] border border-white/10">
                 <span className="text-slate-400 text-[11px] font-mono">Print Speed</span>
                 <div className="text-xs font-semibold text-white font-mono mt-0.5">30 – 40 mm/s</div>
-                <p className="text-[10px] text-slate-500 font-mono mt-0.5">Gentle speed prevents ripples and wobble</p>
+                <p className="text-[10px] text-slate-500 font-mono mt-0.5">Controlled speed prevents surface ripples and ringing</p>
               </div>
 
               <div className="p-3 rounded-md bg-[#141924] border border-white/10">
                 <span className="text-slate-400 text-[11px] font-mono">Bed Adhesion</span>
                 <div className="text-xs font-semibold text-white font-mono mt-0.5">5 – 8 mm Brim</div>
-                <p className="text-[10px] text-slate-500 font-mono mt-0.5">Keeps tall prints firmly attached to bed</p>
+                <p className="text-[10px] text-slate-500 font-mono mt-0.5">Anchors tall, narrow prints securely to build plate</p>
               </div>
             </div>
           </div>

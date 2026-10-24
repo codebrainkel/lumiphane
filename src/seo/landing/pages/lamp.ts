@@ -4,46 +4,46 @@ export const lampPage: LandingPage = {
   path: '/lithophane-lamp/',
   navLabel: 'Lamp',
   kicker: 'Lamp guide',
-  title: 'Lithophane Lamp from Your Photos | Lumiphane',
+  title: 'Lithophane Lamp: 3D Print DIY Lampshades | Lumiphane',
   description:
-    'Make an open cylinder, hexagon, cube, or curved lithophane shade from your photos. Export STL or 3MF and light it with a cool LED — no socket included.',
+    'Design and 3D print custom lithophane lampshades. Create round cylinders, hexagonal lanterns, and curved panels with cool LED lighting for stunning displays.',
   breadcrumb: 'Lithophane lamp',
-  h1: 'Make a lithophane lamp from your photos',
+  h1: 'How to Design and 3D Print a Lithophane Lamp',
   lede:
-    'A lithophane lamp is a shade: the picture appears when light inside the part shines through the wall. Lumiphane builds that shade. It does not include a socket, a cord, or a closed base for a bulb.',
+    'A lithophane lamp turns your cherished photos into an illuminated shade. When light radiates from inside the structure, your pictures reveal themselves across seamless geometric surfaces. Lumiphane designs open-ended lampshades and lantern geometries ready for clean 3D printing and pairing with safe, low-temperature LED lights.',
   heroNote: 'Choose Round Cylinder, Hexagon, Hollow Cube, or Curved Panel in the generator.',
   sections: [
     {
       kind: 'figure',
       id: 'shapes',
-      heading: 'Four ways to wrap a photo around a light',
+      heading: 'Four geometric designs for illuminated photo displays',
       figure: 'lamps',
       caption:
-        'Cylinder, hexagon, and cube are hollow tubes with open tops and bottoms. The curved panel is an arc, and its angle stops at 120°.',
+        'Round cylinders, hexagonal lanterns, and hollow cubes are open-ended shades. Curved panels form self-supporting display arcs with up to 120° of curvature.',
     },
     {
       kind: 'table',
       id: 'which-shape',
-      heading: 'Which shape to pick',
-      caption: 'Sizes are the ranges of the sliders in Lumiphane. The starting size is the value already filled in.',
-      columns: ['Shape', 'Photos', 'Size you can set', 'Best light'],
+      heading: 'Selecting the optimal lamp shape for your display',
+      caption: 'Dimension ranges reflect adjustable slider boundaries in Lumiphane, along with recommended starting values.',
+      columns: ['Geometric shape', 'Photo capacity', 'Adjustable dimensions', 'Recommended lighting'],
       rows: [
-        ['Round cylinder', '1 to 4 around the circle', 'Diameter 50–300 mm, height 50–260 mm. Starts at 90 × 95 mm.', 'A small LED inside an open tube'],
-        ['Hexagon', '1 to 6, one or more per flat wall', 'Diameter 50–260 mm, height 40–220 mm. Starts at 90 × 90 mm.', 'The same, with a faceted shade'],
-        ['Hollow cube', '1 to 4, around four faces', 'Side 40–220 mm, height 40–220 mm. Starts at 90 × 90 mm.', 'An LED under or inside the open cube'],
-        ['Curved panel', '1 to 4, tiled on the arc', 'Width 60–220 mm. Curve angle 30–120°, starting at 75°.', 'A light behind a standing arc, not inside a closed shade'],
+        ['Round cylinder', '1 to 4 photos around the 360° perimeter', 'Diameter 50–300 mm, height 50–260 mm. Default size: 90 × 95 mm.', 'Central LED puck or pillar light inside an open tube'],
+        ['Hexagonal lantern', '1 to 6 photos across faceted flat faces', 'Diameter 50–260 mm, height 40–220 mm. Default size: 90 × 90 mm.', 'Vertical LED strip or central LED module'],
+        ['Hollow cube', '1 to 4 photos around four exterior walls', 'Width 40–220 mm, height 40–220 mm. Default size: 90 × 90 mm.', 'Low-profile LED base or compact light puck'],
+        ['Curved panel', '1 to 4 photos tiled across an arc', 'Width 60–220 mm, arc angle 30–120°. Default angle: 75°.', 'Rear-facing LED light bar or tabletop lamp'],
       ],
     },
     {
       kind: 'prose',
       id: 'not-a-socket',
-      heading: 'The model is the shade, not the lamp kit',
+      heading: 'Lampshade geometry and essential thermal safety',
       blocks: [
         {
           paragraphs: [
-            'Cylinder, hexagon, and cube geometry is a vertical tube. The top and bottom stay open so you can lower the shade over a light you already own. The optional base in the app is a wider footing under the photo so a tall print stays stuck to the printer bed. It is not a recess for a tea light and it is not a bulb holder.',
-            'Measure the light. Leave a gap so nothing warm touches the plastic. PLA softens well below the temperature of an incandescent bulb — filament makers often put that change around 60°C — so use a cool LED. Do not put a candle inside.',
-            'A curved panel cannot become a full circle. The angle slider ends at 120°. For a photo that goes all the way around, use the round cylinder. One photo on a cylinder is centered on the front, with the seam at the back.',
+            'Lumiphane models cylinders, hexagons, and cubes as vertical tubes with open tops and bottoms. This open-ended design allows heat to escape freely while letting you lower the shade directly over an existing LED puck, nightlight base, or small lamp fixture. The optional stabilizing base stand in the generator widens the bottom perimeter so tall prints stay securely anchored to the 3D printer build plate during printing; it is not an enclosed bulb socket.',
+            'Always illuminate 3D printed PLA lampshades with cool LED light sources. Standard PLA filament softens at approximately 60°C (140°F) and will deform if placed near hot incandescent lightbulbs or halogen elements. Never place an open flame candle inside a 3D printed plastic shade. Ensure comfortable physical clearance between your LED light and the interior wall.',
+            'Curved panels are engineered as freestanding decorative arcs with adjustable angles between 30° and 120°. For a complete 360-degree shade, select the round cylinder shape. When wrapping a single photo around a cylinder, Lumiphane centers the subject on the front face and places a neat seam along the back.',
           ],
         },
       ],
@@ -51,13 +51,13 @@ export const lampPage: LandingPage = {
     {
       kind: 'prose',
       id: 'photos',
-      heading: 'How photos sit on a shade',
+      heading: 'Arranging photos seamlessly around a lampshade',
       blocks: [
         {
           paragraphs: [
-            'Several photos split the circumference. Four photos on a cylinder each get a quarter turn. Six on a hexagon follow the six walls. A single photo wraps the whole shape, and the crop locks to that wrap so faces are not stretched. On a single lamp photo you can match the height to the picture when you want less of it trimmed.',
-            'Wide scenes and individual portraits both work. A group of ten people in one wrap gets small fast. Crop each person, or follow the [photo guide](/photo-to-lithophane/) and use one strong frame.',
-            'Flat panels are the wrong tool for a shade. They are pictures for a window or a lightbox. The full beginner path, including flat panels, is in [how to make a lithophane](/how-to-make-a-lithophane/).',
+            'When arranging multiple photographs around a cylinder or lantern, Lumiphane divides the perimeter into equal segments. Four photos on a cylinder each receive a 90° arc quadrant, while six images on a hexagon map cleanly onto individual flat facets. A single photo can also wrap the entire 360° circumference, with automatic aspect ratio locking to prevent horizontal stretching.',
+            'Both panoramic landscapes and individual family portraits display beautifully on lamp shades. Creating a multi-sided shade with one portrait per facet is a wonderful way to showcase family members or pet photos. For guidance on image framing and contrast, review our [photo to lithophane guide](/photo-to-lithophane/).',
+            'Flat panels are intended for window hangings and flat display lightboxes. For a comprehensive walkthrough of flat panels and all available shapes, see our [how to make a lithophane guide](/how-to-make-a-lithophane/).',
           ],
         },
       ],
@@ -65,12 +65,12 @@ export const lampPage: LandingPage = {
     {
       kind: 'prose',
       id: 'print-a-shade',
-      heading: 'Print the shade upright',
+      heading: 'Best practices for slicing and printing lamp shades',
       blocks: [
         {
           paragraphs: [
-            'These shapes are modeled standing, with the opening vertical. Leave them upright in the slicer. A brim — the in-app print guide suggests around 5–8 mm — helps because a tall thin wall is easy to knock loose, not because the picture needs supports. The curved wall and the flat faces of a cube or hexagon support themselves as they grow.',
-            'Print the picture in white PLA, solid through the image. A Bambu Studio project from the export sheet already carries 0.12 mm layers and 100% infill for the single-nozzle Bambu Lab machines in that sheet. You still slice and print it in Bambu Studio — see [Bambu Studio lithophane](/bambu-studio-lithophane/). STL and standard 3MF leave those choices to whatever slicer you open. Details are in the [printing guide](/3d-printed-lithophane/) and the [settings guide](/lithophane-settings/).',
+            'All shade models are generated standing vertically on their base. Keep this orientation in your slicing software. The curved wall of a cylinder and the upright faces of cubes and hexagons are self-supporting as layers build upward, requiring zero support material across the image area.',
+            'Because tall, thin walls can experience vibrations during rapid toolhead movements, we recommend adding a 5–8 mm outer brim in your slicer to ensure strong bed adhesion. Slice the photo walls with 100% solid infill in standard white PLA. For Bambu Lab printers, our pre-configured Bambu Studio project export automatically includes 0.12 mm layers and solid infill, as explained in our [Bambu Studio lithophane guide](/bambu-studio-lithophane/). Slicer parameters are discussed further in our [3D printed lithophane guide](/3d-printed-lithophane/).',
           ],
         },
       ],
@@ -78,39 +78,39 @@ export const lampPage: LandingPage = {
     {
       kind: 'note',
       paragraphs: [
-        'A 90 mm starting diameter is a comfortable first shade, not a promise that a particular puck or tea light will fit. Measure your LED, including the housing, and keep it out of contact with the plastic.',
+        'Our default 90 mm diameter is an ideal size for first-time makers and fits many common battery-operated LED puck lights. Measure your intended lighting hardware beforehand and ensure comfortable clearance inside the printed shade.',
       ],
     },
   ],
   faqs: [
     {
-      question: 'Does the cylinder need supports?',
+      question: 'Does a cylindrical lithophane lamp require supports?',
       answer:
-        'Printed upright, the wall supports itself. Use a brim if your printer struggles to hold a tall part on the bed. The picture should not need support structures.',
+        'When printed upright, the circular walls support themselves without any support structures. We recommend adding a 5–8 mm brim in your slicer to guarantee firm bed adhesion for tall prints.',
     },
     {
-      question: 'Can I close the top and add a bulb socket?',
+      question: 'Can I close the top and integrate a lightbulb socket?',
       answer:
-        'Not in Lumiphane. The tube is open at the top and bottom. Design a separate cap in CAD if you need one, and keep any light cool.',
+        'Lumiphane creates open-ended tubular shades to promote passive heat dissipation and fit versatile LED pucks. If you require a custom socket mount, you can design a complementary base in your preferred CAD tool.',
     },
     {
-      question: 'Why does my curved panel not meet in a circle?',
+      question: 'Why does the curved panel not meet to form a complete tube?',
       answer:
-        'The curved panel is an arc from 30° to 120°. The closed shade is the round cylinder.',
+        'The curved panel is designed as a freestanding display arc spanning up to 120°. For a complete 360° closed shade, select the Round Cylinder shape in the generator.',
     },
     {
-      question: 'How many photos can go around a lamp?',
+      question: 'How many photos can I place around a single shade?',
       answer:
-        'Up to four on a cylinder or cube, and up to six on a hexagon. One photo can also wrap the entire shape.',
+        'You can place up to four photos around round cylinders and hollow cubes, up to six photos on hexagonal lanterns, or wrap a single continuous panoramic image.',
     },
     {
-      question: 'What filament should the shade be?',
+      question: 'What filament material should I use for a lamp shade?',
       answer:
-        'White PLA. The preview’s transmission is modeled for that plastic. Other colors will not match the lit preview.',
+        'Standard white PLA is strongly recommended. Our optical thickness curve and preview renderer are calibrated for white PLA light transmission. Colored or dark materials will obstruct light diffusion.',
     },
   ],
   closing: {
-    heading: 'Build the shade',
-    body: 'Open the generator and choose a cylinder, hexagon, cube, or curved panel. Export the file, then pair it with a cool LED you measured yourself.',
+    heading: 'Craft a custom illuminated lampshade',
+    body: 'Choose a cylinder, hexagon, cube, or curved panel in the generator. Export your 3D model, slice with solid infill, and bring your memories to light.',
   },
 };

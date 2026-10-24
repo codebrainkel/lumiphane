@@ -19,6 +19,8 @@ export const Header: React.FC<HeaderProps> = ({ currentStep, onStepChange, shape
       ? 'Curved Panel'
       : shape === 'heart'
       ? 'Heart Panel'
+      : shape === 'nightlight'
+      ? 'Night Light'
       : 'Flat Panel';
 
   const stepLabel =

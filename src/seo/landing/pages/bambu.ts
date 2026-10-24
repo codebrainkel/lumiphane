@@ -4,24 +4,24 @@ export const bambuPage: LandingPage = {
   path: '/bambu-studio-lithophane/',
   navLabel: 'Bambu Studio',
   kicker: 'Bambu guide',
-  title: 'Lithophane for Bambu Studio: Export to Print | Lumiphane',
+  title: 'Bambu Studio Lithophane: 3MF Export & Print | Lumiphane',
   description:
-    'Export a Bambu Studio project from Lumiphane with 0.12 mm layers and 100% infill for listed single-nozzle machines. Open it in Studio, slice, and print.',
+    'Export optimized Bambu Studio 3MF projects directly from Lumiphane. Pre-configured with 0.12 mm layer height and 100% solid infill for Bambu Lab 3D printers.',
   breadcrumb: 'Bambu Studio lithophane',
-  h1: 'Print a lithophane from a Bambu Studio project',
+  h1: 'Print Lithophanes with Bambu Studio and Bambu Lab',
   lede:
-    'Lumiphane can give you a Bambu Studio project: the standing mesh plus a saved 0.12 mm, 100% infill process for the single-nozzle Bambu Lab machine you pick. You still open the file in Studio, slice it, and send the job yourself.',
-  heroNote: 'Pick Bambu Studio project in the export sheet, then choose your printer from the list.',
+    'Lumiphane integrates seamlessly with Bambu Lab 3D printers by exporting native Bambu Studio 3MF project files. Each project includes your upright lithophane mesh pre-configured with a tested 0.12 mm layer height, 100% solid infill, and stabilizing brim tailored to your specific Bambu printer model. Simply open the file, preview the slice, and start your print.',
+  heroNote: 'Select Bambu Studio project in the export dialog, then choose your Bambu Lab model.',
   sections: [
     {
       kind: 'prose',
       id: 'what-you-get',
-      heading: 'What the Bambu project actually contains',
+      heading: 'What is included in the native Bambu Studio project archive',
       blocks: [
         {
           paragraphs: [
-            'A Bambu Studio project from Lumiphane is a 3MF archive Studio recognizes as its own. Inside is the lithophane mesh, already standing on the bed, and a process profile saved for that machine: 0.12 mm layers and 100% infill through the picture, plus a brim for adhesion. Filament temperature and many speed limits still follow the filament profile Studio loads for white PLA on that printer.',
-            'It is not a print queue. Lumiphane does not talk to your printer, queue a plate, or watch the job. After the download, the next step is Bambu Studio on your computer. The general export and slicer path for any machine is in the [3D printed lithophane](/3d-printed-lithophane/) guide.',
+            'When you export a Bambu Studio project from Lumiphane, you receive an authentic 3MF project package recognized immediately by Bambu Studio. The archive contains your watertight lithophane mesh already oriented standing upright on the build plate, paired with a custom process preset: 0.12 mm layer height, 100% solid infill through the image wall, and a stabilizing brim for dependable bed adhesion.',
+            'Nozzle temperatures, bed heating, and cooling fan speeds automatically inherit from the white PLA filament preset you load in Bambu Studio. Lumiphane does not connect directly to your printer over local Wi-Fi or Bambu Cloud; after downloading the file, you simply open it in Bambu Studio on your computer to slice and send the plate to your printer. For general slicer guidelines, see our [3D printed lithophane guide](/3d-printed-lithophane/).',
           ],
         },
       ],
@@ -29,79 +29,79 @@ export const bambuPage: LandingPage = {
     {
       kind: 'table',
       id: 'machines',
-      heading: 'Machines in the export sheet',
+      heading: 'Supported Bambu Lab printer profiles in the export dialog',
       intro:
-        'The project is built for single-nozzle, 0.4 mm profiles that ship with Bambu Studio. Pick the printer you will actually use. The mesh stays the same; Studio’s machine and process names change to match.',
-      caption: 'If your machine is missing from this list, export a standard 3MF or an STL and open that in Studio instead.',
-      columns: ['In the sheet', 'Studio printer model'],
+        'Each printer profile configures machine-specific build plate dimensions, origin offsets, and native process parameters for single-nozzle 0.4 mm setups.',
+      caption: 'If your specific model is not listed, export a universal standard 3MF or STL file and apply the recommended 0.12 mm solid profile in Bambu Studio manually.',
+      columns: ['Export dialog selection', 'Bambu Studio printer model preset'],
       rows: [
-        ['Bambu Lab A2L', 'Bambu Lab A2L'],
-        ['Bambu Lab A1', 'Bambu Lab A1'],
-        ['Bambu Lab A1 mini', 'Bambu Lab A1 mini'],
-        ['Bambu Lab P1P', 'Bambu Lab P1P'],
-        ['Bambu Lab P1S', 'Bambu Lab P1S'],
-        ['Bambu Lab X1 Carbon', 'Bambu Lab X1 Carbon'],
-        ['Bambu Lab X1', 'Bambu Lab X1'],
-        ['Bambu Lab X1E', 'Bambu Lab X1E'],
-        ['Bambu Lab P2S', 'Bambu Lab P2S'],
-        ['Bambu Lab H2S', 'Bambu Lab H2S'],
+        ['Bambu Lab A2L', 'Bambu Lab A2L (0.4 nozzle)'],
+        ['Bambu Lab A1', 'Bambu Lab A1 (0.4 nozzle)'],
+        ['Bambu Lab A1 mini', 'Bambu Lab A1 mini (0.4 nozzle)'],
+        ['Bambu Lab P1P', 'Bambu Lab P1P (0.4 nozzle)'],
+        ['Bambu Lab P1S', 'Bambu Lab P1S (0.4 nozzle)'],
+        ['Bambu Lab X1 Carbon', 'Bambu Lab X1 Carbon (0.4 nozzle)'],
+        ['Bambu Lab X1', 'Bambu Lab X1 (0.4 nozzle)'],
+        ['Bambu Lab X1E', 'Bambu Lab X1E (0.4 nozzle)'],
+        ['Bambu Lab P2S', 'Bambu Lab P2S (0.4 nozzle)'],
+        ['Bambu Lab H2S', 'Bambu Lab H2S (0.4 nozzle)'],
       ],
     },
     {
       kind: 'steps',
       id: 'steps',
-      heading: 'From photo to Bambu print',
-      intro: 'Follow this order. A bad photo still prints as a bad lithophane, even with a solid Studio profile.',
+      heading: 'Step-by-step workflow from digital photo to Bambu print',
+      intro: 'Follow this proven sequence. A well-prepared photograph and proper slicer configuration ensure a clean, detailed print every time.',
       steps: [
         {
-          title: 'Build the model in the browser',
-          body: 'Choose a shape, add JPEG, PNG, or WebP photos, and check the backlit preview. Contrast, brightness, and crop matter more than anything in the slicer. The beginner path is in [how to make a lithophane](/how-to-make-a-lithophane/). Photo choices are in [photo to lithophane](/photo-to-lithophane/).',
+          title: 'Build and compose your model in Lumiphane',
+          body: 'Select your desired shape, import photos, and inspect the simulated backlit 3D preview. Review image exposure and framing carefully. A beginner walkthrough is available in [how to make a lithophane](/how-to-make-a-lithophane/), and photo recommendations are in [photo to lithophane](/photo-to-lithophane/).',
         },
         {
-          title: 'Open Export and pick Bambu Studio project',
-          body: 'Wait until the preview finishes. In the export sheet, choose the Bambu Studio project option and the printer you will print on. The sheet also shows outer size, the thickness range for this part, and any warning. Read the warning before a multi-hour job.',
+          title: 'Select Bambu Studio Project in the export dialog',
+          body: 'Click Export and choose the Bambu Studio Project format. Select your exact printer model from the dropdown list. The dialog displays physical dimensions, thickness boundaries, and geometry checks.',
         },
         {
-          title: 'Download the project file',
-          body: 'The filename names the printer you selected. Keep the .3mf extension. Do not unzip it by hand unless you are debugging — Studio opens the archive as a project.',
+          title: 'Download the .3mf project file',
+          body: 'Save the project to your computer. The filename includes your chosen printer model. Keep the default .3mf extension without extracting the archive manually.',
         },
         {
-          title: 'Open it in Bambu Studio',
-          body: 'File → Open, or drop the file onto Studio. Confirm the printer matches the one you picked, that the part is still standing upright, and that the process shows 0.12 mm layers with solid infill in the picture. Switch to a plain white PLA profile for that machine if Studio did not already load one.',
+          title: 'Open the project file in Bambu Studio',
+          body: 'In Bambu Studio, select File → Open Project, or drag the file into the window. Verify that the printer profile matches your machine, the part is standing upright on the bed, and the process profile displays 0.12 mm layers with solid infill.',
         },
         {
-          title: 'Slice, then send the job',
-          body: 'Slice in Studio and review the preview. You should see a solid wall through the image and a brim around the foot. Send the plate the same way you send any other Studio job. Lumiphane is done after the download.',
+          title: 'Slice the plate and review the toolpath preview',
+          body: 'Click Slice Plate in Bambu Studio. Inspect the sliced layer preview to confirm solid continuous perimeters across the photo area and a clean brim around the base. Click Print Plate or send via Bambu Handy.',
         },
         {
-          title: 'Light the finished print from behind',
-          body: 'A flat panel needs a window or an even LED behind it. A cylinder, cube, or hexagon is an open shade for a cool LED — never a hot bulb. Lamp shapes and sizing are on the [lamp page](/lithophane-lamp/).',
+          title: 'Illuminate your finished physical print',
+          body: 'Place your completed print in front of an even light source. Flat panels look best against a window or LED backlight panel, while cylinders and lanterns fit over compact LED pucks. Details on shade dimensions are in our [lithophane lamp guide](/lithophane-lamp/).',
         },
       ],
     },
     {
       kind: 'table',
       id: 'profile',
-      heading: 'What the embedded profile sets',
-      caption: 'These values come with the project. Temperature and many speeds still follow your filament and machine presets in Studio.',
-      columns: ['In the project', 'Value', 'Why it is there'],
+      heading: 'Pre-configured print settings included in the project',
+      caption: 'These parameters are embedded directly into the project file. Extrusion temperatures and fan speeds follow your chosen white PLA filament preset.',
+      columns: ['Slicer parameter', 'Pre-configured value', 'Why it is included'],
       rows: [
-        ['Layer height', '0.12 mm', 'Finer layers make smoother tones through white PLA. A 0.2 mm nozzle can go nearer 0.08 mm if you change it in Studio.'],
-        ['Infill in the picture', '100%', 'A grid or honeycomb inside the wall shows up when you light it. The lit area has to be solid plastic.'],
-        ['Orientation', 'Standing', 'Lumiphane builds the part upright. Leave it that way so layer steps draw the tones.'],
-        ['Brim', 'About 5–8 mm in the print guide', 'Tall thin walls tip. The brim is bed adhesion, not support under the picture.'],
-        ['Material assumption', 'White PLA', 'The thickness map and the on-screen preview are tuned for white PLA transmission.'],
+        ['Layer height', '0.12 mm', 'Generates micro-fine vertical steps that render smooth photographic gradients through white PLA.'],
+        ['Infill density', '100% solid', 'Eliminates internal air cavities that cast unwanted lattice shadows under direct backlight.'],
+        ['Model orientation', 'Standing upright', 'Stands the mesh vertically on the build plate so fine Z-axis layer increments capture photo tones.'],
+        ['Bed adhesion brim', '5 – 8 mm outer brim', 'Stabilizes tall, narrow prints against bed motion and high-speed toolhead acceleration.'],
+        ['Filament target', 'Standard white PLA', 'The optical thickness algorithm is calibrated specifically for white PLA light transmission.'],
       ],
     },
     {
       kind: 'prose',
       id: 'when-not',
-      heading: 'When to skip the Bambu project',
+      heading: 'When to use universal standard 3MF or STL exports',
       blocks: [
         {
           paragraphs: [
-            'Use a standard 3MF or an STL when your printer is not in the export list, when you want OrcaSlicer or another fork, or when you already keep a lithophane process you trust and only need the mesh. Those formats carry the model only — you set layer height and infill yourself. The [settings guide](/lithophane-settings/) separates what Lumiphane controls from what belongs in the slicer.',
-            'Multi-material tricks and dual-nozzle machines are outside this project. A lithophane is one material: white PLA. Color in the photo becomes thickness, not a second filament.',
+            'Choose standard 3MF or binary STL if you prefer using OrcaSlicer with customized machine profiles, PrusaSlicer, or any 3D printer not listed in our dropdown. These universal formats export pristine, watertight geometry, allowing you to apply your own slicer configurations. Slicer parameters are explained in our [lithophane settings guide](/lithophane-settings/).',
+            'Traditional lithophanes rely on variable thickness in a single translucent material. While you can use the Bambu Lab AMS to select a spool of white PLA, you should not assign multiple colors across the image relief, as tonal contrast in a lithophane is created exclusively through light transmission.',
           ],
         },
       ],
@@ -109,30 +109,30 @@ export const bambuPage: LandingPage = {
     {
       kind: 'prose',
       id: 'mistakes',
-      heading: 'Mistakes that waste a Bambu print',
+      heading: 'Common mistakes to avoid when printing in Bambu Studio',
       blocks: [
         {
-          heading: 'Laying the part flat on the plate',
+          heading: 'Rotating or lying the part flat on the build plate',
           paragraphs: [
-            'Studio will let you rotate it. Do not. Flat on the bed makes nozzle width the detail limit and paints layer lines across the face. The project is exported standing for a reason.',
+            'Bambu Studio permits rotating models on the build plate, but you must keep the lithophane standing upright. Laying it flat forces the printer to render subtle photographic tones using coarse horizontal nozzle lines, ruining image detail.',
           ],
         },
         {
-          heading: 'Switching to sparse infill to save plastic',
+          heading: 'Lowering infill density to save filament or print time',
           paragraphs: [
-            'Any gap in the picture lights up as a pattern. Keep 100% through the image, or enough walls that Studio never leaves a hole there.',
+            'Any hollow pattern inside the wall—such as grid or gyroid infill—casts dark internal shadows when illuminated. The photo area must remain 100% solid plastic.',
           ],
         },
         {
-          heading: 'Printing silk, gray, or marble PLA',
+          heading: 'Printing with silk, marble, or dark filaments',
           paragraphs: [
-            'The file will slice. The tones will not match the preview. Sparkle and dark pigment scatter light in ways this thickness curve does not describe.',
+            'Silk PLA contains metallic additives that reflect light rather than transmitting it cleanly. Dark or gray filaments absorb too much light, resulting in a dim, muddy image.',
           ],
         },
         {
-          heading: 'Judging the part before you light it',
+          heading: 'Evaluating contrast before illuminating with a backlight',
           paragraphs: [
-            'An unlit lithophane is a white texture. Put a cool LED or a window behind it before you decide contrast was wrong.',
+            'In front room lighting, an unlit lithophane looks like a plain white textured plastic slab. Always hold the print up to an LED light or window before evaluating image quality.',
           ],
         },
       ],
@@ -140,39 +140,39 @@ export const bambuPage: LandingPage = {
     {
       kind: 'note',
       paragraphs: [
-        'The embedded profile is a starting point saved for those machines. Read it in Studio before you print. Filament brand, nozzle wear, and a fast machine’s useful speed are still on you.',
+        'The pre-configured project applies recommended 0.12 mm layer height and 100% solid infill. Because ambient room temperatures, bed adhesion surfaces, and filament brands vary, always review your slicer preview before starting a print.',
       ],
     },
   ],
   faqs: [
     {
-      question: 'Does Lumiphane send the job to my Bambu?',
+      question: 'Does Lumiphane send print jobs directly to Bambu Lab printers over Wi-Fi?',
       answer:
-        'No. It builds a Studio project file. You open that file in Bambu Studio, slice it, and send the plate the way you always do.',
+        'No. Lumiphane creates an authentic Bambu Studio project file (.3mf) that you open in Bambu Studio on your computer. From Studio, you can send the sliced plate to your printer via Wi-Fi, Bambu Cloud, or SD card.',
     },
     {
-      question: 'My printer is not in the list. What do I export?',
+      question: 'What if my Bambu Lab printer is not listed in the export options?',
       answer:
-        'Export a standard 3MF or an STL, open it in Bambu Studio, and apply your own 0.12 mm, solid-infill process. The Bambu project option is only for the single-nozzle machines named in the sheet.',
+        'Export a standard 3MF or binary STL file. Open it in Bambu Studio under your printer profile, and set layer height to 0.12 mm, infill to 100%, and add an outer brim.',
     },
     {
-      question: 'Can I use AMS or a second color?',
+      question: 'Can I use the Bambu Lab AMS with a lithophane?',
       answer:
-        'A lithophane is one translucent material. Extra colors do not paint the photo; thickness does. Load plain white PLA and keep the picture solid.',
+        'Yes. You can use the AMS to feed your preferred spool of white PLA filament. Avoid assigning multi-color filaments to the image surface, as lithophanes rely on single-material translucent light transmission.',
     },
     {
-      question: 'Do I still need to slice in Studio?',
+      question: 'Do I still need to slice the model in Bambu Studio?',
       answer:
-        'Yes. The project includes a process profile. Studio still has to slice the toolpaths and talk to the printer.',
+        'Yes. The project file includes your mesh, orientation, and process settings. Bambu Studio must slice the geometry to generate the toolpaths specific to your machine.',
     },
     {
-      question: 'Where should I go if the print looks wrong?',
+      question: 'Where can I troubleshoot print quality issues?',
       answer:
-        'Check orientation and infill first, then filament. Photo and contrast issues belong in the photo guide. Mechanical banding and slicer numbers are covered in the printing and settings guides.',
+        'Consult our [3D printed lithophane guide](/3d-printed-lithophane/) for hardware vibration and slicer tips, and our [photo to lithophane guide](/photo-to-lithophane/) for image exposure recommendations.',
     },
   ],
   closing: {
-    heading: 'Export for your Bambu',
-    body: 'Create the lithophane, download the Bambu Studio project for your machine, then finish the job in Studio.',
+    heading: 'Export a custom project for your Bambu printer',
+    body: 'Upload your photo, preview the backlit model, and export a native Bambu Studio project file with pre-configured settings.',
   },
 };

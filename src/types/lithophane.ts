@@ -1,4 +1,4 @@
-export type LithophaneShape = 'flat' | 'curved' | 'cylinder' | 'cube' | 'hexagon' | 'nightlight';
+export type LithophaneShape = 'flat' | 'curved' | 'cylinder' | 'cube' | 'hexagon' | 'nightlight' | 'heart';
 
 export type AppStep = 'mode' | 'upload' | 'preview';
 
