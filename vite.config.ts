@@ -5,7 +5,8 @@ import fs from 'fs';
 import path from 'path';
 import {defineConfig, type Plugin} from 'vite';
 import {createApp} from './server/app';
-import {PUBLIC_APP_ROUTES} from './src/seo/publicRoutes';
+import {landingPagesPlugin} from './src/seo/landing/vitePlugin';
+import {INDEXABLE_ROUTES} from './src/seo/publicRoutes';
 import {renderSitemap, sitemapLastmod} from './src/seo/sitemap';
 
 dotenv.config();
@@ -30,7 +31,7 @@ function sitemapPlugin(): Plugin {
       outDir = path.resolve(config.root, config.build.outDir);
     },
     writeBundle() {
-      const xml = renderSitemap(PUBLIC_APP_ROUTES, sitemapLastmod());
+      const xml = renderSitemap(INDEXABLE_ROUTES, sitemapLastmod());
       const publicFile = path.resolve(import.meta.dirname, 'public/sitemap.xml');
       fs.mkdirSync(path.dirname(publicFile), { recursive: true });
       fs.writeFileSync(publicFile, xml);
@@ -42,7 +43,7 @@ function sitemapPlugin(): Plugin {
 
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss(), apiMiddleware(), sitemapPlugin()],
+    plugins: [react(), tailwindcss(), apiMiddleware(), landingPagesPlugin(), sitemapPlugin()],
     resolve: {
       alias: {
         '@': path.resolve(import.meta.dirname, '.'),

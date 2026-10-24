@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { TIP_STORAGE_KEY } from './services/tip';
 import {
   LithophaneSettings,
   MeshGeometryData,
@@ -40,6 +41,7 @@ import { OrderPrintModal } from './components/OrderPrintModal';
 import {
   imageContentType,
   trackExportOpen,
+  trackGuideHandoff,
   trackPhotoUpload,
   trackPhotoUploadFailed,
   trackShapeSelect,
@@ -161,10 +163,16 @@ export default function App() {
   const [showOrderModal, setShowOrderModal] = useState<boolean>(false);
   const [printOrderingEnabled, setPrintOrderingEnabled] = useState<boolean>(false);
   const [emailExportEnabled, setEmailExportEnabled] = useState<boolean>(false);
+  const [tipsEnabled, setTipsEnabled] = useState<boolean>(false);
+  const [tipThanks, setTipThanks] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const addPhotosInputRef = useRef<HTMLInputElement>(null);
   const slotFileInputRef = useRef<HTMLInputElement>(null);
   const debounceTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    trackGuideHandoff();
+  }, []);
 
   useEffect(() => {
     trackStep(currentStep);
@@ -188,8 +196,50 @@ export default function App() {
       .catch(() => {
         if (!cancelled) setEmailExportEnabled(false);
       });
+    fetch('/api/tip/status')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { enabled?: boolean } | null) => {
+        if (!cancelled) setTipsEnabled(Boolean(data?.enabled));
+      })
+      .catch(() => {
+        if (!cancelled) setTipsEnabled(false);
+      });
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let hide: number | undefined;
+    const showThanks = () => {
+      setTipThanks(true);
+      if (hide !== undefined) window.clearTimeout(hide);
+      hide = window.setTimeout(() => setTipThanks(false), 6000);
+    };
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('tip') === 'thanks') {
+      showThanks();
+      params.delete('tip');
+      const next = params.toString();
+      const url = `${window.location.pathname}${next ? `?${next}` : ''}${window.location.hash}`;
+      window.history.replaceState(null, '', url);
+    }
+
+    // Tip checkout finishes in another tab and writes this key.
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== TIP_STORAGE_KEY || !event.newValue) return;
+      try {
+        const payload = JSON.parse(event.newValue) as { status?: string };
+        if (payload.status === 'thanks') showThanks();
+      } catch {
+        // Ignore a bad payload from another tab.
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      if (hide !== undefined) window.clearTimeout(hide);
     };
   }, []);
 
@@ -921,6 +971,11 @@ export default function App() {
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
+      {tipThanks && (
+        <p className="tip-thanks" role="status">
+          Thanks for the tip.
+        </p>
+      )}
       {/* Hidden file inputs */}
       <input
         ref={fileInputRef}
@@ -1130,6 +1185,7 @@ export default function App() {
           imageName={exportName}
           photoCount={photoCount}
           emailExportEnabled={emailExportEnabled}
+          tipsEnabled={tipsEnabled}
           printOrderingEnabled={printOrderingEnabled}
           orderReady={orderReady}
           onOrderPrint={() => {

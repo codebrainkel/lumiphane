@@ -31,6 +31,7 @@ import { thicknessForLuminance, transmissionToSrgb } from '../constants/optics';
 import { LithophaneSettings, MeshGeometryData } from '../types/lithophane';
 import { borderIconCoverage, createBorderIconField, maxBorderWidthMm } from '../services/borderIcons';
 import { runEmailExportTests } from './emailExportTests';
+import { runTipTests } from './tipTests';
 import JSZip from 'jszip';
 
 let totalTests = 0;
@@ -1279,7 +1280,7 @@ async function runTestSuite() {
   console.log('\n[14] Testing physical tone curve and stand clearance...');
   {
     const wedge = [0, 0.1, 0.2, 0.5, 0.9];
-    const wedgeShapes: LithophaneSettings['shape'][] = ['flat', 'curved', 'cylinder', 'cube', 'hexagon'];
+    const wedgeShapes: LithophaneSettings['shape'][] = ['flat', 'curved', 'heart', 'cylinder', 'cube', 'hexagon'];
     for (const shape of wedgeShapes) {
       const cols = shape === 'cube' || shape === 'cylinder' || shape === 'hexagon' ? 48 : 20;
       const rows = 12;
@@ -1328,6 +1329,7 @@ async function runTestSuite() {
     }> = [
       { shape: 'flat', width: 120, height: 90, cols: 61, rows: 46, supports: ['flange', 'buttress', 'full', 'none'] },
       { shape: 'curved', width: 120, height: 90, cols: 61, rows: 46, supports: ['flange', 'none'] },
+      { shape: 'heart', width: 120, height: 110, cols: 61, rows: 56, supports: ['flange', 'buttress', 'full', 'none'] },
       { shape: 'cylinder', width: 120, height: 95, cols: 48, rows: 40, supports: ['flange', 'none'] },
       { shape: 'cube', width: 90, height: 90, cols: 48, rows: 40, supports: ['flange', 'none'] },
       { shape: 'hexagon', width: 90, height: 90, cols: 48, rows: 40, supports: ['flange', 'none'] },
@@ -1435,7 +1437,7 @@ async function runTestSuite() {
           const sampleV = bottomR / (panel.rows - 1);
           const sampleZ = ext.heightMm + (1 - sampleV) * panel.height;
           let geometric: number | null = null;
-          if (panel.shape === 'flat') {
+          if (panel.shape === 'flat' || panel.shape === 'heart') {
             const x = -panel.width / 2 + (midC / (panel.cols - 1)) * panel.width;
             geometric = rayThickness(geom, x, -40, sampleZ, 0, 1, 0);
           } else if (panel.shape === 'curved') {
@@ -1565,6 +1567,7 @@ async function runTestSuite() {
   }
 
   await runEmailExportTests(assert);
+  await runTipTests(assert);
 
   console.log('\n========================================');
   console.log(`TEST SUMMARY: ${passedTests}/${totalTests} PASSED (${failedTests} FAILED)`);

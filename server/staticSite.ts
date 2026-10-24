@@ -1,6 +1,6 @@
 import express from 'express';
 import path from 'path';
-import { PUBLIC_APP_ROUTES } from '../src/seo/publicRoutes';
+import { landingRedirectTarget, PUBLIC_APP_ROUTES } from '../src/seo/publicRoutes';
 
 const NOT_FOUND_HTML = `<!doctype html>
 <html lang="en">
@@ -62,11 +62,24 @@ function sendNotFound(res: express.Response): void {
 export function mountStaticSite(app: express.Express, distDir: string): void {
   const indexFile = path.join(distDir, 'index.html');
 
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      next();
+      return;
+    }
+    const target = landingRedirectTarget(req.path);
+    if (!target) {
+      next();
+      return;
+    }
+    res.redirect(301, target);
+  });
+
   app.use(
     express.static(distDir, {
       index: 'index.html',
       setHeaders(res, filePath) {
-        if (path.basename(filePath) === 'index.html' && path.dirname(filePath) === distDir) {
+        if (path.basename(filePath) === 'index.html') {
           res.setHeader('Cache-Control', 'no-cache');
           return;
         }

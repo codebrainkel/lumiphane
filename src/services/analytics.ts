@@ -1,3 +1,4 @@
+import { LANDING_PAGE_ROUTES } from '../seo/publicRoutes';
 import { AppStep } from '../types/lithophane';
 
 /** Formats the export sheet can build. */
@@ -36,6 +37,21 @@ export function imageContentType(mime: string): string {
 
 function fileExtension(format: TrackedExportFormat): 'stl' | '3mf' {
   return format === 'stl' ? 'stl' : '3mf';
+}
+
+/** One event when the generator opens from a guide. No photo names or other personal data. */
+export function trackGuideHandoff() {
+  if (!document.referrer) return;
+  let ref: URL;
+  try {
+    ref = new URL(document.referrer);
+  } catch {
+    return;
+  }
+  if (ref.origin !== window.location.origin) return;
+  const path = ref.pathname.endsWith('/') ? ref.pathname : `${ref.pathname}/`;
+  if (!(LANDING_PAGE_ROUTES as readonly string[]).includes(path)) return;
+  send('generator_from_guide', { source_path: path });
 }
 
 /** One page view per step. The tag itself does not send the automatic hit. */

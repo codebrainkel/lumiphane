@@ -17,6 +17,8 @@ export const Header: React.FC<HeaderProps> = ({ currentStep, onStepChange, shape
       ? 'Hexagon'
       : shape === 'curved'
       ? 'Curved Panel'
+      : shape === 'heart'
+      ? 'Heart Panel'
       : 'Flat Panel';
 
   const stepLabel =
@@ -88,7 +90,15 @@ export const Header: React.FC<HeaderProps> = ({ currentStep, onStepChange, shape
         </a>
       </div>
 
-      <div className="text-xs font-medium text-slate-400 shrink-0">{stepLabel}</div>
+      <div className="flex items-center gap-1 shrink-0">
+        <a
+          href="/how-to-make-a-lithophane/"
+          className="inline-flex min-h-11 items-center px-2 text-xs font-semibold text-amber-300 hover:text-white"
+        >
+          Guide
+        </a>
+        <div className="text-xs font-medium text-slate-400">{stepLabel}</div>
+      </div>
     </header>
   );
 };

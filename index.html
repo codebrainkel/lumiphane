@@ -14,10 +14,44 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Lumiphane 3D — Lithophane Generator</title>
     <meta name="description" content="Precision 3D lithophane generator for FDM 3D printing. Interactive WebGL preview, optical backlight simulation, and print-ready 3MF export." />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://lumiphane.com/" />
     <meta property="og:title" content="Lumiphane 3D — Lithophane Generator" />
     <meta property="og:description" content="Precision 3D lithophane generator for FDM 3D printing. Interactive WebGL preview, optical backlight simulation, and print-ready 3MF export." />
     <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://lumiphane.com/" />
+    <meta property="og:site_name" content="Lumiphane 3D" />
     <meta name="twitter:card" content="summary_large_image" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://lumiphane.com/#website",
+            "name": "Lumiphane 3D",
+            "url": "https://lumiphane.com/"
+          },
+          {
+            "@type": "WebApplication",
+            "@id": "https://lumiphane.com/#app",
+            "name": "Lumiphane 3D",
+            "url": "https://lumiphane.com/",
+            "applicationCategory": "DesignApplication",
+            "operatingSystem": "Web browser",
+            "browserRequirements": "Requires JavaScript",
+            "description": "Precision 3D lithophane generator for FDM 3D printing. Upload a photo, preview it with a backlight, and export STL or 3MF.",
+            "featureList": [
+              "JPEG, PNG, and WebP photo upload",
+              "Flat, curved, cylinder, cube, and hexagon shapes",
+              "Backlit 3D preview",
+              "STL, standard 3MF, and Bambu Studio project export"
+            ],
+            "isPartOf": { "@id": "https://lumiphane.com/#website" }
+          }
+        ]
+      }
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
@@ -35,6 +69,23 @@
   </head>
   <body class="bg-[#0b0d11] text-[#f1f5f9] antialiased">
     <div id="root"></div>
+    <noscript>
+      <style>
+        body { margin: 0; background: #0b0d11; color: #f8fafc; font-family: system-ui, sans-serif; }
+        a { color: #ffc21a; }
+      </style>
+      <main style="max-width:40rem;margin:48px auto;padding:0 20px">
+        <h1 style="font-size:1.5rem">Lumiphane 3D needs JavaScript for the generator</h1>
+        <p>You can still read the guides:</p>
+        <ul>
+          <li><a href="/how-to-make-a-lithophane/">How to make a lithophane</a></li>
+          <li><a href="/photo-to-lithophane/">Photo to lithophane</a></li>
+          <li><a href="/lithophane-lamp/">Lithophane lamp</a></li>
+          <li><a href="/3d-printed-lithophane/">3D printed lithophane</a></li>
+          <li><a href="/lithophane-settings/">Lithophane settings</a></li>
+        </ul>
+      </main>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

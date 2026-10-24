@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { isEmailExportConfigured } from '../src/services/emailExport';
+import { isStripeSecretConfigured } from '../src/services/tip';
 import { createApp } from './app';
 import { mountStaticSite } from './staticSite';
 
@@ -27,5 +28,6 @@ const host = process.env.HOST || '0.0.0.0';
 app.listen(port, host, () => {
   const ordering = process.env.TREATSTOCK_PRIVATE_KEY?.trim() ? 'on' : 'off';
   const email = isEmailExportConfigured(process.env.RESEND_API_KEY) ? 'on' : 'off';
-  console.log(`Lumiphane listening on ${host}:${port} (Treatstock ordering ${ordering}, email export ${email})`);
+  const tips = isStripeSecretConfigured(process.env.STRIPE_SECRET_KEY) ? 'on' : 'off';
+  console.log(`Lumiphane listening on ${host}:${port} (Treatstock ordering ${ordering}, email export ${email}, tips ${tips})`);
 });

@@ -1,4 +1,4 @@
-import { PUBLIC_APP_ROUTES, SITE_ORIGIN } from './publicRoutes';
+import { INDEXABLE_ROUTES, SITE_ORIGIN } from './publicRoutes';
 
 export function sitemapLastmod(date: Date = new Date()): string {
   return date.toISOString().slice(0, 10);
@@ -19,9 +19,9 @@ function escapeXml(value: string): string {
     .replace(/'/g, '&apos;');
 }
 
-/** Sitemap XML for the public app routes. `lastmod` is a YYYY-MM-DD build date. */
+/** Sitemap XML for the homepage and the guide pages. `lastmod` is a YYYY-MM-DD build date. */
 export function renderSitemap(
-  routes: readonly string[] = PUBLIC_APP_ROUTES,
+  routes: readonly string[] = INDEXABLE_ROUTES,
   lastmod: string = sitemapLastmod()
 ): string {
   const urls = routes

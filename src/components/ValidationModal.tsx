@@ -10,6 +10,7 @@ import {
 import { StlExporter } from '../services/stlExporter';
 import { isIosDevice, saveBlob, type SaveOutcome } from '../services/saveFile';
 import { trackEmailExport, trackExportFailed, trackFileDownload } from '../services/analytics';
+import { TipRow } from './TipRow';
 import {
   emailTooLargeMessage,
   formatByteSize,
@@ -36,6 +37,7 @@ interface ValidationModalProps {
   imageName: string;
   photoCount: number;
   emailExportEnabled?: boolean;
+  tipsEnabled?: boolean;
   printOrderingEnabled?: boolean;
   orderReady?: boolean;
   onOrderPrint?: () => void;
@@ -79,6 +81,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   imageName,
   photoCount,
   emailExportEnabled = false,
+  tipsEnabled = false,
   printOrderingEnabled = false,
   orderReady = false,
   onOrderPrint,
@@ -106,7 +109,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   const exportAbortRef = useRef<AbortController | null>(null);
   const busyTitleRef = useRef<HTMLHeadingElement>(null);
   const tryAgainRef = useRef<HTMLButtonElement>(null);
-  const successRef = useRef<HTMLDivElement>(null);
+  const successRef = useRef<HTMLElement | null>(null);
   const downloadBtnRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -157,9 +160,11 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   useEffect(() => {
     if (!savedFile) return;
     successRef.current?.focus();
+    // With tips, keep the success sheet open until Done. Otherwise hide the banner.
+    if (tipsEnabled) return;
     const hide = window.setTimeout(() => setSavedFile(null), 6000);
     return () => window.clearTimeout(hide);
-  }, [savedFile]);
+  }, [savedFile, tipsEnabled]);
 
   useEffect(() => {
     if (!specsPinned) return;
@@ -415,13 +420,23 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   const path: 'download' | 'email' = showEmail && delivery === 'email' ? 'email' : 'download';
   const busy = isExporting || isEmailing;
   const showSlow = isExporting && slowExport && !isEmailing;
-  const showOverlay = busy || Boolean(exportFailure);
-  const busyTitle = isEmailing ? 'Sending your file' : showSlow ? 'Still working…' : 'Preparing your file';
-  const busyDetail = isEmailing
-    ? `Attaching the ${exportFileLabel(emailedFormat, bambuPrinterId)} for ${emailAddress.trim()}.`
-    : showSlow
-      ? 'Big models can take a minute on phones. You can keep waiting or grab the STL instead.'
-      : `Building the ${exportFileLabel(exportFormat, bambuPrinterId)}.`;
+  const tipAfterDownload = Boolean(savedFile && tipsEnabled && !busy && !exportFailure);
+  const showOverlay = busy || Boolean(exportFailure) || tipAfterDownload;
+  const busyTitle = tipAfterDownload
+    ? 'Downloaded'
+    : isEmailing
+      ? 'Sending your file'
+      : showSlow
+        ? 'Still working…'
+        : 'Preparing your file';
+  const busyDetail =
+    tipAfterDownload && savedFile
+      ? `${savedFile.filename} · ${formatByteSize(savedFile.bytes)}`
+      : isEmailing
+        ? `Attaching the ${exportFileLabel(emailedFormat, bambuPrinterId)} for ${emailAddress.trim()}.`
+        : showSlow
+          ? 'Big models can take a minute on phones. You can keep waiting or grab the STL instead.'
+          : `Building the ${exportFileLabel(exportFormat, bambuPrinterId)}.`;
   const statusLabel = !validationResult.isValid
     ? 'Check'
     : validationResult.warnings.length > 0
@@ -657,8 +672,15 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
               {emailNotice}
             </div>
           )}
-          {savedFile && (
-            <div ref={successRef} className="export-saved" role="status" tabIndex={-1}>
+          {savedFile && !tipsEnabled && (
+            <div
+              ref={(node) => {
+                successRef.current = node;
+              }}
+              className="export-saved"
+              role="status"
+              tabIndex={-1}
+            >
               <Check className="export-saved-icon" aria-hidden="true" />
               <p>Saved {savedFile.filename} ({formatByteSize(savedFile.bytes)})</p>
               <button type="button" className="export-text-link" onClick={() => onOpenPrintGuide?.()}>
@@ -716,13 +738,24 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
         </div>
 
         {showOverlay && (
-          <div className="export-busy" role="status" aria-live="polite">
-            <div className="export-busy-bar" aria-hidden="true">
-              <span />
-            </div>
+          <div
+            className={`export-busy${tipAfterDownload ? ' export-busy-done' : ''}`}
+            role="status"
+            aria-live="polite"
+          >
+            {!tipAfterDownload && (
+              <div className="export-busy-bar" aria-hidden="true">
+                <span />
+              </div>
+            )}
             <button
               type="button"
               onClick={() => {
+                if (tipAfterDownload) {
+                  setSavedFile(null);
+                  window.requestAnimationFrame(() => downloadBtnRef.current?.focus());
+                  return;
+                }
                 if (exportFailure && !busy) {
                   setExportFailure(null);
                   window.requestAnimationFrame(() => downloadBtnRef.current?.focus());
@@ -759,6 +792,43 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
                       Download STL instead
                     </button>
                   )}
+                </div>
+              </>
+            ) : tipAfterDownload ? (
+              <>
+                <div className="export-busy-mark export-busy-mark-ok" aria-hidden="true">
+                  <Check className="export-busy-check" />
+                </div>
+                <p className="export-busy-kicker">Export</p>
+                <h2
+                  id="export-busy-title"
+                  ref={(node) => {
+                    busyTitleRef.current = node;
+                    successRef.current = node;
+                  }}
+                  className="export-busy-title"
+                  tabIndex={-1}
+                >
+                  {busyTitle}
+                </h2>
+                <p className="export-busy-detail">{busyDetail}</p>
+                <TipRow />
+                <div className="export-busy-actions">
+                  {onOpenPrintGuide && (
+                    <button type="button" className="btn-secondary" onClick={() => onOpenPrintGuide()}>
+                      How to print it
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => {
+                      setSavedFile(null);
+                      window.requestAnimationFrame(() => downloadBtnRef.current?.focus());
+                    }}
+                  >
+                    Done
+                  </button>
                 </div>
               </>
             ) : (

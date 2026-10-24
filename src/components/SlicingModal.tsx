@@ -93,7 +93,10 @@ export const SlicingModal: React.FC<SlicingModalProps> = ({ onClose }) => {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end px-5 py-3 border-t border-white/10 bg-[#10141d]">
+        <div className="flex items-center justify-between gap-3 px-5 py-3 border-t border-white/10 bg-[#10141d]">
+          <a href="/lithophane-settings/" className="text-xs font-semibold text-amber-300 hover:text-white">
+            Lithophane settings
+          </a>
           <button
             type="button"
             onClick={onClose}
