@@ -21,18 +21,26 @@ export const LANDING_PAGE_ROUTES = [
   '/lithophane-settings/',
 ] as const;
 
-export const INDEXABLE_ROUTES = ['/', ...LANDING_PAGE_ROUTES] as const;
+/** Legal / static HTML under public/ (not guide landing pages). */
+export const LEGAL_PAGE_ROUTES = ['/privacy/'] as const;
 
-/** 301 target for a non-canonical landing URL, or null when the path is already fine. */
+export const INDEXABLE_ROUTES = ['/', ...LANDING_PAGE_ROUTES, ...LEGAL_PAGE_ROUTES] as const;
+
+const CANONICAL_CONTENT_ROUTES = [
+  ...LANDING_PAGE_ROUTES,
+  ...LEGAL_PAGE_ROUTES,
+] as const;
+
+/** 301 target for a non-canonical content URL, or null when the path is already fine. */
 export function landingRedirectTarget(pathname: string): string | null {
   const path = pathname.split('?')[0] || '/';
-  if ((LANDING_PAGE_ROUTES as readonly string[]).includes(path)) return null;
+  if ((CANONICAL_CONTENT_ROUTES as readonly string[]).includes(path)) return null;
   if (path.endsWith('/index.html')) {
     const cleaned = path.slice(0, -'index.html'.length);
-    if ((LANDING_PAGE_ROUTES as readonly string[]).includes(cleaned)) return cleaned;
+    if ((CANONICAL_CONTENT_ROUTES as readonly string[]).includes(cleaned)) return cleaned;
   }
   const withSlash = path.endsWith('/') ? path : `${path}/`;
-  if (withSlash !== path && (LANDING_PAGE_ROUTES as readonly string[]).includes(withSlash)) {
+  if (withSlash !== path && (CANONICAL_CONTENT_ROUTES as readonly string[]).includes(withSlash)) {
     return withSlash;
   }
   return null;

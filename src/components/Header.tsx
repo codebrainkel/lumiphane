@@ -97,6 +97,12 @@ export const Header: React.FC<HeaderProps> = ({ currentStep, onStepChange, shape
         >
           Guide
         </a>
+        <a
+          href="/privacy/"
+          className="inline-flex min-h-11 items-center px-2 text-xs font-semibold text-slate-400 hover:text-white"
+        >
+          Privacy
+        </a>
         <div className="text-xs font-medium text-slate-400">{stepLabel}</div>
       </div>
     </header>

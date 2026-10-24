@@ -57,6 +57,8 @@ for (const page of LANDING_PAGES) {
   const h1Count = html.match(/<h1>/g)?.length ?? 0;
   check(h1Count === 1, `${page.path} h1 count ${h1Count}`);
   check(html.includes(`<link rel="canonical" href="${SITE_ORIGIN}${page.path}">`), `${page.path} canonical`);
+  check(html.includes(`property="og:image" content="${SITE_ORIGIN}/og-image.png"`), `${page.path} og:image`);
+  check(html.includes(`name="twitter:image" content="${SITE_ORIGIN}/og-image.png"`), `${page.path} twitter:image`);
   check(html.includes('content="index, follow"'), `${page.path} indexable`);
   check(!html.includes('noindex'), `${page.path} noindex`);
   check(!html.includes('FAQPage'), `${page.path} unexpected FAQ schema`);
@@ -69,6 +71,7 @@ for (const page of LANDING_PAGES) {
     check(html.includes(`href="${other.path}"`), `${page.path} missing link to ${other.path}`);
   }
   check(html.includes('href="/"'), `${page.path} missing generator link`);
+  check(html.includes('href="/privacy/"'), `${page.path} missing privacy link`);
   check(html.includes('data-cta="hero"'), `${page.path} hero cta`);
   check(html.includes('data-cta="end"'), `${page.path} end cta`);
   check(html.includes('generator_cta_click'), `${page.path} analytics`);

@@ -252,6 +252,15 @@ p {
   text-underline-offset: 3px;
 }
 
+.prose ul {
+  margin: 0 0 1rem;
+  padding-left: 1.25rem;
+}
+
+.prose li {
+  margin: 0.35rem 0;
+}
+
 .steps,
 .checklist {
   margin: 0;

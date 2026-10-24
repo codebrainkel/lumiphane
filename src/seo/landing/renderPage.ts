@@ -101,6 +101,7 @@ function structuredData(page: LandingPage, url: string, modified: string): strin
         '@type': 'Article',
         headline: page.h1,
         description: page.description,
+        image: `${SITE_ORIGIN}/og-image.png`,
         mainEntityOfPage: url,
         inLanguage: 'en',
         dateModified: modified,
@@ -163,9 +164,16 @@ export function renderLandingPage(page: LandingPage, pages: readonly LandingPage
   <meta property="og:type" content="article">
   <meta property="og:url" content="${escapeHtml(url)}">
   <meta property="og:site_name" content="Lumiphane 3D">
-  <meta name="twitter:card" content="summary">
+  <meta property="og:image" content="${SITE_ORIGIN}/og-image.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1468">
+  <meta property="og:image:height" content="897">
+  <meta property="og:image:alt" content="Lumiphane — Turn your memories into light">
+  <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${escapeHtml(page.title)}">
   <meta name="twitter:description" content="${escapeHtml(page.description)}">
+  <meta name="twitter:image" content="${SITE_ORIGIN}/og-image.png">
+  <meta name="twitter:image:alt" content="Lumiphane — Turn your memories into light">
   <link rel="icon" href="/favicon.ico" sizes="32x32">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -215,7 +223,7 @@ export function renderLandingPage(page: LandingPage, pages: readonly LandingPage
   </main>
   <footer class="site-footer">
     <div class="wrap">
-      <nav aria-label="Footer">${footerLinks}</nav>
+      <nav aria-label="Footer">${footerLinks}<a href="/privacy/">Privacy</a></nav>
       <p>Lumiphane builds the 3D model in your browser. Your slicer and printer make the physical part.</p>
     </div>
   </footer>
