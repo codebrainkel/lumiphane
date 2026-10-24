@@ -1,3 +1,4 @@
 User-agent: *
 Disallow: /api/
 Sitemap: https://lumiphane.com/sitemap.xml
+# LLM-oriented site summary: https://lumiphane.com/llms.txt

@@ -159,6 +159,7 @@ export function renderLandingPage(page: LandingPage, pages: readonly LandingPage
   <meta name="description" content="${escapeHtml(page.description)}">
   <meta name="robots" content="index, follow">
   <link rel="canonical" href="${escapeHtml(url)}">
+  <link rel="describedby" href="${SITE_ORIGIN}/llms.txt">
   <meta property="og:title" content="${escapeHtml(page.title)}">
   <meta property="og:description" content="${escapeHtml(page.description)}">
   <meta property="og:type" content="article">
