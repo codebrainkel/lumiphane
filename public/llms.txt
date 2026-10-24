@@ -1,8 +1,8 @@
 # Lumiphane 3D
 
-> Browser-based lithophane generator for FDM 3D printing. Upload a photo, preview it with a simulated backlight, then export a print-ready STL, standard 3MF, or Bambu Studio project. Photos stay on your device — Lumiphane does not store them on a server. No account required.
+> Browser-based lithophane generator for FDM 3D printing. Upload a photo, preview it with a simulated backlight, then export an STL, standard 3MF, or Bambu Studio project. Photos stay on your device — Lumiphane does not store them on a server. No account required.
 
-Lumiphane (https://lumiphane.com/) turns JPEG, PNG, or WebP photos into 3D lithophanes: thin white-PLA walls that look pale in room light and show the picture when lit from behind. Geometry is built in the browser with an interactive WebGL preview and optical backlight simulation tuned for white PLA.
+Lumiphane (https://lumiphane.com/) turns JPEG, PNG, or WebP photos into 3D lithophanes: thin white-PLA walls that look pale in room light and show the picture when lit from behind. Geometry is built in the browser with an interactive WebGL preview and a backlight simulation tuned for white PLA.
 
 Shapes: flat panel, curved panel, round cylinder, hollow cube, and hexagon. Each shape holds 1–4 photos (hexagon up to 6). Optional border motifs (heart, star, bone) and bed footing. Thickness follows part size (about 0.8–3.0 mm for panels ≤120 mm); contrast, brightness, and invert control the image.
 

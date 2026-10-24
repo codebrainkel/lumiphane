@@ -6,7 +6,7 @@ export const settingsPage: LandingPage = {
   kicker: 'Settings guide',
   title: 'Lithophane Settings for Model and Slicer | Lumiphane',
   description:
-    'Thickness, contrast, border, and size are set in Lumiphane. Layer height, infill, and speed are set in your slicer. What each one changes.',
+    'Thickness, contrast, border, and size are set in Lumiphane. Layer height, infill, and speed are set in your slicer. What each control changes.',
   breadcrumb: 'Lithophane settings',
   h1: 'Lithophane settings that change the picture',
   lede:
@@ -44,7 +44,7 @@ export const settingsPage: LandingPage = {
           paragraphs: [
             'White PLA transmits less light as the wall gets thicker, and the drop is steep rather than linear. Lumiphane uses that curve, with a transmission constant chosen for white PLA, so a dark pixel lands on the thick wall and a bright pixel lands on the thin wall. The preview uses the same mapping. Another brand of “white” can still differ. Silk, gray, PETG, and resin are outside what this curve describes.',
             'There is no min/max slider. Up to 120 mm on the longest side, the range is 0.8 mm in the highlights and 3.0 mm in the shadows. Above that, the thin wall can gain at most 0.2 mm and the thick wall at most 0.4 mm, so a big part stays a bit stronger without turning the highlights opaque. The border is modeled 0.4 mm thicker than the darkest tone so the frame stays darker than the picture.',
-            'Those are the values this app uses for white PLA. They are not a universal specification. A different filament, a different LED, or a nozzle that cannot reliably extrude a 0.8 mm wall is a reason to test, not a reason to expect the same numbers from every guide on the internet. American Filament, for example, publishes ranges that shift with pigment and with the color of the backlight. Treat any single table, including this one, as a starting point for the material it names.',
+            'Those values are for white PLA in this app, not a universal spec. A different filament, a different LED, or a nozzle that cannot reliably extrude a 0.8 mm wall means you should run a test. American Filament, for example, publishes ranges that shift with pigment and backlight color. Treat any single table — including this one — as a starting point for the material it names.',
           ],
         },
       ],
@@ -57,8 +57,8 @@ export const settingsPage: LandingPage = {
         {
           paragraphs: [
             'Contrast runs from −30% to +35%. Raising it pushes bright pixels toward the thin wall and dark pixels toward the thick wall. Brightness runs from −30% to +30% and shifts the whole picture. Invert swaps the relationship, so a light subject can be made from thicker plastic if that is what you want.',
-            'Before those sliders, the generator stretches the photo’s tonal range and applies a small amount of edge emphasis. You do not switch those off in the interface. There is also no gamma slider and no smoothing slider. If the lit preview is wrong, crop the photo or move contrast and brightness. Photo choices are in [photo to lithophane](/photo-to-lithophane/).',
-            'The relief is sampled at about 0.10 mm, finer than the 0.12 mm layer the print guide recommends, until a very large panel has to ease that spacing to keep the mesh within a sample budget. You do not pick a quality tier in the current screen. The nozzle still decides what of that mesh you can see.',
+            'Before those sliders, the generator stretches the photo’s tonal range and applies a small amount of edge emphasis. You cannot switch those off in the interface. There is also no gamma slider and no smoothing slider. If the lit preview is wrong, crop the photo or move contrast and brightness. Photo choices are in [photo to lithophane](/photo-to-lithophane/).',
+            'The relief is sampled at about 0.10 mm — finer than the 0.12 mm layer the print guide recommends — until a very large panel has to ease that spacing to keep the mesh within a sample budget. You do not pick a quality tier on the current screen. The nozzle still decides what of that mesh you can see.',
           ],
         },
       ],
@@ -82,7 +82,7 @@ export const settingsPage: LandingPage = {
       id: 'slicer',
       heading: 'Settings that belong in the slicer',
       intro:
-        'The print guide inside the generator recommends the first column for white PLA. The Bambu Studio project already stores 0.12 mm layers and 100% infill — walkthrough in [Bambu Studio lithophane](/bambu-studio-lithophane/). Speed, temperature, and retraction are still your filament’s problem. The printing sequence is in [3D printed lithophane](/3d-printed-lithophane/).',
+        'The print guide inside the generator recommends the first column for white PLA. The Bambu Studio project already stores 0.12 mm layers and 100% infill — walkthrough in [Bambu Studio lithophane](/bambu-studio-lithophane/). Speed, temperature, and retraction are still your filament’s problem. The printing sequence is in [3D printed lithophane](/3d-printed-lithophane/). For the full beginner path, see [how to make a lithophane](/how-to-make-a-lithophane/).',
       caption: 'Change these in the slicer after you export. Lumiphane does not send them to the printer.',
       columns: ['Setting', 'App print guide', 'Depends on'],
       rows: [

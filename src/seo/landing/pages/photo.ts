@@ -6,12 +6,12 @@ export const photoPage: LandingPage = {
   kicker: 'Photo guide',
   title: 'Photo to Lithophane, Step by Step | Lumiphane',
   description:
-    'Turn a JPEG, PNG, or WebP into a lithophane. How to crop, place, and set contrast before Lumiphane exports an STL or 3MF.',
+    'Turn a JPEG, PNG, or WebP into a lithophane. How to crop, place, and set contrast in Lumiphane before you export STL or 3MF for printing.',
   breadcrumb: 'Photo to lithophane',
   h1: 'Turn a photo into a lithophane',
   lede:
-    'The converter reads brightness, not the color name of a pixel. A clear subject and an honest crop matter more than a giant camera file. This page is the photo workflow inside Lumiphane.',
-  heroNote: 'Add a photo after you pick a shape. No Lumiphane account is required.',
+    'The converter reads brightness, not the color name of a pixel. A clear subject and a tight crop matter more than a huge camera file. This page covers the photo workflow inside Lumiphane.',
+  heroNote: 'Add a photo after you pick a shape. No Lumiphane account needed.',
   sections: [
     {
       kind: 'prose',
@@ -20,8 +20,8 @@ export const photoPage: LandingPage = {
       blocks: [
         {
           paragraphs: [
-            'Lumiphane turns the photo into a grid of brightness values, stretches that range so the lightest and darkest useful tones reach the thin and thick walls, and adds a little edge emphasis. Brightness then sets thickness. The science of that thickness is in [how to make a lithophane](/how-to-make-a-lithophane/).',
-            'You do not get a color lithophane, a text tool, or a background-removal brush. JPEG, PNG, and WebP are the formats the uploader asks for. A file that is not an image is skipped.',
+            'Lumiphane turns the photo into a grid of brightness values, stretches that range so the lightest and darkest useful tones reach the thin and thick walls, and adds a little edge emphasis. Brightness then sets thickness. How that thickness works is explained in [how to make a lithophane](/how-to-make-a-lithophane/).',
+            'You do not get a color lithophane, a text tool, or a background-removal brush. The uploader accepts JPEG, PNG, and WebP. Anything that is not an image is skipped.',
             'The mesh is built in the browser. Creating the model does not upload the photo to Lumiphane.',
           ],
         },
@@ -30,9 +30,9 @@ export const photoPage: LandingPage = {
     {
       kind: 'cards',
       id: 'choose',
-      heading: 'Photos that survive a nozzle',
+      heading: 'Photos that work at nozzle scale',
       intro:
-        'A 0.4 mm nozzle cannot draw every eyelash. Pick the picture as if you were carving it, not posting it.',
+        'A 0.4 mm nozzle cannot draw every eyelash. Pick a picture with a clear subject and real contrast — the kind that would still read if it were carved.',
       cards: [
         {
           title: 'One subject, evenly lit',
@@ -133,6 +133,6 @@ export const photoPage: LandingPage = {
   ],
   closing: {
     heading: 'Use the photo you would crop tight',
-    body: 'Open the generator, choose the shape, and add the picture. Check the lit preview before you spend the print.',
+    body: 'Open the generator, choose the shape, and add the picture. Check the lit preview before you spend plastic on the print.',
   },
 };

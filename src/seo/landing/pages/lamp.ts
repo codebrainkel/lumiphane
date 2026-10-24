@@ -6,11 +6,11 @@ export const lampPage: LandingPage = {
   kicker: 'Lamp guide',
   title: 'Lithophane Lamp from Your Photos | Lumiphane',
   description:
-    'Make an open cylinder, hexagon, cube, or curved lithophane shade. Export STL or 3MF and light it with a cool LED. No socket is included.',
+    'Make an open cylinder, hexagon, cube, or curved lithophane shade from your photos. Export STL or 3MF and light it with a cool LED — no socket included.',
   breadcrumb: 'Lithophane lamp',
   h1: 'Make a lithophane lamp from your photos',
   lede:
-    'A lithophane lamp is a shade: the picture appears when light inside the part shines through the wall. Lumiphane builds that shade. It does not build a socket, a cord, or a closed base for a bulb.',
+    'A lithophane lamp is a shade: the picture appears when light inside the part shines through the wall. Lumiphane builds that shade. It does not include a socket, a cord, or a closed base for a bulb.',
   heroNote: 'Choose Round Cylinder, Hexagon, Hollow Cube, or Curved Panel in the generator.',
   sections: [
     {
@@ -42,8 +42,8 @@ export const lampPage: LandingPage = {
         {
           paragraphs: [
             'Cylinder, hexagon, and cube geometry is a vertical tube. The top and bottom stay open so you can lower the shade over a light you already own. The optional base in the app is a wider footing under the photo so a tall print stays stuck to the printer bed. It is not a recess for a tea light and it is not a bulb holder.',
-            'Measure the light. Leave a gap so nothing warm touches the plastic. PLA softens far below the temperature of an incandescent bulb — filament makers commonly put that change around 60°C — so use a cool LED. Do not put a candle inside.',
-            'A curved panel cannot become a 360° shade. The angle slider ends at 120°. For a photo that goes all the way around, use the round cylinder. One photo on a cylinder is centered on the front, with the seam at the back.',
+            'Measure the light. Leave a gap so nothing warm touches the plastic. PLA softens well below the temperature of an incandescent bulb — filament makers often put that change around 60°C — so use a cool LED. Do not put a candle inside.',
+            'A curved panel cannot become a full circle. The angle slider ends at 120°. For a photo that goes all the way around, use the round cylinder. One photo on a cylinder is centered on the front, with the seam at the back.',
           ],
         },
       ],
@@ -56,7 +56,7 @@ export const lampPage: LandingPage = {
         {
           paragraphs: [
             'Several photos split the circumference. Four photos on a cylinder each get a quarter turn. Six on a hexagon follow the six walls. A single photo wraps the whole shape, and the crop locks to that wrap so faces are not stretched. On a single lamp photo you can match the height to the picture when you want less of it trimmed.',
-            'Wide scenes and individual portraits both work. A group of ten people in one wrap gets small in a hurry. Crop each person, or follow the [photo guide](/photo-to-lithophane/) and use one strong frame.',
+            'Wide scenes and individual portraits both work. A group of ten people in one wrap gets small fast. Crop each person, or follow the [photo guide](/photo-to-lithophane/) and use one strong frame.',
             'Flat panels are the wrong tool for a shade. They are pictures for a window or a lightbox. The full beginner path, including flat panels, is in [how to make a lithophane](/how-to-make-a-lithophane/).',
           ],
         },
@@ -69,7 +69,7 @@ export const lampPage: LandingPage = {
       blocks: [
         {
           paragraphs: [
-            'These shapes are modeled standing, with the opening vertical. Leave them upright in the slicer. A brim, which the in-app print guide suggests around 5–8 mm, is there because a tall thin wall is easy to knock loose, not because the picture needs supports. The curved wall and the flat faces of a cube or hexagon support themselves as they grow.',
+            'These shapes are modeled standing, with the opening vertical. Leave them upright in the slicer. A brim — the in-app print guide suggests around 5–8 mm — helps because a tall thin wall is easy to knock loose, not because the picture needs supports. The curved wall and the flat faces of a cube or hexagon support themselves as they grow.',
             'Print the picture in white PLA, solid through the image. A Bambu Studio project from the export sheet already carries 0.12 mm layers and 100% infill for the single-nozzle Bambu Lab machines in that sheet. You still slice and print it in Bambu Studio — see [Bambu Studio lithophane](/bambu-studio-lithophane/). STL and standard 3MF leave those choices to whatever slicer you open. Details are in the [printing guide](/3d-printed-lithophane/) and the [settings guide](/lithophane-settings/).',
           ],
         },

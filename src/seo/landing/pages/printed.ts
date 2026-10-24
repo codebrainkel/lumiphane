@@ -6,7 +6,7 @@ export const printedPage: LandingPage = {
   kicker: 'Printing guide',
   title: '3D Printed Lithophane: File to Finished Print | Lumiphane',
   description:
-    'Export a standing lithophane as STL, 3MF, or a Bambu Studio project, then slice it yourself. Material, orientation, and what Lumiphane does not control.',
+    'Export a standing lithophane as STL, 3MF, or a Bambu Studio project, then slice it yourself. Orientation, white PLA, and what Lumiphane does not control.',
   breadcrumb: '3D printed lithophane',
   h1: '3D print a lithophane from a photo',
   lede:
@@ -20,8 +20,8 @@ export const printedPage: LandingPage = {
       blocks: [
         {
           paragraphs: [
-            'Nothing in Lumiphane connects to a printer, heats a nozzle, or watches the job. When the preview looks right, you download a mesh and leave the site. Choosing the photo and the shape is covered in [how to make a lithophane](/how-to-make-a-lithophane/) and [photo to lithophane](/photo-to-lithophane/).',
-            'The app is built for FDM printing and for the way white PLA passes light. An SLA printer can open an STL, and Formlabs has shown very fine lithophanes in white resin, but this thickness curve will not match resin. Expect the preview to describe a white-PLA FDM print.',
+            'Lumiphane does not talk to your printer. When the preview looks right, you download a mesh and leave the site. Choosing the photo and the shape is covered in [how to make a lithophane](/how-to-make-a-lithophane/) and [photo to lithophane](/photo-to-lithophane/).',
+            'The app is built for FDM printing with white PLA. An SLA printer can open an STL — Formlabs has shown fine lithophanes in white resin — but this thickness curve will not match resin. Treat the preview as a white-PLA FDM print.',
           ],
         },
       ],
@@ -45,8 +45,8 @@ export const printedPage: LandingPage = {
       blocks: [
         {
           paragraphs: [
-            'Lumiphane builds the part standing, with the picture rising off the bed. Keep that orientation. Each layer is then a thin horizontal slice through the tones. Laying the sheet flat makes the nozzle width the detail limit and paints layer lines across the face.',
-            'A flat sheet, a curve, a cylinder, a cube, and a hexagon are all generated this way. Upright walls generally do not need supports. They do need help staying stuck to the bed. The print guide in the app suggests a brim about 5–8 mm wide. That brim is bed adhesion. It is not there to hold up the picture.',
+            'Lumiphane builds the part standing, with the picture rising off the bed. Keep that orientation. Each layer becomes a thin horizontal slice through the tones. Lay the sheet flat and the nozzle width becomes your detail limit, with layer lines painted across the face.',
+            'Flat sheets, curves, cylinders, cubes, and hexagons are all generated upright. Those walls usually do not need supports, but they do need help staying on the bed. The print guide in the app suggests a brim about 5–8 mm wide — for adhesion, not to hold up the picture.',
             'Shade-specific notes, including the open top and bottom, are on the [lamp page](/lithophane-lamp/).',
           ],
         },

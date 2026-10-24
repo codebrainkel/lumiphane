@@ -6,11 +6,11 @@ export const bambuPage: LandingPage = {
   kicker: 'Bambu guide',
   title: 'Lithophane for Bambu Studio: Export to Print | Lumiphane',
   description:
-    'Export a Bambu Studio project from Lumiphane with 0.12 mm layers and 100% infill for listed single-nozzle machines. Open it in Studio, slice, and print in white PLA.',
+    'Export a Bambu Studio project from Lumiphane with 0.12 mm layers and 100% infill for listed single-nozzle machines. Open it in Studio, slice, and print.',
   breadcrumb: 'Bambu Studio lithophane',
   h1: 'Print a lithophane from a Bambu Studio project',
   lede:
-    'Lumiphane can hand you a Bambu Studio project: the standing mesh plus a saved 0.12 mm, 100% infill process for the single-nozzle Bambu Lab machine you pick. You still open the file in Studio, slice it, and send the job yourself.',
+    'Lumiphane can give you a Bambu Studio project: the standing mesh plus a saved 0.12 mm, 100% infill process for the single-nozzle Bambu Lab machine you pick. You still open the file in Studio, slice it, and send the job yourself.',
   heroNote: 'Pick Bambu Studio project in the export sheet, then choose your printer from the list.',
   sections: [
     {
@@ -21,7 +21,7 @@ export const bambuPage: LandingPage = {
         {
           paragraphs: [
             'A Bambu Studio project from Lumiphane is a 3MF archive Studio recognizes as its own. Inside is the lithophane mesh, already standing on the bed, and a process profile saved for that machine: 0.12 mm layers and 100% infill through the picture, plus a brim for adhesion. Filament temperature and many speed limits still follow the filament profile Studio loads for white PLA on that printer.',
-            'It is not a print queue. Lumiphane does not talk to your printer, queue a plate, or watch the job. After the download, the next screen is Bambu Studio on your computer. The general export and slicer path for any machine is in the [3D printed lithophane](/3d-printed-lithophane/) guide.',
+            'It is not a print queue. Lumiphane does not talk to your printer, queue a plate, or watch the job. After the download, the next step is Bambu Studio on your computer. The general export and slicer path for any machine is in the [3D printed lithophane](/3d-printed-lithophane/) guide.',
           ],
         },
       ],
@@ -51,11 +51,11 @@ export const bambuPage: LandingPage = {
       kind: 'steps',
       id: 'steps',
       heading: 'From photo to Bambu print',
-      intro: 'Stay in this order. A bad photo still prints as a bad lithophane, even with a perfect Studio profile.',
+      intro: 'Follow this order. A bad photo still prints as a bad lithophane, even with a solid Studio profile.',
       steps: [
         {
           title: 'Build the model in the browser',
-          body: 'Choose a shape, add JPEG, PNG, or WebP photos, and read the backlit preview. Contrast, brightness, and crop matter more than anything in the slicer. The beginner path is in [how to make a lithophane](/how-to-make-a-lithophane/). Photo choices are in [photo to lithophane](/photo-to-lithophane/).',
+          body: 'Choose a shape, add JPEG, PNG, or WebP photos, and check the backlit preview. Contrast, brightness, and crop matter more than anything in the slicer. The beginner path is in [how to make a lithophane](/how-to-make-a-lithophane/). Photo choices are in [photo to lithophane](/photo-to-lithophane/).',
         },
         {
           title: 'Open Export and pick Bambu Studio project',
@@ -63,15 +63,15 @@ export const bambuPage: LandingPage = {
         },
         {
           title: 'Download the project file',
-          body: 'The filename names the printer you selected. Keep the .3mf extension. Do not unzip it by hand unless you are debugging; Studio opens the archive as a project.',
+          body: 'The filename names the printer you selected. Keep the .3mf extension. Do not unzip it by hand unless you are debugging — Studio opens the archive as a project.',
         },
         {
           title: 'Open it in Bambu Studio',
-          body: 'File → Open, or drop the file onto Studio. Confirm the printer matches the one you picked, that the part is still standing upright, and that the process shows 0.12 mm layers with solid infill in the picture. Change filament to a plain white PLA profile for that machine if Studio did not already load one.',
+          body: 'File → Open, or drop the file onto Studio. Confirm the printer matches the one you picked, that the part is still standing upright, and that the process shows 0.12 mm layers with solid infill in the picture. Switch to a plain white PLA profile for that machine if Studio did not already load one.',
         },
         {
           title: 'Slice, then send the job',
-          body: 'Slice in Studio and review the preview. You should see a solid wall through the image and a brim around the foot. Send the plate the same way you send any other Studio job. Lumiphane is out of the loop after the download.',
+          body: 'Slice in Studio and review the preview. You should see a solid wall through the image and a brim around the foot. Send the plate the same way you send any other Studio job. Lumiphane is done after the download.',
         },
         {
           title: 'Light the finished print from behind',
@@ -100,7 +100,7 @@ export const bambuPage: LandingPage = {
       blocks: [
         {
           paragraphs: [
-            'Use a standard 3MF or an STL when your printer is not in the export list, when you want OrcaSlicer or another fork, or when you already keep a lithophane process you trust and only need the mesh. Those formats carry the model only. You set layer height and infill yourself. The [settings guide](/lithophane-settings/) separates what Lumiphane controls from what belongs in the slicer.',
+            'Use a standard 3MF or an STL when your printer is not in the export list, when you want OrcaSlicer or another fork, or when you already keep a lithophane process you trust and only need the mesh. Those formats carry the model only — you set layer height and infill yourself. The [settings guide](/lithophane-settings/) separates what Lumiphane controls from what belongs in the slicer.',
             'Multi-material tricks and dual-nozzle machines are outside this project. A lithophane is one material: white PLA. Color in the photo becomes thickness, not a second filament.',
           ],
         },
@@ -118,13 +118,13 @@ export const bambuPage: LandingPage = {
           ],
         },
         {
-          heading: 'Switching to sparse infill to “save plastic”',
+          heading: 'Switching to sparse infill to save plastic',
           paragraphs: [
             'Any gap in the picture lights up as a pattern. Keep 100% through the image, or enough walls that Studio never leaves a hole there.',
           ],
         },
         {
-          heading: 'Printing silk, gray, or “marble” PLA',
+          heading: 'Printing silk, gray, or marble PLA',
           paragraphs: [
             'The file will slice. The tones will not match the preview. Sparkle and dark pigment scatter light in ways this thickness curve does not describe.',
           ],
@@ -140,7 +140,7 @@ export const bambuPage: LandingPage = {
     {
       kind: 'note',
       paragraphs: [
-        'The embedded profile is a starting point saved for those machines. Read it in Studio before you print. Filament brand, nozzle wear, and a fast machine’s useful speed are still your responsibility.',
+        'The embedded profile is a starting point saved for those machines. Read it in Studio before you print. Filament brand, nozzle wear, and a fast machine’s useful speed are still on you.',
       ],
     },
   ],
