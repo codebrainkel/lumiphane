@@ -79,7 +79,7 @@ export const photoPage: LandingPage = {
         },
         {
           title: 'Export STL or 3MF',
-          body: 'The export sheet builds a Bambu Studio project, a standard 3MF, or an STL. What you do with that file in a slicer is covered in [3D printed lithophane](/3d-printed-lithophane/).',
+          body: 'The export sheet builds a Bambu Studio project, a standard 3MF, or an STL. What you do with that file in a slicer is covered in [3D printed lithophane](/3d-printed-lithophane/). Opening the Bambu project in Studio is in [Bambu Studio lithophane](/bambu-studio-lithophane/).',
         },
       ],
     },

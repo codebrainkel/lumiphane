@@ -82,7 +82,7 @@ export const settingsPage: LandingPage = {
       id: 'slicer',
       heading: 'Settings that belong in the slicer',
       intro:
-        'The print guide inside the generator recommends the first column for white PLA. The Bambu Studio project already stores 0.12 mm layers and 100% infill. Speed, temperature, and retraction are still your filament’s problem. The printing sequence is in [3D printed lithophane](/3d-printed-lithophane/).',
+        'The print guide inside the generator recommends the first column for white PLA. The Bambu Studio project already stores 0.12 mm layers and 100% infill — walkthrough in [Bambu Studio lithophane](/bambu-studio-lithophane/). Speed, temperature, and retraction are still your filament’s problem. The printing sequence is in [3D printed lithophane](/3d-printed-lithophane/).',
       caption: 'Change these in the slicer after you export. Lumiphane does not send them to the printer.',
       columns: ['Setting', 'App print guide', 'Depends on'],
       rows: [

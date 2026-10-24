@@ -33,7 +33,7 @@ export const printedPage: LandingPage = {
       caption: 'All three are built in the export sheet. Pick the one your slicer actually opens.',
       columns: ['File', 'Open it in', 'What comes along'],
       rows: [
-        ['Bambu Studio project', 'Bambu Studio, for a single-nozzle machine listed in the sheet', 'The mesh plus a saved Studio profile: 0.12 mm layers and 100% infill. You still slice and send the job yourself.'],
+        ['Bambu Studio project', 'Bambu Studio, for a single-nozzle machine listed in the sheet', 'The mesh plus a saved Studio profile: 0.12 mm layers and 100% infill. You still slice and send the job yourself. Full walkthrough: [Bambu Studio lithophane](/bambu-studio-lithophane/).'],
         ['Standard 3MF', 'A slicer that imports 3MF meshes', 'The model. Process settings stay yours.'],
         ['STL', 'Almost any FDM slicer, including PrusaSlicer, Cura, OrcaSlicer, and Bambu Studio', 'The model only. Units are millimeters.'],
       ],
@@ -102,7 +102,7 @@ export const printedPage: LandingPage = {
     {
       kind: 'note',
       paragraphs: [
-        'The Bambu project embeds a Studio profile saved for those machines, including 0.12 mm layers and 100% infill. It does not lock every speed and temperature against your filament. Open the project and read the profile before you print.',
+        'The Bambu project embeds a Studio profile saved for those machines, including 0.12 mm layers and 100% infill. It does not lock every speed and temperature against your filament. Open the project and read the profile before you print. Step-by-step for Studio is in [Bambu Studio lithophane](/bambu-studio-lithophane/).',
       ],
     },
   ],
@@ -110,7 +110,7 @@ export const printedPage: LandingPage = {
     {
       question: 'Does Lumiphane slice the file?',
       answer:
-        'The Bambu Studio project includes a process profile. You still open it in Bambu Studio and slice it. STL and standard 3MF have no process profile.',
+        'The Bambu Studio project includes a process profile. You still open it in Bambu Studio and slice it. STL and standard 3MF have no process profile. See the Bambu Studio lithophane guide for the Studio-specific path.',
     },
     {
       question: 'Can I use PETG or resin?',

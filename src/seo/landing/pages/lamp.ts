@@ -70,7 +70,7 @@ export const lampPage: LandingPage = {
         {
           paragraphs: [
             'These shapes are modeled standing, with the opening vertical. Leave them upright in the slicer. A brim, which the in-app print guide suggests around 5–8 mm, is there because a tall thin wall is easy to knock loose, not because the picture needs supports. The curved wall and the flat faces of a cube or hexagon support themselves as they grow.',
-            'Print the picture in white PLA, solid through the image. A Bambu Studio project from the export sheet already carries 0.12 mm layers and 100% infill for the single-nozzle Bambu Lab machines in that sheet. You still slice and print it in Bambu Studio. STL and standard 3MF leave those choices to whatever slicer you open. Details are in the [printing guide](/3d-printed-lithophane/) and the [settings guide](/lithophane-settings/).',
+            'Print the picture in white PLA, solid through the image. A Bambu Studio project from the export sheet already carries 0.12 mm layers and 100% infill for the single-nozzle Bambu Lab machines in that sheet. You still slice and print it in Bambu Studio — see [Bambu Studio lithophane](/bambu-studio-lithophane/). STL and standard 3MF leave those choices to whatever slicer you open. Details are in the [printing guide](/3d-printed-lithophane/) and the [settings guide](/lithophane-settings/).',
           ],
         },
       ],

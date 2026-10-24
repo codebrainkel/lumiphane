@@ -18,6 +18,7 @@ export const LANDING_PAGE_ROUTES = [
   '/photo-to-lithophane/',
   '/lithophane-lamp/',
   '/3d-printed-lithophane/',
+  '/bambu-studio-lithophane/',
   '/lithophane-settings/',
 ] as const;
 

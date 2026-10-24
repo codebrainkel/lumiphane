@@ -67,7 +67,7 @@ export const howToPage: LandingPage = {
         },
         {
           title: 'A slicer you already use',
-          body: 'Export an STL or a standard 3MF for any slicer, or a Bambu Studio project for the single-nozzle Bambu Lab machines listed in the export sheet.',
+          body: 'Export an STL or a standard 3MF for any slicer, or a Bambu Studio project for the single-nozzle Bambu Lab machines listed in the export sheet. The Studio path is in [Bambu Studio lithophane](/bambu-studio-lithophane/).',
         },
       ],
     },
@@ -91,7 +91,7 @@ export const howToPage: LandingPage = {
         },
         {
           title: 'Export the file',
-          body: 'Wait until the preview finishes. The export sheet can build a Bambu Studio project, a standard 3MF, or an STL. It also lists size, the thickness range for this part, and any warning. Read the warning before a multi-hour print.',
+          body: 'Wait until the preview finishes. The export sheet can build a Bambu Studio project, a standard 3MF, or an STL. It also lists size, the thickness range for this part, and any warning. Read the warning before a multi-hour print. Opening the Bambu project in Studio is covered in [Bambu Studio lithophane](/bambu-studio-lithophane/).',
         },
         {
           title: 'Slice it standing up',

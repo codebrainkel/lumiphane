@@ -15,6 +15,7 @@ The app builds the model only. You slice and print in your own software. Optiona
 - [Photo to lithophane](https://lumiphane.com/photo-to-lithophane/): Cropping, contrast, multi-photo layouts, and what formats work
 - [Lithophane lamp](https://lumiphane.com/lithophane-lamp/): Cylinder, hexagon, cube, and curved shades — cool LED only; no socket included
 - [3D printed lithophane](https://lumiphane.com/3d-printed-lithophane/): Orientation, white PLA, layer height, and slicer recommendations
+- [Bambu Studio lithophane](https://lumiphane.com/bambu-studio-lithophane/): Export a Bambu Studio project, open it in Studio, slice and print on listed single-nozzle machines
 - [Lithophane settings](https://lumiphane.com/lithophane-settings/): What Lumiphane controls vs what belongs in the slicer
 
 ## Optional
