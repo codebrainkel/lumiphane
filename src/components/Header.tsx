@@ -17,8 +17,6 @@ export const Header: React.FC<HeaderProps> = ({ currentStep, onStepChange, shape
       ? 'Hexagon'
       : shape === 'curved'
       ? 'Curved Panel'
-      : shape === 'heart'
-      ? 'Heart Panel'
       : shape === 'nightlight'
       ? 'Night Light'
       : 'Flat Panel';
