@@ -28,6 +28,10 @@ export interface ThreeMfExportOptions {
   bambuPrinterId?: string;
   /** Aborts the export between steps. A finished download must not start after this fires. */
   signal?: AbortSignal;
+  /** Optional matching lampshade base geometry for hollow shapes (Plate 2 in Bambu Studio). */
+  baseGeometry?: MeshGeometryData | null;
+  /** Optional name for the base part on Plate 2. */
+  baseModelName?: string;
 }
 
 /** Import and fetch of blank-profile.3mf fail with a clear error after this long. */
@@ -38,6 +42,11 @@ export const BAMBU_TEMPLATE_TIMEOUT_MESSAGE = 'The Bambu Studio profile took too
 const VOLUME_OBJECT_ID = 1;
 const MODEL_OBJECT_ID = 2;
 const IDENTIFY_ID = 1;
+
+const BASE_VOLUME_OBJECT_ID = 3;
+const BASE_MODEL_OBJECT_ID = 4;
+const BASE_IDENTIFY_ID = 2;
+
 const BAMBU_IDENTITY_3MF = '1 0 0 0 1 0 0 0 1 0 0 0';
 const BAMBU_IDENTITY_MATRIX = '1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1';
 const MODEL_UNIT = 'millimeter';
@@ -199,7 +208,11 @@ function printerToken(printerModel: string): string {
   return stripped.replace(/[^a-zA-Z0-9]+/g, '') || 'Bambu';
 }
 
-function isUnusedPlateFile(path: string): boolean {
+function isUnusedPlateFile(path: string, hasBase = false): boolean {
+  if (hasBase) {
+    return /(?:^|\/)(?:plate_(?:no_light_)?[3-9](?:_small)?|top_[3-9]|pick_[3-9])\./.test(path)
+      || /plate_[3-9]\.json$/.test(path);
+  }
   return /(?:^|\/)(?:plate_(?:no_light_)?[2-9](?:_small)?|top_[2-9]|pick_[2-9])\./.test(path)
     || /plate_[2-9]\.json$/.test(path);
 }
@@ -215,6 +228,21 @@ function singlePlateFilamentSequence(sequenceText: string): string {
     }
   }
   return JSON.stringify({ plate_1: plate1 });
+}
+
+function multiPlateFilamentSequence(sequenceText: string): string {
+  let plate1: unknown = { nozzle_sequence: [], optimal_assignment: [], sequence: [] };
+  let plate2: unknown = { nozzle_sequence: [], optimal_assignment: [], sequence: [] };
+  if (sequenceText.trim()) {
+    try {
+      const parsed = JSON.parse(sequenceText) as { plate_1?: unknown; plate_2?: unknown };
+      if (parsed.plate_1) plate1 = parsed.plate_1;
+      if (parsed.plate_2) plate2 = parsed.plate_2;
+    } catch {
+      // Keep empty plate-1 and plate-2
+    }
+  }
+  return JSON.stringify({ plate_1: plate1, plate_2: plate2 });
 }
 
 function bedSizeFromPrintableArea(printableArea: unknown): { width: number; depth: number } {
@@ -247,21 +275,23 @@ interface BambuBedPlacement {
 function bambuBedPlacement(
   geometry: MeshGeometryData,
   bedWidth: number,
-  bedDepth: number
+  bedDepth: number,
+  options?: { forceFlat?: boolean; plateOffsetX?: number }
 ): BambuBedPlacement {
   const [minX, minY, minZ] = geometry.boundingBox.min;
   const [maxX, maxY, maxZ] = geometry.boundingBox.max;
   const sizeX = maxX - minX;
   const sizeY = maxY - minY;
   const sizeZ = maxZ - minZ;
-  const standUp = sizeZ < Math.min(sizeX, sizeY) * 0.35;
+  const standUp = options?.forceFlat ? false : sizeZ < Math.min(sizeX, sizeY) * 0.35;
 
   const loX = minX;
   const hiX = maxX;
   const loY = standUp ? -maxZ : minY;
   const hiY = standUp ? -minZ : maxY;
   const loZ = standUp ? minY : minZ;
-  const tx = bedWidth / 2 - (loX + hiX) / 2;
+  const offsetX = options?.plateOffsetX ?? 0;
+  const tx = bedWidth / 2 - (loX + hiX) / 2 + offsetX;
   const ty = bedDepth / 2 - (loY + hiY) / 2;
   const tz = -loZ;
 
@@ -284,6 +314,7 @@ export interface ThreeMfExportResult {
   /** Triangle tags written into the model XML. */
   triangleCount: number;
   isBambuProject?: boolean;
+  hasBase?: boolean;
 }
 
 /** Counts recorded while the model XML was written. Verify uses these instead of parsing the file. */
@@ -313,12 +344,14 @@ export class ThreeMfExporter {
     throwIfAborted(signal);
     const printer = isBambuProject ? getBambuPrinter(options?.bambuPrinterId) : null;
     const built = isBambuProject
-      ? await this.buildBambuProjectZip(geometry, cleanName, modelName, profile!, printer!, signal)
-      : await this.buildUniversalZip(geometry, modelName, signal);
+      ? await this.buildBambuProjectZip(geometry, cleanName, modelName, profile!, printer!, signal, options)
+      : await this.buildUniversalZip(geometry, modelName, signal, options);
     const { zip, written } = built;
 
-    const expectedVertices = geometry.vertices.length / 3;
-    const expectedTriangles = geometry.indices.length / 3;
+    const baseVertices = options?.baseGeometry ? options.baseGeometry.vertices.length / 3 : 0;
+    const baseTriangles = options?.baseGeometry ? options.baseGeometry.indices.length / 3 : 0;
+    const expectedVertices = geometry.vertices.length / 3 + baseVertices;
+    const expectedTriangles = geometry.indices.length / 3 + baseTriangles;
     if (written.vertexCount !== expectedVertices || written.triangleCount !== expectedTriangles) {
       throw new Error(
         `3MF model counts do not match the mesh (${written.vertexCount} vertices, ${written.triangleCount} triangles).`
@@ -346,15 +379,27 @@ export class ThreeMfExporter {
       vertexCount: written.vertexCount,
       triangleCount: written.triangleCount,
       isBambuProject,
+      hasBase: Boolean(options?.baseGeometry),
     };
   }
 
   private static async buildUniversalZip(
     geometry: MeshGeometryData,
     modelName: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    options?: ThreeMfExportOptions
   ): Promise<{ zip: JSZip; written: ThreeMfWrittenModel & { xml: string } }> {
-    const written = await this.generateModelXml(geometry, modelName, undefined, undefined, signal);
+    const baseGeometry = options?.baseGeometry;
+    const baseTitle = options?.baseModelName || `${modelName} Base`;
+    const written = await this.generateModelXml(
+      geometry,
+      modelName,
+      undefined,
+      undefined,
+      signal,
+      baseGeometry,
+      baseTitle
+    );
     const zip = new JSZip();
     zip.file(
       '[Content_Types].xml',
@@ -377,6 +422,7 @@ export class ThreeMfExporter {
 
   /**
    * Copies the saved Bambu Studio project and swaps in the lithophane mesh.
+   * If a base geometry is provided, places the base on Plate 2.
    * The A2L project_settings.config is kept byte-for-byte. Another Bambu
    * printer keeps the lithophane process settings and replaces the machine
    * profile (bed, limits, and G-code) with that model's Studio 02.08.02.60 preset.
@@ -387,7 +433,8 @@ export class ThreeMfExporter {
     modelName: string,
     profile: EmbeddedBambuProfile,
     printer: ReturnType<typeof getBambuPrinter>,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    options?: ThreeMfExportOptions
   ): Promise<{ zip: JSZip; written: ThreeMfWrittenModel & { xml: string } }> {
     throwIfAborted(signal);
     const template = await JSZip.loadAsync(await waitForExport(loadTemplateBytes(), signal));
@@ -403,17 +450,25 @@ export class ThreeMfExporter {
     const retargeted = retargetBambuProject(projectSettings, printer);
     const zip = new JSZip();
 
+    const hasBase = Boolean(options?.baseGeometry);
+    const baseGeometry = options?.baseGeometry;
+    const baseCleanName = options?.baseModelName
+      ? options.baseModelName.replace(/[^a-zA-Z0-9_-]/g, '_') || 'lamp_base'
+      : `${cleanName}_base`;
+    const baseModelName = options?.baseModelName || `${modelName} Base`;
+
     const replacements = new Set([
       '3D/3dmodel.model',
       'Metadata/model_settings.config',
       'Metadata/plate_1.json',
       'Metadata/filament_sequence.json',
     ]);
+    if (hasBase) replacements.add('Metadata/plate_2.json');
     if (retargeted) replacements.add('Metadata/project_settings.config');
 
     const copies: Array<Promise<void>> = [];
     template.forEach((relativePath, file) => {
-      if (file.dir || replacements.has(relativePath) || isUnusedPlateFile(relativePath)) return;
+      if (file.dir || replacements.has(relativePath) || isUnusedPlateFile(relativePath, hasBase)) return;
       copies.push(
         file.async('uint8array').then((bytes) => {
           throwIfAborted(signal);
@@ -426,12 +481,23 @@ export class ThreeMfExporter {
 
     const bed = bedSizeFromPrintableArea(projectSettings.printable_area);
     const sequenceFile = template.file('Metadata/filament_sequence.json');
-    const [modelSettingsText, plate1Json, sequenceText] = await Promise.all([
+    const [modelSettingsText, plate1Json, plate2Json, sequenceText] = await Promise.all([
       modelSettingsFile.async('text'),
-      this.buildPlateJson(template, geometry, cleanName, projectSettings, 1),
+      this.buildPlateJson(template, geometry, cleanName, projectSettings, 1, IDENTIFY_ID),
+      hasBase && baseGeometry
+        ? this.buildPlateJson(template, baseGeometry, baseCleanName, projectSettings, 2, BASE_IDENTIFY_ID)
+        : Promise.resolve(''),
       sequenceFile ? sequenceFile.async('text') : Promise.resolve(''),
     ]);
-    const written = await this.generateModelXml(geometry, modelName, profile, bed, signal);
+    const written = await this.generateModelXml(
+      geometry,
+      modelName,
+      profile,
+      bed,
+      signal,
+      baseGeometry,
+      baseModelName
+    );
     if (!written.xml.includes('BambuStudio-')) {
       throw new Error('3dmodel.model is missing the Bambu Studio application stamp');
     }
@@ -441,22 +507,42 @@ export class ThreeMfExporter {
     }
     zip.file(
       'Metadata/model_settings.config',
-      this.buildBambuModelSettings(modelSettingsText, cleanName, geometry.indices.length / 3)
+      this.buildBambuModelSettings(
+        modelSettingsText,
+        cleanName,
+        geometry.indices.length / 3,
+        baseGeometry,
+        baseCleanName
+      )
     );
     zip.file('Metadata/plate_1.json', plate1Json);
-    zip.file('Metadata/filament_sequence.json', singlePlateFilamentSequence(sequenceText));
+    if (hasBase && plate2Json) {
+      zip.file('Metadata/plate_2.json', plate2Json);
+    }
+    zip.file(
+      'Metadata/filament_sequence.json',
+      hasBase ? multiPlateFilamentSequence(sequenceText) : singlePlateFilamentSequence(sequenceText)
+    );
     return { zip, written };
   }
 
   /**
-   * Places the mesh on plate 1 using the same model_settings grammar Studio writes:
-   * the mesh is a part, the parent object is what the plate instance points at.
+   * Places the lithophane on Plate 1 and optional matching base on Plate 2
+   * using the official model_settings grammar Studio writes.
    */
-  private static buildBambuModelSettings(templateXml: string, cleanName: string, triangleCount: number): string {
+  private static buildBambuModelSettings(
+    templateXml: string,
+    cleanName: string,
+    triangleCount: number,
+    baseGeometry?: MeshGeometryData | null,
+    baseCleanName?: string
+  ): string {
     const safeName = this.escapeXml(cleanName);
-    const objectXml = `  <object id="${MODEL_OBJECT_ID}">
+    let objectXml = `  <object id="${MODEL_OBJECT_ID}">
     <metadata key="name" value="${safeName}"/>
     <metadata key="extruder" value="1"/>
+    <metadata key="plate_index" value="1"/>
+    <metadata key="plate_id" value="1"/>
     <metadata face_count="${triangleCount}"/>
     <part id="${VOLUME_OBJECT_ID}" subtype="normal_part">
       <metadata key="name" value="${safeName}"/>
@@ -471,13 +557,53 @@ export class ThreeMfExporter {
     </part>
   </object>
 `;
-    const instanceXml = `    <model_instance>
+
+    if (baseGeometry) {
+      const safeBaseName = this.escapeXml(baseCleanName || `${cleanName}_base`);
+      const baseTriangleCount = baseGeometry.indices.length / 3;
+      objectXml += `  <object id="${BASE_MODEL_OBJECT_ID}">
+    <metadata key="name" value="${safeBaseName}"/>
+    <metadata key="extruder" value="1"/>
+    <metadata key="plate_index" value="2"/>
+    <metadata key="plate_id" value="2"/>
+    <metadata face_count="${baseTriangleCount}"/>
+    <part id="${BASE_VOLUME_OBJECT_ID}" subtype="normal_part">
+      <metadata key="name" value="${safeBaseName}"/>
+      <metadata key="matrix" value="${BAMBU_IDENTITY_MATRIX}"/>
+      <metadata key="source_file" value="${safeBaseName}.stl"/>
+      <metadata key="source_object_id" value="0"/>
+      <metadata key="source_volume_id" value="0"/>
+      <metadata key="source_offset_x" value="0"/>
+      <metadata key="source_offset_y" value="0"/>
+      <metadata key="source_offset_z" value="0"/>
+      <mesh_stat face_count="${baseTriangleCount}" edges_fixed="0" degenerate_facets="0" facets_removed="0" facets_reversed="0" backwards_edges="0"/>
+    </part>
+  </object>
+`;
+    }
+
+    const instanceXml1 = `    <model_instance>
       <metadata key="object_id" value="${MODEL_OBJECT_ID}"/>
       <metadata key="instance_id" value="0"/>
       <metadata key="identify_id" value="${IDENTIFY_ID}"/>
     </model_instance>
 `;
-    const assembleXml = `  <assemble>
+    const instanceXml2 = `    <model_instance>
+      <metadata key="object_id" value="${BASE_MODEL_OBJECT_ID}"/>
+      <metadata key="instance_id" value="0"/>
+      <metadata key="identify_id" value="${BASE_IDENTIFY_ID}"/>
+    </model_instance>
+`;
+
+    // When multiple independent objects are on separate plates (lithophane on Plate 1,
+    // lamp base on Plate 2), they must NOT be combined into a compound assembly.
+    // Bambu Studio merges items in an <assemble> block into a single compound model
+    // and forces all parts of an assembly onto the first plate. Keeping <assemble>
+    // empty keeps them as independent objects on their respective plates.
+    const assembleXml = baseGeometry
+      ? `  <assemble>
+  </assemble>`
+      : `  <assemble>
     <assemble_item object_id="${MODEL_OBJECT_ID}" instance_id="0" transform="${BAMBU_IDENTITY_3MF}" offset="0 0 0" />
   </assemble>`;
 
@@ -486,20 +612,25 @@ export class ThreeMfExporter {
     }
 
     let xml = templateXml.replace(/<config>\s*/, `<config>\n${objectXml}`);
-    xml = xml.replace('</plate>', `${instanceXml}  </plate>`);
+
+    let plateIndex = 0;
+    xml = xml.replace(/[ \t]*<plate>[\s\S]*?<\/plate>\s*/g, (block) => {
+      plateIndex++;
+      if (plateIndex === 1) {
+        return block.replace('</plate>', `${instanceXml1}  </plate>`);
+      }
+      if (plateIndex === 2 && baseGeometry) {
+        return block.replace('</plate>', `${instanceXml2}  </plate>`);
+      }
+      return '';
+    });
+
     if (/<assemble>[\s\S]*?<\/assemble>/.test(xml)) {
       xml = xml.replace(/<assemble>[\s\S]*?<\/assemble>/, assembleXml);
     } else {
       xml = xml.replace('</config>', `${assembleXml}\n</config>`);
     }
 
-    // The saved profile can carry empty extra plates. Keep the plate that holds the lithophane.
-    let keptPlate = false;
-    xml = xml.replace(/[ \t]*<plate>[\s\S]*?<\/plate>\s*/g, (block) => {
-      if (keptPlate) return '';
-      keptPlate = true;
-      return block;
-    });
     return xml;
   }
 
@@ -508,7 +639,8 @@ export class ThreeMfExporter {
     geometry: MeshGeometryData | null,
     cleanName: string,
     projectSettings: Record<string, unknown>,
-    plateNumber: number
+    plateNumber: number,
+    identifyId: number = IDENTIFY_ID
   ): Promise<string> {
     const existingFile = template.file(`Metadata/plate_${plateNumber}.json`);
     const existing = existingFile ? (JSON.parse(await existingFile.async('text')) as Record<string, unknown>) : {};
@@ -524,12 +656,12 @@ export class ThreeMfExporter {
     let bbox = [0, 0, 0, 0];
     let objects: Array<Record<string, unknown>> = [];
     if (geometry) {
-      bbox = [...bambuBedPlacement(geometry, width, depth).bedBBox];
+      bbox = [...bambuBedPlacement(geometry, width, depth, { forceFlat: plateNumber === 2 }).bedBBox];
       objects = [
         {
           area: Math.abs(geometry.boundingBox.size[0] * geometry.boundingBox.size[1]),
           bbox,
-          id: IDENTIFY_ID,
+          id: identifyId,
           layer_height: Number.isFinite(layerHeight) ? layerHeight : 0.12,
           name: cleanName,
         },
@@ -550,62 +682,20 @@ export class ThreeMfExporter {
     });
   }
 
-  /**
-   * Builds the official 3MF model XML string with high performance chunking.
-   */
-  private static async generateModelXml(
+  private static async serializeMeshVerticesAndTriangles(
     geometry: MeshGeometryData,
-    title: string,
-    bambuProfile?: EmbeddedBambuProfile,
-    bed?: { width: number; depth: number },
-    signal?: AbortSignal
-  ): Promise<ThreeMfWrittenModel & { xml: string }> {
-    throwIfAborted(signal);
-    const lastYield = { at: Date.now() };
+    placement: BambuBedPlacement | null,
+    signal?: AbortSignal,
+    lastYield?: { at: number }
+  ): Promise<{ vertXml: string; triXml: string; vertexCount: number; triangleCount: number }> {
     const { vertices, indices } = geometry;
     const vertexCount = vertices.length / 3;
     const triangleCount = indices.length / 3;
-    const dateStr = new Date().toISOString().split('T')[0];
-    const safeTitle = this.escapeXml(title);
-    const meshUuid = this.createUuid();
-    const objectUuid = this.createUuid();
-    const componentUuid = this.createUuid();
-    const buildUuid = this.createUuid();
-    const itemUuid = this.createUuid();
 
-    const header = bambuProfile
-      ? `<?xml version="1.0" encoding="UTF-8"?>
-<model unit="${MODEL_UNIT}" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p">
- <metadata name="Application">BambuStudio-${this.escapeXml(bambuProfile.version)}</metadata>
- <metadata name="BambuStudio:3mfVersion">1</metadata>
- <metadata name="CreationDate">${dateStr}</metadata>
- <metadata name="ModificationDate">${dateStr}</metadata>
- <metadata name="Title">${safeTitle}</metadata>
- <metadata name="Thumbnail_Middle">/Metadata/plate_1.png</metadata>
- <metadata name="Thumbnail_Small">/Metadata/plate_1_small.png</metadata>
- <resources>
-  <object id="${VOLUME_OBJECT_ID}" type="model" p:UUID="${meshUuid}">
-   <mesh>
-    <vertices>\n`
-      : `<?xml version="1.0" encoding="UTF-8"?>
-<model unit="${MODEL_UNIT}" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
-  <metadata name="Title">${safeTitle} Lithophane</metadata>
-  <metadata name="Designer">Lumiphane 3D</metadata>
-  <metadata name="Application">Lumiphane 3D Generator</metadata>
-  <metadata name="CreationDate">${dateStr}</metadata>
-  <resources>
-    <object id="1" type="model">
-      <mesh>
-        <vertices>\n`;
-
-    // Fast vertex serialization. The counter is the number of <vertex> tags actually written.
     const vertChunks: string[] = [];
     const CHUNK_SIZE = 5000;
     let tempStr = '';
     let writtenVertices = 0;
-    const placement = bambuProfile
-      ? bambuBedPlacement(geometry, bed?.width ?? 256, bed?.depth ?? 256)
-      : null;
 
     for (let i = 0; i < vertexCount; i++) {
       const idx = i * 3;
@@ -626,10 +716,6 @@ export class ThreeMfExporter {
     }
     if (tempStr) vertChunks.push(tempStr);
 
-    const midHeader = `        </vertices>
-        <triangles>\n`;
-
-    // Fast triangle serialization. The counter is the number of <triangle> tags actually written.
     const triChunks: string[] = [];
     let writtenTriangles = 0;
     tempStr = '';
@@ -649,33 +735,161 @@ export class ThreeMfExporter {
     }
     if (tempStr) triChunks.push(tempStr);
 
-    const footer = bambuProfile
-      ? `    </triangles>
+    return {
+      vertXml: vertChunks.join(''),
+      triXml: triChunks.join(''),
+      vertexCount: writtenVertices,
+      triangleCount: writtenTriangles,
+    };
+  }
+
+  /**
+   * Builds the official 3MF model XML string with high performance chunking.
+   */
+  private static async generateModelXml(
+    geometry: MeshGeometryData,
+    title: string,
+    bambuProfile?: EmbeddedBambuProfile,
+    bed?: { width: number; depth: number },
+    signal?: AbortSignal,
+    baseGeometry?: MeshGeometryData | null,
+    baseTitle?: string
+  ): Promise<ThreeMfWrittenModel & { xml: string }> {
+    throwIfAborted(signal);
+    const lastYield = { at: Date.now() };
+    const dateStr = new Date().toISOString().split('T')[0];
+    const safeTitle = this.escapeXml(title);
+    const meshUuid = this.createUuid();
+    const objectUuid = this.createUuid();
+    const componentUuid = this.createUuid();
+    const buildUuid = this.createUuid();
+    const itemUuid = this.createUuid();
+
+    const placement = bambuProfile
+      ? bambuBedPlacement(geometry, bed?.width ?? 256, bed?.depth ?? 256)
+      : null;
+    const lithoSerialized = await this.serializeMeshVerticesAndTriangles(geometry, placement, signal, lastYield);
+
+    let baseSerialized: { vertXml: string; triXml: string; vertexCount: number; triangleCount: number } | null = null;
+    let baseMeshUuid = '';
+    let baseObjectUuid = '';
+    let baseComponentUuid = '';
+    let baseItemUuid = '';
+
+    if (baseGeometry) {
+      baseMeshUuid = this.createUuid();
+      baseObjectUuid = this.createUuid();
+      baseComponentUuid = this.createUuid();
+      baseItemUuid = this.createUuid();
+      // Bambu Studio arranges part plates along the X axis with grid stride:
+      // stride_x = bedWidth * 1.2. Offsetting the base vertices by stride_x
+      // places the base directly inside Plate 2's spatial grid bounding box.
+      const bedW = bed?.width ?? 256;
+      const strideX = bedW * 1.2;
+      const basePlacement = bambuProfile
+        ? bambuBedPlacement(baseGeometry, bedW, bed?.depth ?? 256, {
+            forceFlat: true,
+            plateOffsetX: strideX,
+          })
+        : null;
+      baseSerialized = await this.serializeMeshVerticesAndTriangles(baseGeometry, basePlacement, signal, lastYield);
+    }
+
+    let xml = '';
+    if (bambuProfile) {
+      xml = `<?xml version="1.0" encoding="UTF-8"?>
+<model unit="${MODEL_UNIT}" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p">
+ <metadata name="Application">BambuStudio-${this.escapeXml(bambuProfile.version)}</metadata>
+ <metadata name="BambuStudio:3mfVersion">1</metadata>
+ <metadata name="CreationDate">${dateStr}</metadata>
+ <metadata name="ModificationDate">${dateStr}</metadata>
+ <metadata name="Title">${safeTitle}</metadata>
+ <metadata name="Thumbnail_Middle">/Metadata/plate_1.png</metadata>
+ <metadata name="Thumbnail_Small">/Metadata/plate_1_small.png</metadata>
+ <resources>
+  <object id="${VOLUME_OBJECT_ID}" type="model" p:UUID="${meshUuid}">
+   <mesh>
+    <vertices>
+${lithoSerialized.vertXml}    </vertices>
+    <triangles>
+${lithoSerialized.triXml}    </triangles>
    </mesh>
   </object>
   <object id="${MODEL_OBJECT_ID}" type="model" p:UUID="${objectUuid}">
    <components>
     <component objectid="${VOLUME_OBJECT_ID}" p:UUID="${componentUuid}" transform="${BAMBU_IDENTITY_3MF}"/>
    </components>
+  </object>\n`;
+
+      if (baseSerialized) {
+        xml += `  <object id="${BASE_VOLUME_OBJECT_ID}" type="model" p:UUID="${baseMeshUuid}">
+   <mesh>
+    <vertices>
+${baseSerialized.vertXml}    </vertices>
+    <triangles>
+${baseSerialized.triXml}    </triangles>
+   </mesh>
   </object>
- </resources>
+  <object id="${BASE_MODEL_OBJECT_ID}" type="model" p:UUID="${baseObjectUuid}">
+   <components>
+    <component objectid="${BASE_VOLUME_OBJECT_ID}" p:UUID="${baseComponentUuid}" transform="${BAMBU_IDENTITY_3MF}"/>
+   </components>
+  </object>\n`;
+      }
+
+      xml += ` </resources>
  <build p:UUID="${buildUuid}">
-  <item objectid="${MODEL_OBJECT_ID}" p:UUID="${itemUuid}" transform="${BAMBU_IDENTITY_3MF}" printable="1"/>
- </build>
-</model>`
-      : `        </triangles>
-      </mesh>
-    </object>
-  </resources>
-  <build>
-    <item objectid="1" />
-  </build>
+  <item objectid="${MODEL_OBJECT_ID}" p:UUID="${itemUuid}" transform="${BAMBU_IDENTITY_3MF}" printable="1"/>\n`;
+      if (baseSerialized) {
+        xml += `  <item objectid="${BASE_MODEL_OBJECT_ID}" p:UUID="${baseItemUuid}" transform="${BAMBU_IDENTITY_3MF}" printable="1"/>\n`;
+      }
+      xml += ` </build>
 </model>`;
+    } else {
+      xml = `<?xml version="1.0" encoding="UTF-8"?>
+<model unit="${MODEL_UNIT}" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+  <metadata name="Title">${safeTitle} Lithophane</metadata>
+  <metadata name="Designer">Lumiphane 3D</metadata>
+  <metadata name="Application">Lumiphane 3D Generator</metadata>
+  <metadata name="CreationDate">${dateStr}</metadata>
+  <resources>
+    <object id="1" type="model">
+      <mesh>
+        <vertices>
+${lithoSerialized.vertXml}        </vertices>
+        <triangles>
+${lithoSerialized.triXml}        </triangles>
+      </mesh>
+    </object>\n`;
+
+      if (baseSerialized) {
+        xml += `    <object id="2" type="model">
+      <mesh>
+        <vertices>
+${baseSerialized.vertXml}        </vertices>
+        <triangles>
+${baseSerialized.triXml}        </triangles>
+      </mesh>
+    </object>\n`;
+      }
+
+      xml += `  </resources>
+  <build>
+    <item objectid="1" />\n`;
+      if (baseSerialized) {
+        xml += `    <item objectid="2" />\n`;
+      }
+      xml += `  </build>
+</model>`;
+    }
+
+    const totalVertices = lithoSerialized.vertexCount + (baseSerialized ? baseSerialized.vertexCount : 0);
+    const totalTriangles = lithoSerialized.triangleCount + (baseSerialized ? baseSerialized.triangleCount : 0);
 
     return {
-      xml: header + vertChunks.join('') + midHeader + triChunks.join('') + footer,
-      vertexCount: writtenVertices,
-      triangleCount: writtenTriangles,
+      xml,
+      vertexCount: totalVertices,
+      triangleCount: totalTriangles,
       unit: MODEL_UNIT,
     };
   }

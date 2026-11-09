@@ -1,6 +1,7 @@
 import { LithophaneSettings, MeshGeometryData } from '../types/lithophane';
 import { WHITE_PLA_EXTINCTION_PER_MM, thicknessForLuminance } from '../constants/optics';
 import { clampBorderWidthMm, createBorderIconField } from './borderIcons';
+import { getHollowBottomRimThickness } from './baseGenerator';
 
 /** Curved, cylinder, and cube feet flare over this height, entirely below the photo. */
 export const SUPPORT_BRIM_HEIGHT_MM = 4;
@@ -25,12 +26,20 @@ export function standingBaseExtension(settings: {
   orientation: LithophaneSettings['orientation'];
   supportType?: LithophaneSettings['supportType'];
   supportHeight?: number;
+  includeBase?: boolean;
 }): { heightMm: number; rows: number } {
   if (settings.orientation === 'flat') return { heightMm: 0, rows: 0 };
   const supportType = settings.supportType || 'flange';
   if (supportType === 'none') return { heightMm: 0, rows: 0 };
 
   const shape = settings.shape;
+  const isHollow = shape === 'cylinder' || shape === 'cube' || shape === 'hexagon';
+  if (isHollow && settings.includeBase) {
+    // When the matching lamp base is printed, bottom flare / stand footing is disabled:
+    // the lithophane seats directly onto the base resting shelf, with a solid 2mm bottom rim.
+    return { heightMm: 0, rows: 0 };
+  }
+
   const usesBrim =
     shape === 'curved' ||
     shape === 'nightlight' ||
@@ -172,15 +181,26 @@ export class GeometryGenerator {
           const lum = luminanceGrid[r * cols + c];
           th = thicknessForLuminance(lum, minTh, maxTh, WHITE_PLA_EXTINCTION_PER_MM);
 
-          // Frame reinforcement (for continuous perimeter shapes, frame applies only to top/bottom rims; zero seam gap)
-          if (hasFrame) {
+          // Solid bottom rim when matching lamp base is enabled:
+          // The bottom band matches rimTh (frameThickness) uniformly with zero relief cut
+          // so the lithophane bottom rim and the lamp base outer diameter are PERFECTLY FLUSH VERTICALLY
+          const isBaseEnabled = isEnclosed && Boolean(settings.includeBase);
+          const rimTh = isBaseEnabled ? getHollowBottomRimThickness(settings) : frameTh;
+          const distFromBottom = (1.0 - v) * H;
+          const rimBandHeight = hasFrame ? Math.max(frameW, 2.0) : 2.0;
+          if (isBaseEnabled && distFromBottom <= rimBandHeight) {
+            th = rimTh;
+          } else if (hasFrame) {
+            // Frame reinforcement (for continuous perimeter shapes, frame applies only to top/bottom rims; zero seam gap)
             const distBorder = isEnclosed ? distY : Math.min(distX, distY);
             if (distBorder <= frameW) {
               th = Math.max(th, frameTh);
               if (iconRelief) {
                 const borderX = isEnclosed ? (c / cols) * borderPerimeter : u * W;
                 const cut = iconRelief(borderX, v * H);
-                if (cut > 0) th = Math.max(minTh + 0.2, th - cut);
+                if (cut > 0) {
+                  th = Math.max(minTh + 0.2, th - cut);
+                }
               }
             }
           }

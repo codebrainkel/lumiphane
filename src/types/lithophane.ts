@@ -50,6 +50,8 @@ export interface LithophaneSettings {
   frameWidth: number; // mm (e.g. 3.0 mm)
   frameThickness: number; // mm (e.g. 3.4 mm, 0.4 mm thicker than the darkest shadow)
   borderIcon: BorderIcon; // one motif repeated along the middle of the border
+  includeBase?: boolean; // When true for hollow shapes (cylinder, cube, hexagon), creates a matching lampshade base on Plate 2
+  lightHoleDiameter?: number; // mm diameter of center light through-hole in lampshade base (16-65mm, default 40mm)
 
   // Print Standing Orientation & Stabilization Supports
   orientation: PrintOrientation; // 'standing' (vertical on Z axis, print-ready) or 'flat'

@@ -25,6 +25,8 @@ export const DEFAULT_SETTINGS: LithophaneSettings = {
   frameWidth: 5.0, // mm
   frameThickness: 3.4, // mm (maxThickness + 0.4, so the border reads darker than any shadow)
   borderIcon: 'none',
+  includeBase: false,
+  lightHoleDiameter: 40, // mm center light through-hole in lampshade base (Tea Light / LED Puck)
 
   orientation: 'standing', // Print-ready vertical on Z axis
   supportType: 'flange', // Wide stabilizing base footing

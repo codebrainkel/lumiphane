@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { MeshGeometryData, LithophaneSettings } from '../types/lithophane';
 import { WHITE_PLA_EXTINCTION_PER_MM } from '../constants/optics';
+import { BaseGenerator, BASE_FLOOR_HEIGHT_MM } from '../services/baseGenerator';
 import { RotateCcw, Maximize2, Layers } from 'lucide-react';
 
 interface Viewport3DProps {
@@ -33,6 +34,7 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const meshRef = useRef<THREE.Mesh | null>(null);
+  const baseMeshRef = useRef<THREE.Mesh | null>(null);
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
   const bedPlinthRef = useRef<THREE.Group | null>(null);
   const shaderMaterialRef = useRef<THREE.ShaderMaterial | null>(null);
@@ -175,6 +177,9 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
       if (controlsRef.current) {
         if (autoRotateRef.current && meshRef.current) {
           meshRef.current.rotation.z += 0.005;
+          if (baseMeshRef.current) {
+            baseMeshRef.current.rotation.z = meshRef.current.rotation.z;
+          }
         }
         controlsRef.current.update();
       }
@@ -546,6 +551,65 @@ export const Viewport3D: React.FC<Viewport3DProps> = ({
     updateLightPosition(geometryData);
     fitCameraToMesh(geometryData);
   }, [geometryData]);
+
+  // 4. Update Lampshade Base Mesh when base setting or shape geometry changes
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+
+    if (baseMeshRef.current) {
+      scene.remove(baseMeshRef.current);
+      baseMeshRef.current.geometry.dispose();
+      if (Array.isArray(baseMeshRef.current.material)) {
+        baseMeshRef.current.material.forEach((m) => m.dispose());
+      } else {
+        baseMeshRef.current.material.dispose();
+      }
+      baseMeshRef.current = null;
+    }
+
+    if (!geometryData || !settings.includeBase || !BaseGenerator.isHollowShape(settings.shape)) {
+      return;
+    }
+
+    try {
+      const baseData = BaseGenerator.generateBase(settings);
+      const baseGeom = new THREE.BufferGeometry();
+      baseGeom.setAttribute('position', new THREE.BufferAttribute(baseData.vertices, 3));
+      baseGeom.setAttribute('normal', new THREE.BufferAttribute(baseData.normals, 3));
+      baseGeom.setIndex(new THREE.BufferAttribute(baseData.indices, 1));
+
+      const baseMat = new THREE.MeshStandardMaterial({
+        color: 0x1f2430,
+        roughness: 0.8,
+        metalness: 0.1,
+        side: THREE.FrontSide,
+      });
+
+      const baseMesh = new THREE.Mesh(baseGeom, baseMat);
+      baseMesh.position.set(0, 0, -BASE_FLOOR_HEIGHT_MM);
+      baseMesh.castShadow = true;
+      baseMesh.receiveShadow = true;
+      if (meshRef.current) {
+        baseMesh.rotation.z = meshRef.current.rotation.z;
+      }
+      scene.add(baseMesh);
+      baseMeshRef.current = baseMesh;
+    } catch (err) {
+      console.error('Failed to generate base mesh in viewport:', err);
+    }
+  }, [
+    geometryData,
+    settings.includeBase,
+    settings.shape,
+    settings.cylinderDiameter,
+    settings.cubeWidth,
+    settings.hexagonDiameter,
+    settings.frameThickness,
+    settings.maxThickness,
+    settings.hasFrame,
+    settings.lightHoleDiameter,
+  ]);
 
   // Toggle bed grid
   useEffect(() => {

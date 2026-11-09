@@ -18,6 +18,7 @@ import {
   maxEmailAttachmentBytes,
   resolveEmailedFormat,
 } from '../services/emailExport';
+import { BaseGenerator } from '../services/baseGenerator';
 import {
   Download,
   FileArchive,
@@ -28,6 +29,7 @@ import {
   AlertTriangle,
   Mail,
   Check,
+  Lamp,
 } from 'lucide-react';
 
 interface ValidationModalProps {
@@ -43,6 +45,7 @@ interface ValidationModalProps {
   onOrderPrint?: () => void;
   onOpenPrintGuide?: () => void;
   onClose: () => void;
+  onUpdateSettings?: (patch: Partial<LithophaneSettings>) => void;
 }
 
 /** Shown once, without cancelling the export. Confirmed from phone export timings. */
@@ -62,10 +65,11 @@ export type ExportFormatType = 'bambu-project' | 'universal' | 'stl';
 const EMAIL_BYTE_LIMIT = maxEmailAttachmentBytes();
 const EMAIL_LIMIT_LABEL = formatByteSize(EMAIL_BYTE_LIMIT);
 
-function exportFileLabel(format: ExportFormatType, printerId: string): string {
+function exportFileLabel(format: ExportFormatType, printerId: string, hasBase = false): string {
+  const plates = hasBase ? ' (2 plates)' : '';
   if (format === 'stl') return 'STL';
-  if (format === 'universal') return 'standard 3MF';
-  return `${getBambuPrinter(printerId).label} project`;
+  if (format === 'universal') return `standard 3MF${plates}`;
+  return `${getBambuPrinter(printerId).label} project${plates}`;
 }
 
 function downloadLabel(format: ExportFormatType, pending: boolean, exporting: boolean): string {
@@ -87,6 +91,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   onOrderPrint,
   onOpenPrintGuide,
   onClose,
+  onUpdateSettings,
 }) => {
   const [exportFormat, setExportFormat] = useState<ExportFormatType>('bambu-project');
   const [delivery, setDelivery] = useState<'download' | 'email'>('download');
@@ -263,6 +268,23 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
     }
   };
 
+  const isHollow = BaseGenerator.isHollowShape(settings.shape);
+  const hasBase = Boolean(settings.includeBase && isHollow);
+
+  const handleDownloadBaseStl = async () => {
+    try {
+      const baseGeom = BaseGenerator.generateBase(settings);
+      const result = StlExporter.exportBinaryStl(baseGeom, `${imageName}_base`);
+      const outcome = await deliverFile(result.blob, result.filename);
+      if (outcome === 'saved') {
+        noteSavedFile(result.filename, result.blob.size);
+      }
+    } catch (err) {
+      console.error('Base STL export failed:', err);
+      setExportError('Could not export base STL.');
+    }
+  };
+
   const createModelFile = async (format: ExportFormatType, signal?: AbortSignal): Promise<
     | { ok: true; blob: Blob; filename: string; isBambuProject?: boolean }
     | { ok: false; message: string }
@@ -273,11 +295,15 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
     }
 
     const isBambu = format === 'bambu-project';
+    const baseGeometry = hasBase ? BaseGenerator.generateBase(settings) : null;
+    const baseModelName = hasBase ? `${imageName}_base` : undefined;
     // Vertex and triangle counts are checked while the model XML is written.
     // The finished package is not opened again: inflating it crashes iPhone Safari.
     const result: ThreeMfExportResult = await ThreeMfExporter.export3MF(geometryData, imageName, {
       mode: isBambu ? 'bambu-project' : 'universal',
       bambuPrinterId: isBambu ? bambuPrinterId : undefined,
+      baseGeometry,
+      baseModelName,
       signal,
     });
 
@@ -433,10 +459,10 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
     tipAfterDownload && savedFile
       ? `${savedFile.filename} · ${formatByteSize(savedFile.bytes)}`
       : isEmailing
-        ? `Attaching the ${exportFileLabel(emailedFormat, bambuPrinterId)} for ${emailAddress.trim()}.`
+        ? `Attaching the ${exportFileLabel(emailedFormat, bambuPrinterId, hasBase)} for ${emailAddress.trim()}.`
         : showSlow
           ? 'Big models can take a minute on phones. You can keep waiting or grab the STL instead.'
-          : `Building the ${exportFileLabel(exportFormat, bambuPrinterId)}.`;
+          : `Building the ${exportFileLabel(exportFormat, bambuPrinterId, hasBase)}.`;
   const statusLabel = !validationResult.isValid
     ? 'Check'
     : validationResult.warnings.length > 0
@@ -580,6 +606,42 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
             </div>
 
             {printerBlock}
+
+            {isHollow && (
+              <div className="p-3 rounded-md bg-[#141924] border border-white/10 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Lamp className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="text-xs font-semibold text-slate-200">Lamp Base</span>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={Boolean(settings.includeBase)}
+                    onClick={() => onUpdateSettings?.({ includeBase: !settings.includeBase })}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      settings.includeBase ? 'bg-amber-500' : 'bg-slate-700'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                        settings.includeBase ? 'translate-x-4' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+                {settings.includeBase && exportFormat === 'stl' && (
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadBaseStl()}
+                    className="mt-1 flex items-center justify-center gap-1.5 w-full py-1.5 px-2.5 rounded bg-white/5 hover:bg-white/10 text-xs font-medium text-amber-400 border border-white/10 transition-colors"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>Download Base STL</span>
+                  </button>
+                )}
+              </div>
+            )}
 
             {showEmail && (
               <div className="export-tabs" role="tablist" aria-label="How to get the file">

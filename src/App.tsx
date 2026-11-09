@@ -837,14 +837,24 @@ export default function App() {
 
   const handleUpdateSettings = (newSettings: Partial<LithophaneSettings>) => {
     let patch = newSettings;
-    if (patch.shape && patch.shape !== settings.shape && cylinderSlots.length > 0) {
-      const count = trimPhotosForShape(patch.shape);
-      patch = {
-        ...patch,
-        cylinderPanelCount: count,
-        cubePanelCount: count,
-        hexagonPanelCount: count,
-      };
+    if (patch.shape && patch.shape !== settings.shape) {
+      if (cylinderSlots.length > 0) {
+        const count = trimPhotosForShape(patch.shape);
+        patch = {
+          ...patch,
+          cylinderPanelCount: count,
+          cubePanelCount: count,
+          hexagonPanelCount: count,
+        };
+      }
+      const isHollow = patch.shape === 'cylinder' || patch.shape === 'cube' || patch.shape === 'hexagon';
+      if (isHollow) {
+        patch = {
+          supportType: 'none',
+          includeBase: true,
+          ...patch,
+        };
+      }
     }
     setSettings((prev) => ({ ...prev, ...patch }));
   };
@@ -853,6 +863,7 @@ export default function App() {
     trackShapeSelect(shape);
     setShapeChosen(true);
     const count = cylinderSlots.length > 0 ? trimPhotosForShape(shape) : 0;
+    const isHollow = shape === 'cylinder' || shape === 'cube' || shape === 'hexagon';
     setSettings((prev) => ({
       ...prev,
       shape,
@@ -870,6 +881,12 @@ export default function App() {
         : shape === 'hexagon'
         ? { hexagonDiameter: prev.hexagonDiameter || 90, height: 90 }
         : {}),
+      ...(isHollow
+        ? {
+            supportType: 'none',
+            includeBase: true,
+          }
+        : {}),
     }));
   };
 
@@ -879,17 +896,23 @@ export default function App() {
       : DEFAULT_SETTINGS.width / DEFAULT_SETTINGS.height;
     const defaultH = Math.max(10, Math.round(DEFAULT_SETTINGS.width / aspect));
     const autoThickness = getAutoScaledThickness(DEFAULT_SETTINGS.width, defaultH);
-    setSettings((prev) => ({
-      ...DEFAULT_SETTINGS,
-      shape: prev.shape,
-      height:
-        prev.shape === 'cylinder'
-          ? 95
-          : prev.shape === 'cube' || prev.shape === 'hexagon'
-          ? 90
-          : defaultH,
-      ...autoThickness,
-    }));
+    setSettings((prev) => {
+      const isHollow = prev.shape === 'cylinder' || prev.shape === 'cube' || prev.shape === 'hexagon';
+      return {
+        ...DEFAULT_SETTINGS,
+        shape: prev.shape,
+        height:
+          prev.shape === 'cylinder'
+            ? 95
+            : prev.shape === 'cube' || prev.shape === 'hexagon'
+            ? 90
+            : defaultH,
+        supportType: isHollow ? 'none' : 'flange',
+        includeBase: isHollow,
+        lightHoleDiameter: 40,
+        ...autoThickness,
+      };
+    });
     setCropData(null);
   };
 
@@ -1194,6 +1217,7 @@ export default function App() {
           }}
           onOpenPrintGuide={() => setShowSlicingModal(true)}
           onClose={() => setShowValidationModal(false)}
+          onUpdateSettings={handleUpdateSettings}
         />
       )}
 

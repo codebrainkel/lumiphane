@@ -18,6 +18,7 @@ import { GeometryGenerator, standingBaseExtension } from '../services/geometryGe
 import { MeshValidator } from '../services/meshValidator';
 import { ThreeMfExporter } from '../services/threeMfExporter';
 import { StlExporter } from '../services/stlExporter';
+import { DEFAULT_BAMBU_PRINTER_ID } from '../constants/bambuPrinters';
 import {
   inspectBinaryStl,
   isPrintOrderingConfigured,
@@ -30,6 +31,13 @@ import { DEFAULT_SETTINGS, ULTRA_FINE_RESOLUTION, getAutoScaledThickness } from 
 import { thicknessForLuminance, transmissionToSrgb } from '../constants/optics';
 import { LithophaneSettings, MeshGeometryData } from '../types/lithophane';
 import { borderIconCoverage, createBorderIconField, maxBorderWidthMm } from '../services/borderIcons';
+import {
+  BaseGenerator,
+  BASE_LIGHT_HOLE_DIA_MM,
+  BASE_LIP_HEIGHT_MM,
+  BASE_FLOOR_HEIGHT_MM,
+  getHollowBottomRimThickness,
+} from '../services/baseGenerator';
 import { runEmailExportTests } from './emailExportTests';
 import { runTipTests } from './tipTests';
 import JSZip from 'jszip';
@@ -1564,6 +1572,249 @@ async function runTestSuite() {
       assert(after < before, `${spec.shape} triangle count ${after} is below the unreduced grid ${before}`);
       assert(geom.vertices.length / 3 < spec.cols * meshRows * 2, `${spec.shape} drops interior vertices`);
     }
+  }
+
+  // =========================================================================
+  // 11. Hollow Lampshade Base Generator and Multi-Plate 3MF Export
+  // =========================================================================
+  console.log('\n--- Test 11: Hollow Lampshade Base Generator & Multi-Plate 3MF ---');
+  {
+    // 11.1 Shape identification
+    assert(BaseGenerator.isHollowShape('cylinder'), 'isHollowShape identifies cylinder as hollow');
+    assert(BaseGenerator.isHollowShape('cube'), 'isHollowShape identifies cube as hollow');
+    assert(BaseGenerator.isHollowShape('hexagon'), 'isHollowShape identifies hexagon as hollow');
+    assert(!BaseGenerator.isHollowShape('flat'), 'isHollowShape correctly rejects flat');
+    assert(!BaseGenerator.isHollowShape('curved'), 'isHollowShape correctly rejects curved');
+
+    // 11.2 Round/Cylinder Base Generation
+    const cylSettings: LithophaneSettings = {
+      ...DEFAULT_SETTINGS,
+      shape: 'cylinder',
+      cylinderDiameter: 90,
+      minThickness: 0.8,
+      maxThickness: 2.8,
+      frameThickness: 3.2,
+      includeBase: true,
+    };
+    const cylBase = BaseGenerator.generateBase(cylSettings);
+    const cylValidation = MeshValidator.validate(cylBase);
+    assert(cylValidation.isWatertight, 'Cylinder base is watertight');
+    assert(cylValidation.isManifold, 'Cylinder base is 2-manifold');
+    assert(cylValidation.degenerateTriangles === 0, 'Cylinder base has zero degenerate triangles');
+    assert(cylValidation.eulerCharacteristic === 0, 'Cylinder base with light hole has Euler characteristic 0 (genus 1)');
+    assert(signedVolumeMm3(cylBase) > 0, 'Cylinder base has positive volume');
+    assert(Math.abs(cylBase.boundingBox.min[2]) < 1e-4, 'Cylinder base rests on Z = 0');
+    assert(
+      Math.abs(cylBase.boundingBox.max[2] - (BASE_FLOOR_HEIGHT_MM + BASE_LIP_HEIGHT_MM)) < 1e-4,
+      `Cylinder base total height is ${BASE_FLOOR_HEIGHT_MM + BASE_LIP_HEIGHT_MM} mm`
+    );
+    const cylRimTh = getHollowBottomRimThickness(cylSettings);
+    assert(
+      Math.abs(cylBase.boundingBox.size[0] - (cylSettings.cylinderDiameter + 2 * cylRimTh)) < 1e-3,
+      `Cylinder base outer diameter matches cylinder bottom rim flush (${cylSettings.cylinderDiameter + 2 * cylRimTh} mm)`
+    );
+
+    // 11.3 Cube Base Generation
+    const cubeSettings: LithophaneSettings = {
+      ...DEFAULT_SETTINGS,
+      shape: 'cube',
+      cubeWidth: 80,
+      minThickness: 0.8,
+      maxThickness: 2.8,
+      frameThickness: 3.2,
+      includeBase: true,
+    };
+    const cubeBase = BaseGenerator.generateBase(cubeSettings);
+    const cubeValidation = MeshValidator.validate(cubeBase);
+    assert(cubeValidation.isWatertight, 'Cube base is watertight');
+    assert(cubeValidation.isManifold, 'Cube base is 2-manifold');
+    assert(cubeValidation.degenerateTriangles === 0, 'Cube base has zero degenerate triangles');
+    assert(cubeValidation.eulerCharacteristic === 0, 'Cube base has Euler characteristic 0 (genus 1)');
+    assert(signedVolumeMm3(cubeBase) > 0, 'Cube base has positive volume');
+    assert(Math.abs(cubeBase.boundingBox.min[2]) < 1e-4, 'Cube base rests on Z = 0');
+    assert(
+      Math.abs(cubeBase.boundingBox.max[2] - (BASE_FLOOR_HEIGHT_MM + BASE_LIP_HEIGHT_MM)) < 1e-4,
+      'Cube base height matches specification'
+    );
+    const cubeRimTh = getHollowBottomRimThickness(cubeSettings);
+    assert(
+      Math.abs(cubeBase.boundingBox.size[0] - (cubeSettings.cubeWidth! + 2 * cubeRimTh)) < 1e-3,
+      `Cube base outer width matches cube bottom rim flush (${cubeSettings.cubeWidth! + 2 * cubeRimTh} mm)`
+    );
+
+    // 11.4 Hexagon Base Generation
+    const hexSettings: LithophaneSettings = {
+      ...DEFAULT_SETTINGS,
+      shape: 'hexagon',
+      hexagonDiameter: 90,
+      minThickness: 0.8,
+      maxThickness: 2.8,
+      frameThickness: 3.2,
+      includeBase: true,
+    };
+    const hexBase = BaseGenerator.generateBase(hexSettings);
+    const hexValidation = MeshValidator.validate(hexBase);
+    assert(hexValidation.isWatertight, 'Hexagon base is watertight');
+    assert(hexValidation.isManifold, 'Hexagon base is 2-manifold');
+    assert(hexValidation.degenerateTriangles === 0, 'Hexagon base has zero degenerate triangles');
+    assert(hexValidation.eulerCharacteristic === 0, 'Hexagon base has Euler characteristic 0 (genus 1)');
+    assert(signedVolumeMm3(hexBase) > 0, 'Hexagon base has positive volume');
+    assert(Math.abs(hexBase.boundingBox.min[2]) < 1e-4, 'Hexagon base rests on Z = 0');
+    assert(
+      Math.abs(hexBase.boundingBox.max[2] - (BASE_FLOOR_HEIGHT_MM + BASE_LIP_HEIGHT_MM)) < 1e-4,
+      'Hexagon base height matches specification'
+    );
+    const hexRimTh = getHollowBottomRimThickness(hexSettings);
+    const hexApothem = (hexSettings.hexagonDiameter! / 2) * (Math.sqrt(3) / 2);
+    const expectedHexFlatToFlat = (hexApothem + hexRimTh) * 2;
+    assert(
+      Math.abs(hexBase.boundingBox.size[1] - expectedHexFlatToFlat) < 1e-3,
+      `Hexagon base flat-to-flat matches hexagon bottom rim flush (${expectedHexFlatToFlat.toFixed(2)} mm)`
+    );
+
+    // 11.5 Adjustable Center Light Hole Size
+    const smallHoleSettings: LithophaneSettings = {
+      ...cylSettings,
+      lightHoleDiameter: 24,
+    };
+    const largeHoleSettings: LithophaneSettings = {
+      ...cylSettings,
+      lightHoleDiameter: 50,
+    };
+    const smallHoleBase = BaseGenerator.generateBase(smallHoleSettings);
+    const largeHoleBase = BaseGenerator.generateBase(largeHoleSettings);
+    // Find minimum radial distance of inner vertices (Z = 0 at the hole)
+    const getInnerHoleR = (geom: MeshGeometryData): number => {
+      let minR = Infinity;
+      for (let i = 0; i < geom.vertices.length; i += 3) {
+        const x = geom.vertices[i];
+        const y = geom.vertices[i + 1];
+        const z = geom.vertices[i + 2];
+        if (Math.abs(z) < 1e-3) {
+          const r = Math.sqrt(x * x + y * y);
+          if (r < minR) minR = r;
+        }
+      }
+      return minR;
+    };
+    const smallR = getInnerHoleR(smallHoleBase);
+    const largeR = getInnerHoleR(largeHoleBase);
+    assert(Math.abs(smallR - 12) < 1e-2, `Small light hole inner radius is 12mm (24mm dia), got ${smallR.toFixed(2)}mm`);
+    assert(Math.abs(largeR - 25) < 1e-2, `Large light hole inner radius is 25mm (50mm dia), got ${largeR.toFixed(2)}mm`);
+    assert(largeR > smallR, 'Adjusting lightHoleDiameter scales the center hole opening');
+
+    // 11.6 Flare suppression and 2mm solid bottom edge on lithophane
+    const extWithBase = standingBaseExtension(cylSettings);
+    assert(extWithBase.heightMm === 0 && extWithBase.rows === 0, 'standingBaseExtension returns 0 height when includeBase is true');
+    const extWithoutBase = standingBaseExtension({ ...cylSettings, includeBase: false });
+    assert(extWithoutBase.heightMm > 0, 'standingBaseExtension returns footing brim when includeBase is false');
+
+    // 11.7 Multi-Plate 3MF Export (Bambu Studio Project Mode)
+    const testGrid = new Float32Array(32 * 16);
+    for (let i = 0; i < testGrid.length; i++) testGrid[i] = 0.5;
+    const lithoGeom = GeometryGenerator.generateMesh(testGrid, 32, 16, cylSettings);
+
+    const bambuExport = await ThreeMfExporter.export3MF(lithoGeom, 'cylinder_litho', {
+      mode: 'bambu-project',
+      bambuPrinterId: DEFAULT_BAMBU_PRINTER_ID,
+      baseGeometry: cylBase,
+      baseModelName: 'cylinder_litho_base',
+    });
+    assert(bambuExport.blob.size > 0, 'Bambu multi-plate export produces non-empty blob');
+    assert(bambuExport.isBambuProject === true, 'Bambu multi-plate export flagged as Bambu project');
+
+    const bambuVerify = await ThreeMfExporter.verify3MfPackage(bambuExport.blob, {
+      vertexCount: bambuExport.vertexCount,
+      triangleCount: bambuExport.triangleCount,
+      unit: 'millimeter',
+    });
+    assert(bambuVerify.isValid, `Multi-plate 3MF package verification passes with 0 errors`);
+
+    const bambuZip = await JSZip.loadAsync(await bambuExport.blob.arrayBuffer());
+    assert(bambuZip.file('Metadata/plate_1.json') !== null, 'Package contains Metadata/plate_1.json');
+    assert(bambuZip.file('Metadata/plate_2.json') !== null, 'Package contains Metadata/plate_2.json (Plate 2)');
+
+    const modelSettingsText = await bambuZip.file('Metadata/model_settings.config')?.async('string');
+    assert(
+      modelSettingsText !== undefined &&
+        modelSettingsText.includes('<plate>') &&
+        modelSettingsText.includes('value="Metadata/plate_1.png"') &&
+        modelSettingsText.includes('value="Metadata/plate_2.png"') &&
+        modelSettingsText.includes('key="identify_id" value="1"') &&
+        modelSettingsText.includes('key="identify_id" value="2"'),
+      'model_settings.config defines both Plate 1 and Plate 2'
+    );
+    assert(
+      modelSettingsText !== undefined &&
+        modelSettingsText.includes('key="plate_index" value="1"') &&
+        modelSettingsText.includes('key="plate_index" value="2"') &&
+        modelSettingsText.includes('key="plate_id" value="1"') &&
+        modelSettingsText.includes('key="plate_id" value="2"'),
+      'model_settings.config specifies plate_index and plate_id for both objects'
+    );
+    // Crucial: base on Plate 2 must NOT be combined into an <assemble> with lithophane on Plate 1
+    assert(
+      !modelSettingsText?.includes('object_id="4" instance_id="0"') ||
+      !modelSettingsText?.includes('<assemble_item object_id="4"'),
+      'model_settings.config does NOT merge Plate 2 base into Plate 1 assembly'
+    );
+
+    // Plate 2 bounding box must be flat (width & depth > 50mm, not standing on edge with depth=6mm)
+    const plate2Text = await bambuZip.file('Metadata/plate_2.json')?.async('string');
+    assert(plate2Text !== undefined && plate2Text.length > 0, 'plate_2.json exists');
+    const plate2Data = JSON.parse(plate2Text!) as { bbox_all: number[] };
+    const p2Bbox = plate2Data.bbox_all;
+    const p2Width = p2Bbox[2] - p2Bbox[0];
+    const p2Depth = p2Bbox[3] - p2Bbox[1];
+    assert(p2Width > 50 && p2Depth > 50, `Plate 2 base lies flat on bed (bbox width: ${p2Width.toFixed(1)}, depth: ${p2Depth.toFixed(1)})`);
+
+    const modelXml = await bambuZip.file('3D/3dmodel.model')?.async('string');
+    assert(
+      modelXml !== undefined &&
+        modelXml.includes('<object id="2"') &&
+        modelXml.includes('<object id="4"') &&
+        modelXml.includes('<item objectid="2"') &&
+        modelXml.includes('<item objectid="4"'),
+      '3dmodel.model registers and places both lithophane (object 2) and base (object 4)'
+    );
+
+    // Verify base vertices in 3dmodel.model sit flat on Z = 0 and rise only to 6mm
+    const baseMeshBlock = modelXml?.match(/<object id="3"[\s\S]*?<\/object>/)?.[0];
+    assert(baseMeshBlock !== undefined, 'Base mesh (object id 3) found in 3dmodel.model');
+    const zCoords = [...(baseMeshBlock ?? '').matchAll(/z="([^"]+)"/g)].map((m) => parseFloat(m[1]));
+    const minZ = Math.min(...zCoords);
+    const maxZ = Math.max(...zCoords);
+    assert(Math.abs(minZ) < 1e-3, `Base rests flat on Z = 0 (minZ: ${minZ})`);
+    assert(Math.abs(maxZ - (BASE_FLOOR_HEIGHT_MM + BASE_LIP_HEIGHT_MM)) < 1e-3, `Base rises to total height 6mm (maxZ: ${maxZ})`);
+
+    // Verify base vertices are placed with plate stride X offset for Plate 2
+    const xCoords = [...(baseMeshBlock ?? '').matchAll(/x="([^"]+)"/g)].map((m) => parseFloat(m[1]));
+    const minX = Math.min(...xCoords);
+    assert(minX > 256, `Base vertices placed with Plate 2 offset (minX: ${minX.toFixed(1)} > 256)`);
+
+    // 11.8 Multi-Plate / Multi-Object Export (Universal 3MF Mode)
+    const univExport = await ThreeMfExporter.export3MF(lithoGeom, 'cylinder_litho', {
+      mode: 'universal',
+      baseGeometry: cylBase,
+      baseModelName: 'cylinder_litho_base',
+    });
+    const univVerify = await ThreeMfExporter.verify3MfPackage(univExport.blob, {
+      vertexCount: univExport.vertexCount,
+      triangleCount: univExport.triangleCount,
+      unit: 'millimeter',
+    });
+    assert(univVerify.isValid, 'Universal 3MF package verification passes with 0 errors');
+
+    const univZip = await JSZip.loadAsync(await univExport.blob.arrayBuffer());
+    const univModelXml = await univZip.file('3D/3dmodel.model')?.async('string');
+    assert(
+      univModelXml !== undefined &&
+        univModelXml.includes('<object id="1"') &&
+        univModelXml.includes('<object id="2"') &&
+        univModelXml.includes('<item objectid="1"') &&
+        univModelXml.includes('<item objectid="2"'),
+      'Universal 3MF packages both lithophane and base items'
+    );
   }
 
   await runEmailExportTests(assert);

@@ -21,6 +21,7 @@ import {
   GripVertical,
   HelpCircle,
   Images,
+  Lamp,
   Move,
   PanelBottom,
   Plus,
@@ -684,6 +685,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                         onChange={(val) => onUpdateSettings({ height: val })}
                       />
                     </div>
+
                     {cylinderSlots?.length === 1 && onMatchCylinderHeightToPhoto && (
                       <div className="pt-2 border-t border-white/10">
                         <button
@@ -724,6 +726,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                         onChange={(val) => onUpdateSettings({ height: val })}
                       />
                     </div>
+
                     {cylinderSlots?.length === 1 && onMatchCylinderHeightToPhoto && (
                       <div className="pt-2 border-t border-white/10">
                         <button
@@ -764,6 +767,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                         onChange={(val) => onUpdateSettings({ height: val })}
                       />
                     </div>
+
                     {cylinderSlots?.length === 1 && onMatchCylinderHeightToPhoto && (
                       <div className="pt-2 border-t border-white/10">
                         <button
@@ -869,62 +873,152 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               ============================================================== */}
           {tab === 'stand' && (
             <div className="space-y-4">
-              <div>
-                <div className="section-kicker">Print Stand & Base</div>
-                <div className="inset-panel">
-                  <div className="p-3">
-                    <div className="seg-grid grid-cols-4">
-                      {(
-                        [
-                          { id: 'flange', label: isCylinder || isHexagon || isCube ? 'Brim' : 'Standard' },
-                          { id: 'buttress', label: isCylinder || isHexagon || isCube ? 'Wide' : 'Finned' },
-                          { id: 'full', label: 'Wide Base' },
-                          { id: 'none', label: 'None' },
-                        ] as { id: SupportType; label: string }[]
-                      ).map((option) => (
-                        <button
-                          key={option.id}
-                          type="button"
-                          data-on={(settings.supportType || 'flange') === option.id}
-                          onClick={() => onUpdateSettings({ supportType: option.id })}
-                          className="seg-btn"
-                        >
-                          {option.label}
-                        </button>
-                      ))}
+              {isCylinder || isCube || isHexagon ? (
+                <div>
+                  <div className="section-kicker">Lamp Base</div>
+                  <div className="inset-panel">
+                    <div className="flex items-center justify-between p-3">
+                      <div className="flex items-center gap-2.5">
+                        <Lamp className="w-4 h-4 text-amber-400 shrink-0" />
+                        <span className="text-xs font-semibold text-white">Create Lamp Base</span>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-label="Create Lamp Base"
+                        aria-checked={Boolean(settings.includeBase)}
+                        data-on={Boolean(settings.includeBase)}
+                        onClick={() => {
+                          const next = !settings.includeBase;
+                          onUpdateSettings({
+                            includeBase: next,
+                            ...(next ? { supportType: 'none' } : {}),
+                          });
+                        }}
+                        className="switch-control shrink-0"
+                      >
+                        <span />
+                      </button>
                     </div>
-                  </div>
 
-                  {settings.supportType !== 'none' && (
-                    <div className="panel-row">
-                      <Slider
-                        label="Base Width"
-                        min={6}
-                        max={26}
-                        step={1}
-                        value={settings.supportBaseDepth ?? 14}
-                        display={`${settings.supportBaseDepth ?? 14} mm`}
-                        onChange={(value) => onUpdateSettings({ supportBaseDepth: value })}
-                      />
+                    {settings.includeBase ? (
                       <div className="panel-row">
                         <Slider
-                          label="Base Height"
-                          min={3}
-                          max={16}
-                          step={1}
-                          value={settings.supportHeight ?? 8}
-                          display={`${settings.supportHeight ?? 8} mm`}
-                          onChange={(value) => onUpdateSettings({ supportHeight: value })}
+                          label="Light Hole Size"
+                          min={16}
+                          max={56}
+                          step={2}
+                          value={settings.lightHoleDiameter ?? 40}
+                          display={`${settings.lightHoleDiameter ?? 40} mm`}
+                          onChange={(value) => onUpdateSettings({ lightHoleDiameter: value })}
                         />
                       </div>
-                    </div>
-                  )}
-                </div>
-              </div>
+                    ) : (
+                      <div className="border-t border-white/5 p-3 space-y-3">
+                        <div className="text-[11px] font-mono text-slate-400">Bottom Brim & Footing</div>
+                        <div className="seg-grid grid-cols-4">
+                          {(
+                            [
+                              { id: 'flange', label: 'Brim' },
+                              { id: 'buttress', label: 'Wide' },
+                              { id: 'full', label: 'Wide Base' },
+                              { id: 'none', label: 'None' },
+                            ] as { id: SupportType; label: string }[]
+                          ).map((option) => (
+                            <button
+                              key={option.id}
+                              type="button"
+                              data-on={(settings.supportType || 'none') === option.id}
+                              onClick={() => onUpdateSettings({ supportType: option.id })}
+                              className="seg-btn"
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
 
-              <div className="text-[11px] text-slate-400 leading-relaxed font-mono px-1">
-                Adds a wider base below the photo, so the picture stays clear. Printed height grows by that base.
-              </div>
+                        {settings.supportType && settings.supportType !== 'none' && (
+                          <div className="space-y-2 pt-1">
+                            <Slider
+                              label="Base Width"
+                              min={6}
+                              max={26}
+                              step={1}
+                              value={settings.supportBaseDepth ?? 14}
+                              display={`${settings.supportBaseDepth ?? 14} mm`}
+                              onChange={(value) => onUpdateSettings({ supportBaseDepth: value })}
+                            />
+                            <div className="panel-row">
+                              <Slider
+                                label="Base Height"
+                                min={3}
+                                max={16}
+                                step={1}
+                                value={settings.supportHeight ?? 8}
+                                display={`${settings.supportHeight ?? 8} mm`}
+                                onChange={(value) => onUpdateSettings({ supportHeight: value })}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div className="section-kicker">Print Stand & Base</div>
+                  <div className="inset-panel">
+                    <div className="p-3">
+                      <div className="seg-grid grid-cols-4">
+                        {(
+                          [
+                            { id: 'flange', label: 'Standard' },
+                            { id: 'buttress', label: 'Finned' },
+                            { id: 'full', label: 'Wide Base' },
+                            { id: 'none', label: 'None' },
+                          ] as { id: SupportType; label: string }[]
+                        ).map((option) => (
+                          <button
+                            key={option.id}
+                            type="button"
+                            data-on={(settings.supportType || 'flange') === option.id}
+                            onClick={() => onUpdateSettings({ supportType: option.id })}
+                            className="seg-btn"
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {settings.supportType !== 'none' && (
+                      <div className="panel-row">
+                        <Slider
+                          label="Base Width"
+                          min={6}
+                          max={26}
+                          step={1}
+                          value={settings.supportBaseDepth ?? 14}
+                          display={`${settings.supportBaseDepth ?? 14} mm`}
+                          onChange={(value) => onUpdateSettings({ supportBaseDepth: value })}
+                        />
+                        <div className="panel-row">
+                          <Slider
+                            label="Base Height"
+                            min={3}
+                            max={16}
+                            step={1}
+                            value={settings.supportHeight ?? 8}
+                            display={`${settings.supportHeight ?? 8} mm`}
+                            onChange={(value) => onUpdateSettings({ supportHeight: value })}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
